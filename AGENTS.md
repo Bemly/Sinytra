@@ -292,8 +292,9 @@ metadata 并预加载其 native 库。
 
 ### 8.3 编程范式
 
-- 语言：与 AOSP `android.webkit` 对接层用 Java（与 framework 侧注解/签名对齐）；
-  其余模块可用 Kotlin，但**一个模块内只用一种语言**。
+- 语言：见 §10（定稿）。胶水主体一律 Java 17；`provider/session/view/settings/storage/compat/framework/`
+  只用 Java，不许进 Kotlin；Kotlin 只允许出现在 `tests/` 样例与工具脚本（占比 0～5%）；
+  **一个模块内只用一种语言**。
 - Java 风格遵循 AOSP 规范：`@NonNull/@Nullable` 全覆盖 public API，
   参数校验在入口做，内部信任已校验值。
 - 一个类只做一件事：bridge 类只做“翻译”，不缓存业务状态；
@@ -332,12 +333,98 @@ metadata 并预加载其 native 库。
 
 ---
 
+## 10. 语言策略（定稿，不要推翻）
+
+> **胶水主体一律 Java 17；只有需要修改 Gecko/GeckoView 内部能力时，才下沉到
+> C++ / Gecko JS。Kotlin 不做核心 provider 语言，Rust 基本不碰。**
+
+理由：两边要对接的 API 本来就是 Java——AOSP 侧
+`WebViewFactoryProvider / WebViewProvider / ViewDelegate / ScrollDelegate /
+WebSettings / CookieManager / WebStorage / …` 全是 Java 接口
+（`WebView` 经 `createWebView()` 拿 provider）；
+GeckoView 对 embedder 暴露的最外层
+`GeckoRuntime / GeckoSession / GeckoView / GeckoResult / *Delegate` 同样是 Java，
+官方示例即 Java，且当前 GeckoView 要求 Java 17 compatibility。
+于是主路径是干净的 Java→Java：
+
+```text
+android.webkit.WebView
+        │
+        ▼
+Java GeckoWebViewProvider
+        │
+        ├── GeckoSession / GeckoRuntime / GeckoView
+        └── GeckoSession.*Delegate
+                 │
+                 ▼
+          GeckoView internal（Mozilla 已有的 JNI/C++/JS）
+                 │
+                 ▼
+               Gecko
+```
+
+### 10.1 分语言表（按 §3 目录）
+
+| 位置 | 语言 | 说明 |
+|---|---|---|
+| `gecko-webview/provider/ session/ view/ settings/ storage/ compat/` | Java 17 | 全部 glue（含所有 bridge）；不许进 Kotlin |
+| `framework/`（`frameworks/base/android/webkit/*` patch） | Java | 与 AOSP 侧注解/签名对齐 |
+| `patches/` → `mobile/android/geckoview/` | Java | 给 GeckoView 加 internal API 时用 |
+| `patches/` → `mobile/android/modules/` 等 | Gecko JavaScript | Module/Actor 层扩展（如 JS 执行、消息通道） |
+| `patches/` → `widget/android/` | C++ | 仅 Surface/compositor/生命周期等不得不下沉时用 |
+| `tests/` 样例与工具脚本 | 允许 Kotlin | 占比 0～5%，不进主胶水 |
+| Rust | ~0% | Stylo/WebRender/URL 等是 Gecko backend 实现细节，不直调 |
+
+预期自研代码占比：`Java 75～85% / Gecko JS 5～15% / C++ 5～10% /
+Kotlin 0～5% / Rust ~0%`。**PoC 第一版甚至可以 95%+ Java**：
+先跑通 `loadUrl→GeckoSession.load()`、Client→Delegate、View 生命周期挂载，
+遇到 public API 表达不了的 WebView 语义，再逐项加 patch。
+
+### 10.2 为什么不用 Kotlin 做核心
+
+- Kotlin 调用 GeckoView 写普通 App 完全没问题，但 Sinytra 是贴着
+  **Framework ABI 兼容层**：`implements WebViewProvider` 用 Java 最直接，
+  没有 `Companion / DefaultImpls / Intrinsics / synthetic methods / metadata /
+  nullable ABI / Kotlin runtime 依赖` 这些对 system provider 零收益的东西。
+- provider 最终走 `Class.forName(providerClassName)` + 确定签名的静态工厂
+  （如 `create(WebViewDelegate)`）加载，系统边界代码用 Java 最省事。
+- 一旦混入 Kotlin，hidden API 反射、系统类加载、崩溃栈可读性都会变差。
+
+### 10.3 为什么 C++ 不当主胶水
+
+不要做成 `android.webkit → JNI → 巨大 C++ adapter → Gecko`。
+那等于绕开 GeckoView 已解决的 View/IME/无障碍/Surface/生命周期/
+多进程/权限/JNI/session，自己重造一套 embedding，工作量直接爆炸。
+Mozilla 自己的分层就是外层 Java API + Java frontend、中间 JS modules/actors、
+靠平台侧 `widget/android` C++、Java↔native 走 Mozilla JNI binding——
+Sinytra 沿用它，只在必要处加接口，例如：
+
+```text
+Java GeckoSession.evaluateJavascript()
+        ↓ EventDispatcher / JNI
+Gecko JS Actor
+        ↓ content process
+SpiderMonkey
+```
+
+### 10.4 下沉到 patch 的触发条件（只限这几类）
+
+`evaluateJavascript` 特殊行为、`addJavascriptInterface`、
+特殊 WebMessage bridge、底层 request interception、
+Surface/compositor 特殊行为、Gecko native 生命周期。
+除此之外一律在 Java glue 层解决，不许以“性能”或“方便”为由下沉；
+每个下沉项走 §7 的独立 patch + 独立测试。
+
+---
+
 ## Sources
 
 - [GeckoView Architecture — Firefox Source Docs](https://firefox-source-docs.mozilla.org/mobile/android/geckoview/contributor/geckoview-architecture.html)
 - [WebViewFactoryProvider.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebViewFactoryProvider.java)
 - [WebViewProvider.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebViewProvider.java)
+- [WebView.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebView.java)
 - [WebViewLibraryLoader.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/java/android/webkit/WebViewLibraryLoader.java?pli=1)
 - [config_webview_packages.xml — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/HEAD/core/res/res/xml/config_webview_packages.xml)
 - [WebView providers — chromium/android_webview/docs](https://github.com/chromium/chromium/blob/main/android_webview/docs/webview-providers.md)
 - [AOSP system integration — WebView for AOSP system integrators](https://chromium.googlesource.com/chromium/src/+/main/android_webview/docs/aosp-system-integration.md)
+- [Getting Started with GeckoView — Firefox Source Docs](https://mozilla.github.io/geckoview/consumer/docs/geckoview-quick-start)
