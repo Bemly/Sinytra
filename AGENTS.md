@@ -13,6 +13,23 @@
 >         → Gecko（含 SpiderMonkey）
 > ```
 
+> **Implementation source of truth（定稿，Agent 查代码一律以此为准）：**
+>
+> ```text
+> TARGET_ANDROID_API = 34
+> AOSP_BASE = android14-release（固定 commit：<待填，provider 开工前 pin 死>）
+> GECKOVIEW_VERSION = <待填，精确版本号，开工前 pin 死，禁用 +>
+> FIREFOX_COMMIT = <启用本地 Gecko / 发布时才填，此前留空>
+> ```
+>
+> - AOSP 接口语义、类名、加载流程一律以 `AOSP_BASE`（Android 14）为准；
+>   master/main 分支只做“未来版本参考”，**不许**按 master 写 Android 14 的代码。
+> - 关键差异示例：Android 14 的 `WebViewFactory` 直接硬编码
+>   `CHROMIUM_WEBVIEW_FACTORY =
+>   "com.android.webview.chromium.WebViewChromiumFactoryProviderForT"`，
+>   没有 master 那套 `Flags.useBEntryPoint()` + `ForB/ForT` 分流。
+>   下文 §6 所有“现状（Android 14 实测）”均指该分支；提到 master 时会明确标注。
+
 ---
 
 ## 1. 技术选型（定稿，不要推翻）
@@ -42,7 +59,9 @@ GeckoView 三大核心类（不要发明自己的同等物）：
 
 - `GeckoRuntime`：进程级单例，代表一个运行中的 Gecko 实例，与 App 同寿命。
 - `GeckoSession`：单个页面实例（可理解为一个 tab / 一个 WebView），导航/权限/进度/内容都挂在这里。
-- `GeckoView`：Android `View`（`FrameLayout`），负责把 `GeckoSession` 画出来并接输入事件。只有 attach 到 `GeckoView` 的 session 才是 active 的。
+- `GeckoView`：Android `View`（`FrameLayout`），负责把 `GeckoSession` 画出来并接输入事件。
+  典型用法是 attach 到 `GeckoView` 的 session 才 active；但 `GeckoSession.setActive()` 本身是显式 API，
+  无 `GeckoView` 的场景（如后台/不可见）要手调 `setActive` / `setPriorityHint`（见下文第 4 条）。
 
 ---
 
@@ -93,15 +112,25 @@ GeckoView 的 Delegate 就是天然的翻译层：
 | 权限/定位/媒体 | `PermissionDelegate`（Content 权限 + Android 权限两层含义，注意区分） |
 | 页面错误页 | `NavigationDelegate.onLoadError`（可返回本地错误页 URL） |
 | 滚动 | `ScrollDelegate` |
-| 历史持久化 | `HistoryDelegate`（GeckoView 自己不存历史，由 embedder 存） |
+| 历史转译 | `SessionState`（Parcelable、本身即 `HistoryList`，含 history + current index）+ `HistoryDelegate.onHistoryStateChange` 通知 → `WebBackForwardList` |
+| visited 全局历史 | `HistoryDelegate.onVisited / getVisited / hasVisitedHostSince`（provider 自己实现 visited store 落盘） |
 | 自动填充 | `Autocomplete.StorageDelegate` + Autofill 虚拟节点树 |
+
+> 历史语义（纠正旧说法）：Gecko 自己维护 session 内 back/forward history，
+> `SessionState` 即 `HistoryList`。`HistoryDelegate` 不是“历史存储接口”，
+> 而是 visited 记录 + history 变更通知。`StateBridge` 只做
+> `SessionState / HistoryList ↔ WebBackForwardList / Bundle` 转译，
+> **不许**自己重新实现一套历史栈。
 
 GeckoView 关键运行时事实（写 bridge 代码前必须知道）：
 
-1. 页面加载回调序列固定为：`onLoadRequest → onPageStart → onLocationChange →`
+1. 普通顶层网络导航的**典型**事件流为：`onLoadRequest → onPageStart → onLocationChange →`
    `onProgressChange → onSecurityChange → onSessionStateChange →`
-   `onCanGoBack/onCanGoForward → onPageStop`，`onPageStart/onPageStop` 成对有序，
-   中间可穿插多次 `onLoadRequest/onLocationChange`（重定向）。
+   `onCanGoBack/onCanGoForward → onPageStop`，中间重定向可穿插多次
+   `onLoadRequest/onLocationChange`。
+   这只是典型流，**不是全局不变量**：same-document 导航 / reload / error 等路径不同；
+   上游也只保证 `onPageStart/onPageStop` 成对有序 + delegate 在 UI 线程等属性。
+   WebView 回调适配一律以目标 GeckoView pin 版本的集成测试为准，不许把典型流当断言硬编码。
    Chromium WebView 的回调顺序与此**不完全一致**，顺序适配是本项目核心难点之一。
 2. Delegate 回调基本发生在 Android UI 线程；GeckoView 内部桥接了 Gecko 主线程与
    Android UI 线程。耗时工作不要在 delegate 回调里做。
@@ -181,20 +210,44 @@ sinytra/                            # = gecko-system-webview，本仓库
 分层依赖方向（单向，不许反向依赖）：
 
 ```text
-provider → session → view
-   ↓          ↓
-settings    storage
-   ↓          ↓
-        compat
+provider（orchestration）
+   ├─→ session（bridge：只做 android.webkit ↔ GeckoSession/Delegate 翻译，不碰 View）
+   ├─→ view（GeckoView 宿主：own View/Surface/输入，调 session 接口）
+   ├─→ settings / storage（无状态翻译 / 有状态下沉）
+   └─→ compat（只依赖 session 公开桥接接口 + storage，不许直调 view/GeckoView 内部）
 ```
 
-`compat/` 只允许依赖 `session/` 的公开桥接接口，不许直调 GeckoView 内部 API。
+即：`session` 不依赖 `view`（bridge 与 UI host 解耦，才能做无 View 的后台 session
++ `setActive/setPriorityHint` 手动管理，见 §2）；`compat/` 只允许依赖 `session/`
+的公开桥接接口，不许直调 GeckoView 内部 API。
 
 ---
 
 ## 4. 分阶段路线
 
-### P0 — 跑起来（约 20% API，首个里程碑）
+### P-1 — Bootstrap 可行性验证（P0 之前必须先过，spike 性质）
+
+> 背景：System WebView 的 provider Java/native code 是被动态加载进**宿主 App 进程**的，
+> 而 GeckoView 的多进程实现依赖 manifest 里声明的一系列 Android `Service`
+> （每个 Gecko process 对应一个 service）。**不能**默认“AAR 塞进 provider APK +
+> `GeckoRuntime.create()` 就和普通 App 一样 work”。
+
+验收清单（全部实测回答，写不出来就停，不许带着假设进 P0）：
+
+```text
+- provider APK 的 classloader 能否稳定加载 GeckoView Java classes
+- libxul.so 能否从 provider package 正确加载（走哪个 ClassLoader / library path）
+- GeckoRuntime.create() 用哪个 Context（provider APK context vs host App context）
+- Gecko child processes（content / socket / GPU 等）的 Service bind 是否成功
+- child process 的 package / UID / SELinux identity 是谁
+- GeckoView AndroidManifest.xml 里的 components 在 WebView provider 场景下是否可解析/可实例化
+```
+
+结论只有两种：① 可行 → 锁定 bootstrap 约束进 §6.3；② 不可行/需改 Gecko →
+按 §10.4 走 `firefox-patches/` 专门处理 process bootstrap（这是 P2 之外的前置 patch，
+优先级高于一切 bridge）。
+
+### P0 — 跑起来（约 20% API，P-1 通过后的首个里程碑）
 
 目标：`new WebView(context); w.loadUrl("https://example.com")` 能渲染，
 App 感知不到底下是 Gecko。
@@ -210,17 +263,19 @@ App 感知不到底下是 Gecko。
 
 ### P1 — 补齐系统能力
 
-CookieManager、history（`HistoryDelegate` 落盘由我们做）、权限、文件选择、
+CookieManager、权限、文件选择、
 下载、SSL 回调、HTTP Auth、WebStorage、geolocation、页内查找、打印。
+（history 转译见 §2：`SessionState/HistoryList ↔ WebBackForwardList`，
+`HistoryDelegate` 只做 visited 记录 + history 变更通知。）
 
 ### P2 — 啃硬骨头（见 §5）
 
 `evaluateJavascript`、`addJavascriptInterface`、`WebMessagePort`、
 `shouldInterceptRequest`、`loadDataWithBaseURL`、`saveState/restoreState`、
 `WebBackForwardList`、`ServiceWorkerController`、`WebViewRenderProcess`、
-`androidx.webkit` 兼容、CTS 全量通过。
+`androidx.webkit` 兼容（support-library boundary glue，见 §5 第 8 项）、CTS 全量通过。
 
-**顺序不许跳**：P0 未验收通过，不开 P1；语义难题全部归到 P2，不在 P0 期打补丁。
+**顺序不许跳**：P-1 未通过不开 P0；P0 未验收通过，不开 P1；语义难题全部归到 P2，不在 P0 期打补丁。
 
 ---
 
@@ -236,23 +291,32 @@ CookieManager、history（`HistoryDelegate` 落盘由我们做）、权限、文
 5. **`saveState / restoreState / WebBackForwardList`**：Gecko 的
    `onSessionStateChange` 序列化与 WebView 的状态模型不同，需 `StateBridge` 转译。
 6. **回调顺序与重定向**：部分 App 依赖 Chromium 回调的调用次数/顺序/线程；
-   用 §2 的固定序列为基准写顺序适配测试锁死行为。
-7. **Cookie/Storage/ServiceWorker/RenderProcess/`androidx.webkit`**：逐项对齐，
+   用 §2 的典型序列为基准写顺序适配测试锁死行为（不许把典型流当全局断言）。
+7. **Cookie/Storage/ServiceWorker/RenderProcess**：逐项对齐，
    每项独立 patch + 独立测试，不许混在一个提交里。
+8. **`androidx.webkit` support-library boundary glue（P2 独立大项，见 §11.6）**：
+   `androidx.webkit` 新功能经 provider APK 的
+   `org.chromium.support_lib_glue.SupportLibReflectionUtil →
+   WebViewProviderFactoryBoundaryInterface` 反射找 glue；
+   Sinytra 最终要自己提供一套 support-library boundary glue，
+   逐个想宣称支持的 `WebViewFeature` 对齐实现 + `isFeatureSupported` 诚实返回。
+   光实现 framework `android.webkit.*` 不会自动获得 AndroidX 兼容。
 
 ---
 
 ## 6. AOSP Framework 改动（只做最小解耦）
 
-现状（已核实）：`WebViewFactoryProvider.getWebViewFactoryClassName()` 按
-`Flags.useBEntryPoint()` 硬编码返回
-`com.android.webview.chromium.WebViewChromiumFactoryProviderForT/ForB`；
+现状（Android 14 实测）：`WebViewFactory` 直接硬编码
+`CHROMIUM_WEBVIEW_FACTORY =
+"com.android.webview.chromium.WebViewChromiumFactoryProviderForT"`，
+没有 master 那套 `Flags.useBEntryPoint()` + `ForB/ForT` 分流；
 `WebViewFactory` 会反射调 `create(WebViewDelegate)` 静态工厂拿 provider；
 `WebViewLibraryLoader` 仍有 `CHROMIUM_WEBVIEW_NATIVE_RELRO_32/64`、
 RELRO/shared_relro、`WebViewZygote` 等 Chromium 专属假设；
 provider 包名由 `config_webview_packages.xml` 决定（默认 `com.android.webview`）；
 provider 加载前 framework 会读 provider APK 的 `com.android.webview.WebViewLibrary`
-metadata 并预加载其 native 库。
+metadata（`verifyPackageInfo` 里缺失直接判 provider 无效）并预加载其 native 库
+（随后必走 `WebViewLibraryLoader.loadNativeLibrary()`）。
 
 ### 6.1 测试 ROM：userdebug + config overlay（先做这个，不改 framework 也能验）
 
@@ -273,20 +337,28 @@ metadata 并预加载其 native 库。
 
 ### 6.2 Framework patch：PoC trampoline（短期）→ metadata 自声明（正式）
 
+> PoC 诚实声明：只放 `WebViewChromiumFactoryProviderForT` trampoline
+> 做不到“零 framework 改动”——Android 14 在加载该类之前就要求 provider APK
+> 有 `com.android.webview.WebViewLibrary` metadata（无则判无效），之后还必走
+> `WebViewLibraryLoader.loadNativeLibrary()`。所以 PoC 只有两条路：
+> ① 做 dummy native library 先满足 RELRO/WebViewZygote 旧假设（脏活，P0 后全删）；
+> ② **推荐：第一版 AOSP patch 就先把 native loader/bootstrap 对 Gecko 分流掉**（见 §6.3），
+> trampoline 只解决类名硬编码。不要花时间伪装 Chromium bootstrap 再全部删掉。
+
 **PoC 路线（允许进分支、不进主分支）**：Gecko APK 里直接提供 10～20 行
 compatibility trampoline，AOSP 以为自己在加载 Chromium，实际拿到 Gecko：
 
 ```java
 package com.android.webview.chromium;
 
-public final class WebViewChromiumFactoryProviderForB {
+public final class WebViewChromiumFactoryProviderForT {
     public static WebViewFactoryProvider create(WebViewDelegate delegate) {
         return new GeckoWebViewFactoryProvider(delegate);
     }
 }
 ```
 
-（`...ForT` 同理。）这样 PoC 期**零 framework 改动**即可验证。
+这样 PoC 期至多省掉 §6.3 之外的 framework 改动即可验证。
 但这是脏捷径，P0 验收后必须切正式路线，trampoline 不许合入主分支
 （见 §8.3“无魔法”）。
 
@@ -429,7 +501,7 @@ Firefox @ 固定 commit（后期再做成 git submodule pin）
 - 无魔法：禁止用反射伪造 Chromium 类名/方法签名做兼容（PoC 也不许进主分支）；
   跨进程/跨线程假设必须写成注释 + 测试。
 - 测试：每个 bridge 至少一个单测锁死“调用顺序/线程/返回值”；
-  回调顺序类行为用集成测试固化（见 §5.6）。
+  回调顺序类行为用集成测试固化（见 §5 第 6 项）。
 
 ### 8.4 Agent 工作流
 
@@ -600,7 +672,7 @@ Surface/compositor 特殊行为、Gecko native 生命周期。
 - 扩展 / 翻译 / 页面抽取：`getWebExtensionController`（runtime 级
   `WebExtensionController` + session 级 `SessionController`）、
   `TranslationsController`、`PageExtractionController`、`SessionPdfFileSaver` —
-  WebView 不需要就**不接**，不许以“以后可能用”引入（见 §11.5 例外表）。
+  WebView 不需要就**不接**，不许以“以后可能用”引入（见 §11.8 例外表）。
 
 ### 11.4 Delegate → WebViewClient/WebChromeClient（对照表，缺一不可先查表）
 
@@ -617,8 +689,10 @@ TranslationsSession`。
 `Content.onTitleChange`→`onReceivedTitle`、
 `Content.onFocusRequest`→焦点、`Content.onCloseRequest`→`onCloseWindow`、
 `Prompt` 全家桶→JS dialog + HTTP auth + file chooser + select/autocomplete、
-`HistoryDelegate`（GeckoView 不存历史，embedder 必须实现存取）
-→`WebBackForwardList` + `gotoHistoryIndex/getCurrentIndex`。
+`HistoryDelegate.onVisited / getVisited / hasVisitedHostSince` → provider 自建 visited store 落盘；
+`HistoryDelegate.onHistoryStateChange(HistoryList)` → 结合 `SessionState`（本身即 `HistoryList`）
+转译 `WebBackForwardList` + `gotoHistoryIndex/getCurrentIndex`。
+（Gecko 自己维护 session 内历史，`HistoryDelegate` 不是“历史存储接口”，见 §2。）
 
 ### 11.5 `*Settings` 复用（WebSettings 只做翻译）
 
@@ -633,13 +707,19 @@ TranslationsSession`。
 
 ### 11.6 `androidx.webkit` / Android framework 侧（兼容层不另起炉灶）
 
-- Sinytra 是 provider，`androidx.webkit`（`WebViewCompat / WebSettingsCompat /
-  WebViewClientCompat / WebChromeClientCompat / WebViewAssetLoader /
-  ProcessGlobalConfig / TracingController / StartupFeature / WebViewFeature`）
-  最终调的是 `android.webkit`。我们的义务是让 `WebViewFeature.isFeatureSupported`
-  诚实返回 + 行为对齐，而不是重实现一套 `*Compat`。
-- 本地资源加载：有 `WebViewAssetLoader`（`https://appassets.androidplatform.net`
-  风格的 path handler）就复用它，不要自写 `shouldInterceptRequest` 静态资源分支；
+- Sinytra 是 provider，`androidx.webkit` 基础能力（`WebViewCompat / WebSettingsCompat /
+  WebViewClientCompat / WebChromeClientCompat / ProcessGlobalConfig / TracingController /
+  StartupFeature / WebViewFeature`）最终调的是 `android.webkit`。这部分我们的义务是让
+  `WebViewFeature.isFeatureSupported` 诚实返回 + 行为对齐，而不是重实现一套 `*Compat`。
+- 但 AndroidX 新功能**不是**实现 framework `android.webkit.*` 就自动获得的：
+  `androidx.webkit` 经 provider APK 的 classloader 反射找 support-library glue——
+  `org.chromium.support_lib_glue.SupportLibReflectionUtil →
+  createWebViewProviderFactory() → WebViewProviderFactoryBoundaryInterface`
+  （见 `WebViewGlueCommunicator`；找不到 glue 类时直接按“无特性可用”降级）。
+  所以 Sinytra 最终要自己提供一套 support-library boundary glue（P2 独立大项，
+  见 §5 第 8 项）：逐个想宣称支持的 `WebViewFeature` 对齐实现，不支持的诚实返回 false。
+- 本地资源加载：`WebViewAssetLoader`（`https://appassets.androidplatform.net`
+  风格的 path handler）能复用的就复用，不要自写 `shouldInterceptRequest` 静态资源分支；
   `shouldInterceptRequest` 只留真正需要改 Gecko 网络栈语义的场景（P2）。
 - 进程配置：`ProcessGlobalConfig.apply` 一次性、WebView 加载前调用——provider 侧
   不要二次封装启动配置，只保证 Gecko bootstrap 在 WebView 加载前可被触发一次。
@@ -741,8 +821,8 @@ Android 大版本 / Firefox 大版本升级时只 rebase patch stack，
 ### 13.2 目标 API（定稿）
 
 - `compileSdk / targetSdk = 34`（对齐这台调试机 Android 14）。
-- Provider APK 的 `targetSdkVersion` 必须 ≥ 33（TIRAMISU）：当前 AOSP
-  `WebViewFactoryProvider.isCompatibleImplementationPackage()` 在旧入口下要求
+- Provider APK 的 `targetSdkVersion` 必须 ≥ 33（TIRAMISU）：Android 14 的 AOSP
+  `WebViewFactoryProvider.isCompatibleImplementationPackage()` 要求
   `targetSdkVersion >= MINIMUM_SUPPORTED_TARGET_SDK(33)`，实测机上
   `dumpsys webviewupdate` 显示 `Minimum targetSdkVersion: 33`。
 - `minSdk` 按 GeckoView 要求定（GeckoView 底线 Java 17，见 §10/§11.1），
@@ -782,19 +862,22 @@ adb -s V885Q49L8TAMFEEE shell "su -c 'dumpsys webviewupdate'"
 ## Sources
 
 - [GeckoView Architecture — Firefox Source Docs](https://firefox-source-docs.mozilla.org/mobile/android/geckoview/contributor/geckoview-architecture.html)
-- [WebViewFactoryProvider.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebViewFactoryProvider.java)
-- [WebViewProvider.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebViewProvider.java)
-- [WebView.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebView.java)
-- [WebViewFactory.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebViewFactory.java)
-- [WebViewLibraryLoader.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/java/android/webkit/WebViewLibraryLoader.java?pli=1)
+- [WebViewFactoryProvider.java — platform/frameworks/base (android14-release)](https://android.googlesource.com/platform/frameworks/base/+/android14-release/core/java/android/webkit/WebViewFactoryProvider.java)
+- [WebViewProvider.java — platform/frameworks/base (android14-release)](https://android.googlesource.com/platform/frameworks/base/+/android14-release/core/java/android/webkit/WebViewProvider.java)
+- [WebView.java — platform/frameworks/base (android14-release)](https://android.googlesource.com/platform/frameworks/base/+/android14-release/core/java/android/webkit/WebView.java)
+- [WebViewFactory.java — platform/frameworks/base (android14-release)](https://android.googlesource.com/platform/frameworks/base/+/android14-release/core/java/android/webkit/WebViewFactory.java)
+- [WebViewLibraryLoader.java — platform/frameworks/base (android14-release)](https://android.googlesource.com/platform/frameworks/base/+/android14-release/core/java/android/webkit/WebViewLibraryLoader.java)
 - [config_webview_packages.xml — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/HEAD/core/res/res/xml/config_webview_packages.xml)
-- [WebView providers — chromium/android_webview/docs](https://github.com/chromium/chromium/blob/main/android_webview/docs/webview-providers.md)
+- [WebView providers — chromium/android_webview/docs](https://chromium.googlesource.com/chromium/src/+/main/android_webview/docs/webview-providers.md)
 - [AOSP system integration — WebView for AOSP system integrators](https://chromium.googlesource.com/chromium/src/+/main/android_webview/docs/aosp-system-integration.md)
 - [Getting Started with GeckoView — Firefox Source Docs](https://mozilla.github.io/geckoview/consumer/docs/geckoview-quick-start)
 - [GeckoSession API — GeckoView javadoc](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.html)
 - [GeckoRuntime API — GeckoView javadoc](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoRuntime.html)
 - [StorageController API — GeckoView javadoc](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/StorageController.html)
 - [SessionFinder API — GeckoView javadoc](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/SessionFinder.html)
+- [SessionState API — GeckoView javadoc](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.SessionState.html)
+- [HistoryDelegate API — GeckoView javadoc](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.HistoryDelegate.html)
+- [ProgressDelegate API — GeckoView javadoc](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.ProgressDelegate.html)
 - [GeckoView junit Test Framework — Firefox Source Docs](https://firefox-source-docs.mozilla.org/mobile/android/geckoview/contributor/junit.html)
 - [Substituting a local GeckoView — Firefox Source Docs](https://firefox-source-docs.mozilla.org/mobile/android/fenix/substituting-local-gv.html)
 - [substitute-local-geckoview.gradle — searchfox](https://searchfox.org/firefox-main/source/substitute-local-geckoview.gradle)
