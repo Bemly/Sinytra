@@ -115,52 +115,62 @@ GeckoView 关键运行时事实（写 bridge 代码前必须知道）：
 
 ---
 
-## 3. 仓库结构
+## 3. 仓库结构（本 Git 只存差异，不塞大源码树）
 
 ```text
-sinytra/
+sinytra/                            # = gecko-system-webview，本仓库
 ├── AGENTS.md
 ├── README.md
-├── patches/                        # 针对 firefox tree 的 patch set（见 §7）
-│   ├── geckoview-evaluate-js.patch
-│   ├── geckoview-js-interface.patch
-│   ├── geckoview-webmessage.patch
-│   ├── geckoview-webview-cookies.patch
-│   └── geckoview-system-provider.patch
-├── framework/                      # 对 AOSP frameworks/base 的最小改动（见 §6）
+├── provider/                        # 独立 Java 17 Gradle Provider 工程（日常开发几乎只碰这里）
+│   ├── build.gradle                 # 日常走 GeckoView Maven AAR（见 §7）
+│   ├── AndroidManifest.xml          # 正式路线声明 provider 入口 metadata（见 §6）
+│   ├── Android.bp                   # 进 AOSP 阶段才用（见 §12）
+│   └── src/main/java/org/mozilla/geckowebview/
+│       ├── provider/                # AOSP Provider 接口实现
+│       │   ├── GeckoWebViewFactoryProvider.java
+│       │   ├── GeckoWebViewProvider.java
+│       │   └── GeckoWebViewStatics.java
+│       ├── session/                 # GeckoSession 桥接
+│       │   ├── GeckoSessionBridge.java
+│       │   ├── NavigationBridge.java
+│       │   ├── ProgressBridge.java
+│       │   ├── ChromeClientBridge.java
+│       │   └── PermissionBridge.java
+│       ├── view/                    # View / 渲染宿主
+│       │   ├── GeckoViewHost.java
+│       │   ├── GeckoViewDelegate.java
+│       │   └── GeckoScrollDelegate.java
+│       ├── settings/
+│       │   └── GeckoWebSettings.java
+│       ├── storage/
+│       │   ├── GeckoCookieManager.java
+│       │   ├── GeckoWebStorage.java
+│       │   ├── GeckoWebViewDatabase.java
+│       │   └── GeckoGeolocationPermissions.java
+│       └── compat/                  # 语义最难的兼容层
+│           ├── JavascriptBridge.java   # addJavascriptInterface / evaluateJavascript
+│           ├── WebMessageBridge.java   # WebMessagePort / postWebMessage
+│           ├── RequestInterceptBridge.java
+│           └── StateBridge.java        # saveState / restoreState / BackForwardList
+├── aosp-patches/                    # 相对 AOSP 的 patch stack（见 §6、§12）
+│   ├── 0001-allow-gecko-webview-provider.patch
+│   └── 0002-skip-chromium-relro-for-gecko.patch
+├── firefox-patches/                 # 相对 firefox 的 patch stack（见 §7，前期可为空）
 │   └── ...
-├── gecko-webview/
-│   ├── provider/                   # AOSP Provider 接口实现
-│   │   ├── GeckoWebViewFactoryProvider.java
-│   │   ├── GeckoWebViewProvider.java
-│   │   └── GeckoWebViewStatics.java
-│   ├── session/                    # GeckoSession 桥接
-│   │   ├── GeckoSessionBridge.java
-│   │   ├── NavigationBridge.java
-│   │   ├── ProgressBridge.java
-│   │   ├── ChromeClientBridge.java
-│   │   └── PermissionBridge.java
-│   ├── view/                       # View / 渲染宿主
-│   │   ├── GeckoViewHost.java
-│   │   ├── GeckoViewDelegate.java
-│   │   └── GeckoScrollDelegate.java
-│   ├── settings/
-│   │   └── GeckoWebSettings.java
-│   ├── storage/
-│   │   ├── GeckoCookieManager.java
-│   │   ├── GeckoWebStorage.java
-│   │   ├── GeckoWebViewDatabase.java
-│   │   └── GeckoGeolocationPermissions.java
-│   └── compat/                     # 语义最难的兼容层
-│       ├── JavascriptBridge.java   # addJavascriptInterface / evaluateJavascript
-│       ├── WebMessageBridge.java   # WebMessagePort / postWebMessage
-│       ├── RequestInterceptBridge.java
-│       └── StateBridge.java        # saveState / restoreState / BackForwardList
+├── manifests/                       # repo manifest 片段（把本仓库接进 AOSP，见 §12）
+│   └── gecko-webview.xml
+├── tools/
+│   ├── apply-aosp-patches.sh
+│   └── apply-firefox-patches.sh
 └── tests/
     ├── unit/
     ├── integration/
     └── cts/
 ```
+
+> 旧命名映射：`patches/` = 现在的 `firefox-patches/`；
+> `framework/` = 现在的 `aosp-patches/`；`gecko-webview/` = 现在的
+> `provider/src/main/java/org/mozilla/geckowebview/`。看到旧名一律按新名理解。
 
 `WebViewFactoryProvider` 要求提供的全局单例，一个都不能少：
 `Statics`、`CookieManager`、`GeolocationPermissions`、`ServiceWorkerController`、
@@ -217,7 +227,7 @@ CookieManager、history（`HistoryDelegate` 落盘由我们做）、权限、文
 ## 5. 已知硬点（P2 清单，逐项建任务跟踪）
 
 1. **`evaluateJavascript`**：WebView 要求任意 JS 在当前页面执行并异步回传 JSON 结果；
-   GeckoView 不是按 WebView 语义设计的，大概率要加 internal API（走 `patches/`）。
+   GeckoView 不是按 WebView 语义设计的，大概率要加 internal API（走 `firefox-patches/`）。
 2. **`addJavascriptInterface`**：Chromium 那套 Java 反射 + `@JavascriptInterface` +
    线程/返回值/GC/对象生命周期的语义，GeckoView 没有天然对应实现，需自研
    `JavascriptBridge` + 可能的 GeckoView patch。
@@ -237,36 +247,143 @@ CookieManager、history（`HistoryDelegate` 落盘由我们做）、权限、文
 现状（已核实）：`WebViewFactoryProvider.getWebViewFactoryClassName()` 按
 `Flags.useBEntryPoint()` 硬编码返回
 `com.android.webview.chromium.WebViewChromiumFactoryProviderForT/ForB`；
+`WebViewFactory` 会反射调 `create(WebViewDelegate)` 静态工厂拿 provider；
 `WebViewLibraryLoader` 仍有 `CHROMIUM_WEBVIEW_NATIVE_RELRO_32/64`、
 RELRO/shared_relro、`WebViewZygote` 等 Chromium 专属假设；
 provider 包名由 `config_webview_packages.xml` 决定（默认 `com.android.webview`）；
 provider 加载前 framework 会读 provider APK 的 `com.android.webview.WebViewLibrary`
 metadata 并预加载其 native 库。
 
-路线（**不**伪造 `com.android.webview.chromium.*` 类名做 PoC 捷径，长期维护会烂掉）：
+### 6.1 测试 ROM：userdebug + config overlay（先做这个，不改 framework 也能验）
 
-1. 把 provider 类名做成系统属性可配（示例）：
-   `ro.webview.provider_class`，默认保持 Chromium 实现，Gecko 设备覆盖为
-   `org.mozilla.geckowebview.GeckoWebViewFactoryProvider`；并把
-   `CHROMIUM_WEBVIEW_FACTORY_METHOD` 之类命名泛化。
-2. `WebViewLibraryLoader` 按 engine 分流：`engine="chromium"` 走原 RELRO 路径；
-   `engine="gecko"` 时 provider 自行 bootstrap（`GeckoRuntime/GeckoThread/libxul`
-   + Gecko child processes），**不许**让 Gecko 假装 Chromium RELRO loader。
-3. 以目标 ROM 分支的 `frameworks/base/core/java/android/webkit/` 为准改，
-   先做这一步解耦，再写 Gecko glue。
+- 测试 ROM 用 `userdebug / eng` build——emulator 配置下 WebView provider
+  签名检查可被忽略，正好适合开发第三方 provider。
+- 在设备 overlay 或 `frameworks/base/core/res/res/xml/config_webview_packages.xml`
+  中加入：
+
+```xml
+<webviewprovider
+    description="Gecko WebView"
+    packageName="org.mozilla.geckowebview"
+    availableByDefault="true" />
+```
+
+- 之后“设置 → 开发者选项 → WebView 实现”里就能切到 `Gecko WebView`。
+  这比每改一点就烧完整 system image 舒服太多；先走通这条切换链路，再碰 §6.2。
+
+### 6.2 Framework patch：PoC trampoline（短期）→ metadata 自声明（正式）
+
+**PoC 路线（允许进分支、不进主分支）**：Gecko APK 里直接提供 10～20 行
+compatibility trampoline，AOSP 以为自己在加载 Chromium，实际拿到 Gecko：
+
+```java
+package com.android.webview.chromium;
+
+public final class WebViewChromiumFactoryProviderForB {
+    public static WebViewFactoryProvider create(WebViewDelegate delegate) {
+        return new GeckoWebViewFactoryProvider(delegate);
+    }
+}
+```
+
+（`...ForT` 同理。）这样 PoC 期**零 framework 改动**即可验证。
+但这是脏捷径，P0 验收后必须切正式路线，trampoline 不许合入主分支
+（见 §8.3“无魔法”）。
+
+**正式路线（唯一长期方案）**：provider 在 `AndroidManifest.xml` 自声明入口：
+
+```xml
+<meta-data
+    android:name="android.webkit.WebViewFactoryClass"
+    android:value="org.mozilla.geckowebview.GeckoWebViewFactoryProvider" />
+```
+
+AOSP 侧改成从 provider APK 的 metadata 读 factory 类名，而不是硬编码返回
+`com.android.webview.chromium.*`（同时把 `CHROMIUM_WEBVIEW_FACTORY_METHOD`
+之类命名泛化）。效果：
+
+```text
+              WebViewFactory
+                   │
+            provider metadata
+              ┌────┴────┐
+              ▼         ▼
+          Chromium    Gecko
+              │         │
+            Blink     Gecko
+```
+
+### 6.3 `WebViewLibraryLoader` 按 engine 分流
+
+`engine="chromium"` 走原 RELRO 路径；`engine="gecko"` 时 provider 自行
+bootstrap（`GeckoRuntime/GeckoThread/libxul` + Gecko child processes），
+**不许**让 Gecko 假装 Chromium RELRO loader。
+
+### 6.4 顺序
+
+先 §6.1（overlay 切换）→ PoC trampoline 跑 P0 → 再做 §6.2 正式解耦 +
+§6.3 分流。以目标 ROM 分支的 `frameworks/base/core/java/android/webkit/`
+为准改；`aosp-patches/` 里每个 patch 只做一件事（命名见 §3）。
 
 ---
 
 ## 7. GeckoView 依赖策略
 
-- **Prototype 阶段**：允许 Maven 依赖
-  `org.mozilla.geckoview:geckoview(-nightly):...` 快速验证 P0。
-- **正式阶段**：pin 死 `mozilla-firefox/firefox` 某个 commit，
+### 7.1 三层开发模型（日常 / 本地 Gecko / 发布）
+
+```text
+① 绝大部分时间（日常开发，几乎只碰这里）
+
+provider/（独立 Java 17 Gradle 工程）
+        ↓ implementation "org.mozilla.geckoview:geckoview-nightly:<pin死版本>"
+Mozilla Maven AAR
+
+不用编 Firefox。改一次 Java adapter：
+./gradlew assembleDebug && adb install -r GeckoWebView.apk
+就能试。简单如 reload()/stopLoading()/goBack() 全是这种纯 Java 转发。
+```
+
+```text
+② GeckoView public API 不够时（才启用本地 Gecko）
+
+~/src/
+├── sinytra/     ← 本仓库（Provider + patch stack，只存差异）
+└── firefox/     ← Mozilla Firefox checkout（sibling，不进本 Git）
+
+provider/build.gradle 加：
+ext.topsrcdir = "/path/to/firefox"
+ext.topobjdir = "/path/to/objdir"
+apply from: "${topsrcdir}/substitute-local-geckoview.gradle"
+
+Mozilla 官方支持的 dependency substitution：
+Provider → 本地修改后的 GeckoView → 本地 Firefox/Gecko，
+GeckoWebViewProvider.java 一行依赖代码都不用改。
+触发条件见 §10.4（evaluateJavascript / addJavascriptInterface /
+WebMessage / request intercept / Surface-compositor / native 生命周期）。
+```
+
+```text
+③ 发布 / CI / 可重现
+
+Firefox @ 固定 commit（后期再做成 git submodule pin）
+        + firefox-patches/（逐个 rebase，冲突不解不升级）
+        + provider/ 固定 source
+```
+
+- 开发早期**不要**用 git submodule 绑 firefox，也**不要**把 Provider 写进
+  Firefox 源码树。Firefox 负责 Gecko+GeckoView，本仓库负责
+  `android.webkit → GeckoView`，只有确实缺 primitive 才往下打 patch。
+  这样 Firefox 156→157→158 时绝大部分 glue 不用跟着 rebase。
+- Nightly 版本一律 pin 精确号，不用 `+`。
+
+### 7.2 正式阶段 pin 策略
+
+- pin 死 `mozilla-firefox/firefox` 某个 commit，
   只取 `mobile/android/geckoview`、`widget/android`、Gecko 引擎目录
  （`dom/layout/gfx/netwerk/js/src` 等），SpiderMonkey 随 Gecko 进来，
   **不**单独引 mozjs。
 - 凡 GeckoView public API 覆盖不到、但 WebView 语义必需的能力，
-  一律写成 `patches/` 下的独立 patch（命名见 §3），每个 patch 只做一件事，
+  一律写成 `firefox-patches/` 下的独立 patch，每个 patch 只做一件事，
   附带说明：解决哪个 WebView API、为什么 public API 不够用、上游有无对应 bug。
 - 升级 Firefox commit 时逐个 rebase patch，冲突不解决不许升级。
 
@@ -292,7 +409,7 @@ metadata 并预加载其 native 库。
 
 ### 8.3 编程范式
 
-- 语言：见 §10（定稿）。胶水主体一律 Java 17；`provider/session/view/settings/storage/compat/framework/`
+- 语言：见 §10（定稿）。胶水主体一律 Java 17；`provider/src/...`（按 §3 分包）
   只用 Java，不许进 Kotlin；Kotlin 只允许出现在 `tests/` 样例与工具脚本（占比 0～5%）；
   **一个模块内只用一种语言**。
 - Java 风格遵循 AOSP 规范：`@NonNull/@Nullable` 全覆盖 public API，
@@ -367,11 +484,11 @@ Java GeckoWebViewProvider
 
 | 位置 | 语言 | 说明 |
 |---|---|---|
-| `gecko-webview/provider/ session/ view/ settings/ storage/ compat/` | Java 17 | 全部 glue（含所有 bridge）；不许进 Kotlin |
-| `framework/`（`frameworks/base/android/webkit/*` patch） | Java | 与 AOSP 侧注解/签名对齐 |
-| `patches/` → `mobile/android/geckoview/` | Java | 给 GeckoView 加 internal API 时用 |
-| `patches/` → `mobile/android/modules/` 等 | Gecko JavaScript | Module/Actor 层扩展（如 JS 执行、消息通道） |
-| `patches/` → `widget/android/` | C++ | 仅 Surface/compositor/生命周期等不得不下沉时用 |
+| `provider/src/...`（`provider/ session/ view/ settings/ storage/ compat/` 分包） | Java 17 | 全部 glue（含所有 bridge）；不许进 Kotlin |
+| `aosp-patches/`（`frameworks/base/.../webkit/*` patch） | Java | 与 AOSP 侧注解/签名对齐 |
+| `firefox-patches/` → `mobile/android/geckoview/` | Java | 给 GeckoView 加 internal API 时用 |
+| `firefox-patches/` → `mobile/android/modules/` 等 | Gecko JavaScript | Module/Actor 层扩展（如 JS 执行、消息通道） |
+| `firefox-patches/` → `widget/android/` | C++ | 仅 Surface/compositor/生命周期等不得不下沉时用 |
 | `tests/` 样例与工具脚本 | 允许 Kotlin | 占比 0～5%，不进主胶水 |
 | Rust | ~0% | Stylo/WebRender/URL 等是 Gecko backend 实现细节，不直调 |
 
@@ -550,12 +667,71 @@ AOSP framework 解耦（§6 的 provider 类名可配 + engine 分流）。
 
 ---
 
+## 12. 本地 workspace 布局（AOSP / Firefox 不进本 Git）
+
+> **本 Git 只存差异**：`provider/` + `aosp-patches/` + `firefox-patches/` +
+> `manifests/` + `tools/` + `tests/` + 文档。AOSP 与 Firefox 源码树永远是
+> sibling checkout，不做 submodule、不复制进仓库、不把 provider 写进 Firefox 树。
+
+推荐磁盘布局：
+
+```text
+~/src/
+├── sinytra/                 ← 本仓库
+│   ├── provider/
+│   ├── aosp-patches/
+│   ├── firefox-patches/
+│   ├── manifests/
+│   └── tests/
+├── firefox/                 ← Mozilla Firefox checkout（sibling，见 §7.1②）
+└── aosp/                    ← repo 管理的 AOSP checkout
+    ├── .repo/
+    ├── frameworks/base/
+    ├── packages/apps/GeckoWebView/   ← 稳定后把本仓库接进来（见下）
+    └── ...
+```
+
+### 12.1 本仓库接进 AOSP（稳定后）
+
+用 repo manifest 把本仓库作为独立 project 落到 AOSP 树里，
+仍是自己的 Git，不 fork 整个 AOSP：
+
+```xml
+<project name="Bemly/gecko-system-webview"
+         path="packages/apps/GeckoWebView"
+         revision="main"
+         remote="github" />
+```
+
+片段放在本仓库 `manifests/gecko-webview.xml`。效果：`repo sync` 后
+AOSP 与本项目自动落到正确位置；早期只读 `frameworks/base` 代码时可单独
+`git clone platform/frameworks/base`，不拉整套 AOSP。
+
+### 12.2 AOSP 拉取规模（三阶段）
+
+1. **只写 adapter**（P0 前期）：不拉 AOSP。`WebViewProvider /
+   WebViewFactoryProvider` 是 hidden API，普通 SDK 没有——针对目标系统完整
+   `framework.jar` 做 `compileOnly`，或引用对应版本 AOSP 接口源码/stub。
+2. **第一次替换 System WebView**：拉完整 AOSP checkout。改
+   `frameworks/base/core/java/android/webkit/` + overlay/config
+   （见 §6.1），在真机/模拟器验证“开发者选项 → WebView 实现 → Gecko WebView”。
+3. **完整 ROM / CTS**：正常 AOSP build 环境出
+   `system.img / product.img / system_ext.img...` 并跑 CTS（见 §9）。
+
+升级路线与 `firefox-ios12` 同构：
+`AOSP 官方源码 + aosp-patches/ + Firefox 固定 commit + firefox-patches/`，
+Android 大版本 / Firefox 大版本升级时只 rebase patch stack，
+绝大部分 Java glue 不用动。
+
+---
+
 ## Sources
 
 - [GeckoView Architecture — Firefox Source Docs](https://firefox-source-docs.mozilla.org/mobile/android/geckoview/contributor/geckoview-architecture.html)
 - [WebViewFactoryProvider.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebViewFactoryProvider.java)
 - [WebViewProvider.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebViewProvider.java)
 - [WebView.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebView.java)
+- [WebViewFactory.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/android/webkit/WebViewFactory.java)
 - [WebViewLibraryLoader.java — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/java/android/webkit/WebViewLibraryLoader.java?pli=1)
 - [config_webview_packages.xml — platform/frameworks/base](https://android.googlesource.com/platform/frameworks/base/+/HEAD/core/res/res/xml/config_webview_packages.xml)
 - [WebView providers — chromium/android_webview/docs](https://github.com/chromium/chromium/blob/main/android_webview/docs/webview-providers.md)
@@ -566,5 +742,8 @@ AOSP framework 解耦（§6 的 provider 类名可配 + engine 分流）。
 - [StorageController API — GeckoView javadoc](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/StorageController.html)
 - [SessionFinder API — GeckoView javadoc](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/SessionFinder.html)
 - [GeckoView junit Test Framework — Firefox Source Docs](https://firefox-source-docs.mozilla.org/mobile/android/geckoview/contributor/junit.html)
+- [Substituting a local GeckoView — Firefox Source Docs](https://firefox-source-docs.mozilla.org/mobile/android/fenix/substituting-local-gv.html)
+- [substitute-local-geckoview.gradle — searchfox](https://searchfox.org/firefox-main/source/substitute-local-geckoview.gradle)
+- [Repo command reference — Android Open Source Project](https://source.android.com/docs/setup/reference/repo)
 - [WebViewCompat — Android Developers](https://developer.android.com/reference/androidx/webkit/WebViewCompat)
 - [WebViewAssetLoader — Android Developers](https://developer.android.com/reference/androidx/webkit/WebViewAssetLoader)
