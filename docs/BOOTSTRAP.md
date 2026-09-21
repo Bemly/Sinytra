@@ -25,6 +25,36 @@
 ② 不可行/需改 Gecko → 按 `ARCHITECTURE.md` §6.4 走 `firefox-patches/` 专门处理
 process bootstrap（这是 P2 之外的前置 patch，优先级高于一切 bridge）。
 
+### P-1 实测结论（2026-09-21，真机 MOONDROP MD-PH-001 / Android 14 / API 34）
+
+- ✅ classloader：Gecko 三大类经 PathClassLoader 从 provider base.apk 加载正常。
+- ✅ `libxul.so`：随 AAR `jni/arm64-v8a` 进 APK，`GeckoLoader` 从
+  `base.apk!/lib/arm64-v8a` 加载成功（`Loaded libs in ~30ms`，`GeckoThread RUNNING`）。
+- ✅ Context：用 provider APK 自身 context `create()` 成功（192ms，UI 线程）。
+- ✅ Service 可解析性：gpu/tab0/socket/rdd/media/crashhelper 全部 `PackageManager`
+  可解析（AAR manifest 合并进 APK，89 个 `<service>`，`query-services` 除外——
+  该命令在此 ROM 上对所有包都返回空，不是我们的特例）。
+- ⚠️ child process bind：**首次启动必成，后续启动走 `process is bad` 被拒**。
+  根因（已定位到 AOSP android14-release 源码）：`ActiveServices.bringUpServiceInnerLocked`
+  里 `mAm.startProcessLocked(...)` 返回 null（`ProcessList.startProcessLocked` 因
+  `AppErrors.isBadProcess(processName, uid)` 直接返回 null、不 fork）→ AMS 打出
+  `Unable to launch app ... : process is bad` → Gecko 侧 `BindException: Cannot connect`。
+  “bad” 由 `AppErrors` 维护：进程短时间内 crash 两次（或超 `PROCESS_CRASH_COUNT_LIMIT`）
+  即标记，直到用户显式启动该进程才清除（`resetProcessCrashTime`）。
+  触发器是 MTK DuraSpeed（`AiuiAmsExt: duraspeed block ... bringUpServiceLocked`）：
+  它拦截每次 service 拉起，偶发卡死/杀掉正在启动的 child（crashhelper 首当其冲，
+  每次重装/重启后第一次必现），把 child 进程推入 crash→bad 循环。
+  禁掉 `com.mediatek.duraspeed` 包无用（hook 在 `system_server` 内）。
+- ✅ P0Render（`GeckoView + session + loadUri`）：child 起 Gramm 后完整渲染
+  example.com（含进度 15→55→100 + `onPageStop success=true`），截图验证通过。
+  → **P-1 结论①：bootstrap 可行**，约束：child bind 失败时页面停在 `about:blank`
+  并重试 tabN（`tab27 → tab0 → tab8...` 轮询），属 Gecko 侧正常重试语义，
+  不是 glue bug；量产 ROM 需处理 vendor 电源管理白名单（见下）。
+- 调试机注意事项（本机 `user release-keys`，非 userdebug/eng）：
+  保持亮屏解锁测（Doze + 锁屏会冻住 App 心跳，截图全黑属正常）；
+  复现 bind 问题先看 `am_proc_start ... :<process>` 是否出现，再看
+  `Unable to launch app ... : process is bad` + `duraspeed block` 是否成对出现。
+
 ## 2. AOSP Framework 改动（只做最小解耦）
 
 现状（Android 14 实测，`AOSP_BASE = android14-release`）：`WebViewFactory` 直接硬编码
