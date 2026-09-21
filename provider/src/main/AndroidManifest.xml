@@ -21,5 +21,9 @@
         <activity
             android:name="org.mozilla.geckowebview.provider.P0RenderActivity"
             android:exported="true" />
+        <!-- P0 glue harness: drives GeckoWebViewProvider via reflection. -->
+        <activity
+            android:name="org.mozilla.geckowebview.provider.P0GlueActivity"
+            android:exported="true" />
     </application>
 </manifest>

@@ -57,6 +57,11 @@ public final class GeckoWebViewProvider
         mFactory = factory;
         mBridge = new GeckoSessionBridge(this);
         mSettings = new CompatWebSettings(new GeckoWebSettings());
+        // Session must be opened on the UI thread (GeckoView @UiThread contract).
+        // Real framework calls create() on the UI thread; assert here so the
+        // harness (or future callers) fail fast instead of hanging on load.
+        mBridge.session().open(GeckoRuntimeHolder.get(
+                webView.getContext().getApplicationContext()));
     }
 
     @NonNull
