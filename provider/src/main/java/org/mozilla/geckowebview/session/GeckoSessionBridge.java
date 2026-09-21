@@ -35,11 +35,23 @@ public final class GeckoSessionBridge
     // we only translate it — ARCHITECTURE.md §4).
     @Nullable
     private GeckoSession.SessionState mSessionState;
+    // Latest HistoryList from onHistoryStateChange — the live, authoritative
+    // history object. onSessionStateChange snapshots may lag (empty entries
+    // until the next flush), so copyBackForwardList prefers this.
+    @Nullable
+    private GeckoSession.HistoryDelegate.HistoryList mHistoryList;
 
     public GeckoSessionBridge(@NonNull Client client) {
         mClient = client;
         mSession = new GeckoSession();
         mSession.setNavigationDelegate(new NavigationBridge(this));
+        mSession.setHistoryDelegate(new GeckoSession.HistoryDelegate() {
+            @Override
+            public void onHistoryStateChange(@NonNull GeckoSession session,
+                    @NonNull GeckoSession.HistoryDelegate.HistoryList historyList) {
+                mHistoryList = historyList;
+            }
+        });
         ProgressBridge progress = new ProgressBridge(this);
         mSession.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override
@@ -186,6 +198,10 @@ public final class GeckoSessionBridge
     }
 
     public List<GeckoSession.HistoryDelegate.HistoryItem> historySnapshot() {
+        GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
+        if (live != null && !live.isEmpty()) {
+            return live;
+        }
         GeckoSession.SessionState state = mSessionState;
         return state != null ? state : java.util.Collections.emptyList();
     }
