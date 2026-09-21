@@ -17,5 +17,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- P0 render probe: GeckoView + session + load example.com. -->
+        <activity
+            android:name="org.mozilla.geckowebview.provider.P0RenderActivity"
+            android:exported="true" />
     </application>
 </manifest>
