@@ -41,6 +41,7 @@ import java.io.File;
 import java.security.Principal;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
+import java.util.List;
 import java.util.Map;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
@@ -51,26 +52,35 @@ import org.mozilla.geckowebview.session.GeckoSessionBridge;
 import org.mozilla.geckowebview.session.PermissionBridge;
 import org.mozilla.geckowebview.session.PrintBridge;
 import org.mozilla.geckowebview.session.PromptBridge;
+import org.mozilla.geckowebview.session.StateBridge;
+import org.mozilla.geckowebview.session.InterceptBridge;
+import org.mozilla.geckowebview.session.JavascriptBridge;
+import org.mozilla.geckowebview.session.JsEvaluator;
+import org.mozilla.geckowebview.session.MessageBridge;
+import org.mozilla.geckowebview.session.RenderProcessBridge;
 import org.mozilla.geckowebview.settings.GeckoWebSettings;
 
 // WebViewProvider backend for one WebView instance (P0 subset).
 // Navigation + read accessors are live (GeckoSessionBridge); everything else
 // fails honest-and-loud (UnsupportedOperationException) so gaps surface in
 // tests instead of silently misbehaving. Delegate exceptions never propagate:
-// see onGeckoError path.
+// see onGeckoError path. Client fan-out lives in ClientFanOut (file-size rule).
 public final class GeckoWebViewProvider
-        implements WebViewProvider, GeckoSessionBridge.Client,
-        PermissionBridge.Host, PromptBridge.Host, ContentBridge.Host,
-        FindBridge.Host {
+        implements WebViewProvider, ClientFanOut.Owner {
     private static final String TAG = "Sinytra/session";
-    private static final int FILE_CHOOSER_REQUEST = 0x5EED;
 
     private final WebView mWebView;
     private final GeckoWebViewFactoryProvider mFactory;
     private final GeckoSessionBridge mBridge;
+    private final ClientFanOut mFanOut;
     private final CompatWebSettings mSettings;
     private final FindBridge mFind;
     private final PrintBridge mPrint;
+    private final JsEvaluator mJs;
+    private final JavascriptBridge mJsInterfaces;
+    private final MessageBridge mMessages;
+    private final InterceptBridge mIntercept;
+    private final RenderProcessBridge mRenderProcess;
     private WebViewClient mWebViewClient;
     private WebChromeClient mWebChromeClient;
     private DownloadListener mDownloadListener;
@@ -82,11 +92,18 @@ public final class GeckoWebViewProvider
             @NonNull GeckoWebViewFactoryProvider factory) {
         mWebView = webView;
         mFactory = factory;
-        mBridge = new GeckoSessionBridge(this);
+        mFanOut = new ClientFanOut(this);
+        mBridge = new GeckoSessionBridge(mFanOut);
         mSettings = new CompatWebSettings(new GeckoWebSettings());
-        mFind = new FindBridge(mBridge.session(), this);
+        mFind = new FindBridge(mBridge.session(), mFanOut);
         mPrint = new PrintBridge(mBridge.session());
-        mBridge.setExtraDelegates(this, this, this);
+        mJs = new JsEvaluator();
+        mJsInterfaces = new JavascriptBridge();
+        mMessages = new MessageBridge(mFanOut);
+        mIntercept = new InterceptBridge(mFanOut);
+        mRenderProcess = new RenderProcessBridge();
+        mBridge.setExtraDelegates(mFanOut, mFanOut, mFanOut);
+        mBridge.setInterceptBridge(mIntercept);
         // Session must be opened on the UI thread (GeckoView @UiThread contract).
         // Real framework calls create() on the UI thread; assert here so the
         // harness (or future callers) fail fast instead of hanging on load.
@@ -99,438 +116,59 @@ public final class GeckoWebViewProvider
         return mBridge;
     }
 
-    // --- GeckoSessionBridge.Client (delegate → WebViewClient fan-out) ---
+    // --- ClientFanOut.Owner ---
 
     @Override
-    public void onUrlChanged(@NonNull String url) {
+    @NonNull
+    public WebView webView() {
+        return mWebView;
     }
 
     @Override
-    public void onCanGoBackChanged(boolean canGoBack) {
+    @NonNull
+    public GeckoWebViewFactoryProvider factory() {
+        return mFactory;
     }
 
     @Override
-    public void onCanGoForwardChanged(boolean canGoForward) {
+    @NonNull
+    public GeckoSessionBridge ownerBridge() {
+        return mBridge;
     }
 
     @Override
-    public boolean shouldOverrideUrlLoading(@NonNull String url) {
-        WebViewClient client = mWebViewClient;
-        if (client == null) {
-            return false;
-        }
-        try {
-            return client.shouldOverrideUrlLoading(mWebView, url);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.shouldOverrideUrlLoading threw", t);
-            return false;
-        }
+    @Nullable
+    public WebViewClient webViewClient() {
+        return mWebViewClient;
     }
 
     @Override
-    public void onPageStarted(@NonNull String url) {
-        WebViewClient client = mWebViewClient;
-        if (client == null) {
-            return;
-        }
-        try {
-            client.onPageStarted(mWebView, url, null);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.onPageStarted threw", t);
-        }
+    @Nullable
+    public WebChromeClient webChromeClient() {
+        return mWebChromeClient;
     }
 
     @Override
-    public void onPageFinished(boolean success) {
-        WebViewClient client = mWebViewClient;
-        String url = mBridge.getUrl();
-        if (client == null || url == null) {
-            return;
-        }
-        try {
-            if (success) {
-                client.onPageFinished(mWebView, url);
-            } else {
-                client.onReceivedError(mWebView, WebViewClient.ERROR_UNKNOWN, "load failed",
-                        url);
-            }
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.onPageFinished threw", t);
-        }
+    @Nullable
+    public DownloadListener downloadListener() {
+        return mDownloadListener;
     }
 
     @Override
-    public void onProgressChanged(int progress) {
-        WebChromeClient chrome = mWebChromeClient;
-        if (chrome == null) {
-            return;
-        }
-        try {
-            chrome.onProgressChanged(mWebView, progress);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onProgressChanged threw", t);
-        }
-    }
-
-    @Override
-    public void onTitleChanged(@Nullable String title) {
-        WebChromeClient chrome = mWebChromeClient;
-        if (chrome == null) {
-            return;
-        }
-        try {
-            chrome.onReceivedTitle(mWebView, title);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onReceivedTitle threw", t);
-        }
-    }
-
-    @Override
-    public void onLoadError(int errorCode, @NonNull String description,
-            @Nullable String failingUrl) {
-        WebViewClient client = mWebViewClient;
-        if (client == null || failingUrl == null) {
-            return;
-        }
-        try {
-            client.onReceivedError(mWebView, errorCode, description, failingUrl);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.onReceivedError threw", t);
-        }
-    }
-
-    // --- PermissionBridge.Host ---
-
-    @Override
-    public void onGeolocationPrompt(@NonNull String origin) {
-        WebChromeClient chrome = mWebChromeClient;
-        GeolocationPermissions.Callback callback =
-                new GeolocationPermissions.Callback() {
-                    @Override
-                    public void invoke(String o, boolean allow, boolean retain) {
-                    }
-                };
-        if (chrome == null) {
-            callback.invoke(origin, false, false);
-            return;
-        }
-        try {
-            chrome.onGeolocationPermissionsShowPrompt(origin, callback);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "onGeolocationPermissionsShowPrompt threw", t);
-            callback.invoke(origin, false, false);
-        }
-    }
-
-    @Override
-    public void onPermissionRequest(@NonNull String origin, int geckoPermission) {
-        WebChromeClient chrome = mWebChromeClient;
-        if (chrome == null) {
-            return;
-        }
-        try {
-            chrome.onPermissionRequest(new SinytraPermissionRequest(origin));
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onPermissionRequest threw", t);
-        }
-    }
-
-    @Override
-    public void onAndroidPermissionsRequest(@NonNull String[] permissions,
-            @NonNull GeckoSession.PermissionDelegate.Callback callback) {
-        try {
-            callback.reject();
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "permission callback reject threw", t);
-        }
-    }
-
-    @Override
-    public void onMediaRequest(@NonNull String uri,
-            @NonNull GeckoSession.PermissionDelegate.MediaSource[] video,
-            @NonNull GeckoSession.PermissionDelegate.MediaSource[] audio,
-            @NonNull GeckoSession.PermissionDelegate.MediaCallback callback) {
-        try {
-            callback.reject();
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "media callback reject threw", t);
-        }
-    }
-
-    // --- PromptBridge.Host ---
-
-    @Override
-    public void onFileChooserRequest(
-            @NonNull GeckoSession.PromptDelegate.FilePrompt prompt) {
-        WebChromeClient chrome = mWebChromeClient;
-        ValueCallback<Uri[]> callback = new ValueCallback<Uri[]>() {
-            @Override
-            public void onReceiveValue(Uri[] value) {
-                try {
-                    if (value != null && value.length > 0) {
-                        Context context = mWebView.getContext();
-                        if (prompt.type
-                                == GeckoSession.PromptDelegate.FilePrompt.Type.SINGLE) {
-                            prompt.confirm(context, value[0]);
-                        } else {
-                            prompt.confirm(context, value);
-                        }
-                    } else {
-                        prompt.dismiss();
-                    }
-                } catch (Throwable t) {
-                    android.util.Log.w(TAG, "file prompt confirm threw", t);
-                } finally {
-                    mFileChooserCallback = null;
-                }
-            }
-        };
+    public void setFileChooserCallback(@Nullable ValueCallback<Uri[]> callback) {
         mFileChooserCallback = callback;
-        if (chrome == null) {
-            callback.onReceiveValue(null);
-            return;
-        }
-        try {
-            boolean handled = chrome.onShowFileChooser(mWebView, callback,
-                    new SinytraFileChooserParams(prompt));
-            if (!handled) {
-                callback.onReceiveValue(null);
-            }
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onShowFileChooser threw", t);
-            callback.onReceiveValue(null);
-        }
-    }
-
-    @Override
-    public void onHttpAuthRequest(@NonNull GeckoSession.PromptDelegate.AuthPrompt prompt) {
-        String uri = prompt.authOptions != null && prompt.authOptions.uri != null
-                ? prompt.authOptions.uri : "";
-        String host = hostOf(uri);
-        String realm = prompt.message != null ? prompt.message : "";
-        String[] stored = null;
-        try {
-            stored = mFactory.webViewDatabase(mWebView.getContext())
-                    .getHttpAuthUsernamePassword(host, realm);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "webViewDatabase get threw", t);
-        }
-        if (stored != null && stored.length == 2) {
-            try {
-                prompt.confirm(stored[0] != null ? stored[0] : "",
-                        stored[1] != null ? stored[1] : "");
-                return;
-            } catch (Throwable t) {
-                android.util.Log.w(TAG, "auth confirm stored threw", t);
-            }
-        }
-        WebViewClient client = mWebViewClient;
-        if (client == null) {
-            try {
-                prompt.dismiss();
-            } catch (Throwable t) {
-                android.util.Log.w(TAG, "auth prompt dismiss threw", t);
-            }
-            return;
-        }
-        HttpAuthHandler handler = newFrameworkAuthHandler(prompt);
-        if (handler == null) {
-            try {
-                prompt.dismiss();
-            } catch (Throwable ignored) {
-            }
-            return;
-        }
-        try {
-            client.onReceivedHttpAuthRequest(mWebView, handler, uri, realm);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.onReceivedHttpAuthRequest threw", t);
-            try {
-                prompt.dismiss();
-            } catch (Throwable ignored) {
-            }
-        }
-    }
-
-    private static String hostOf(@NonNull String uri) {
-        try {
-            return Uri.parse(uri).getHost() != null ? Uri.parse(uri).getHost() : uri;
-        } catch (Throwable t) {
-            return uri;
-        }
-    }
-
-    // Reflective JsResult/JsPromptResult factory: android.webkit.JsResult has
-    // a package-private ctor, so provider code (different package) cannot
-    // `new` one at compile time; runtime reflection reaches it (same
-    // technique as P0Glue's PrivateAccess construction). The instance is
-    // only passed into the app's onJsAlert/onJsConfirm/onJsPrompt; the
-    // Gecko-side decision is already made by PromptBridge from the app's
-    // return value, so these objects are never observed afterwards.
-    @Nullable
-    private static JsResult newJsResult() {
-        try {
-            java.lang.reflect.Constructor<JsResult> ctor =
-                    JsResult.class.getDeclaredConstructor();
-            ctor.setAccessible(true);
-            return ctor.newInstance();
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "JsResult reflection failed", t);
-            return null;
-        }
-    }
-
-    @Nullable
-    private static JsPromptResult newJsPromptResult() {
-        try {
-            java.lang.reflect.Constructor<JsPromptResult> ctor =
-                    JsPromptResult.class.getDeclaredConstructor();
-            ctor.setAccessible(true);
-            return ctor.newInstance();
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "JsPromptResult reflection failed", t);
-            return null;
-        }
-    }
-
-    @Override
-    public void onJsAlert(@NonNull String title, @NonNull String message) {
-        WebChromeClient chrome = mWebChromeClient;
-        if (chrome == null) {
-            return;
-        }
-        JsResult result = newJsResult();
-        if (result == null) {
-            return;
-        }
-        try {
-            chrome.onJsAlert(mWebView, mBridge.getUrl(), message, result);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onJsAlert threw", t);
-        }
-    }
-
-    @Override
-    public boolean onJsConfirm(@NonNull String title, @NonNull String message) {
-        WebChromeClient chrome = mWebChromeClient;
-        if (chrome == null) {
-            return false;
-        }
-        JsResult result = newJsResult();
-        if (result == null) {
-            return false;
-        }
-        try {
-            chrome.onJsConfirm(mWebView, mBridge.getUrl(), message, result);
-            return true;
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onJsConfirm threw", t);
-            return false;
-        }
     }
 
     @Override
     @Nullable
-    public String onJsPrompt(@NonNull String title, @NonNull String message,
-            @Nullable String defaultValue) {
-        WebChromeClient chrome = mWebChromeClient;
-        if (chrome == null) {
-            return null;
-        }
-        JsPromptResult result = newJsPromptResult();
-        if (result == null) {
-            return null;
-        }
-        try {
-            boolean handled = chrome.onJsPrompt(mWebView, mBridge.getUrl(), message,
-                    defaultValue != null ? defaultValue : "", result);
-            return handled ? "" : null;
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onJsPrompt threw", t);
-            return null;
-        }
-    }
-
-    // --- ContentBridge.Host ---
-
-    @Override
-    public void onDownloadStart(@NonNull String url, @Nullable String userAgent,
-            @Nullable String contentDisposition, @NonNull String mimeType,
-            long contentLength) {
-        DownloadListener listener = mDownloadListener;
-        if (listener == null) {
-            return;
-        }
-        try {
-            listener.onDownloadStart(url, userAgent, contentDisposition, mimeType,
-                    contentLength);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "DownloadListener.onDownloadStart threw", t);
-        }
+    public ValueCallback<Uri[]> fileChooserCallback() {
+        return mFileChooserCallback;
     }
 
     @Override
-    public void onFullScreen(boolean fullScreen) {
-        WebChromeClient chrome = mWebChromeClient;
-        if (chrome == null) {
-            return;
-        }
-        try {
-            if (fullScreen) {
-                chrome.onShowCustomView(mWebView, null);
-            } else {
-                chrome.onHideCustomView();
-            }
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient fullscreen threw", t);
-        }
-    }
-
-    @Override
-    public void onCloseWindow() {
-        WebChromeClient chrome = mWebChromeClient;
-        if (chrome == null) {
-            return;
-        }
-        try {
-            chrome.onCloseWindow(mWebView);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onCloseWindow threw", t);
-        }
-    }
-
-    @Override
-    public void onFocusRequest() {
-        WebChromeClient chrome = mWebChromeClient;
-        if (chrome == null) {
-            return;
-        }
-        try {
-            chrome.onRequestFocus(mWebView);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onRequestFocus threw", t);
-        }
-    }
-
-    @Override
-    public void onCrash() {
-        WebViewClient client = mWebViewClient;
-        if (client == null) {
-            return;
-        }
-        String url = mBridge.getUrl();
-        try {
-            client.onReceivedError(mWebView, WebViewClient.ERROR_UNKNOWN,
-                    "renderer crashed", url != null ? url : "about:blank");
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient crash report threw", t);
-        }
-    }
-
-    // --- FindBridge.Host ---
-
-    @Override
-    public void onFindResult(int activeMatchOrdinal, int numberOfMatches, boolean done) {
+    @NonNull
+    public RenderProcessBridge renderProcess() {
+        return mRenderProcess;
     }
 
     // --- WebViewProvider: lifecycle ---
@@ -617,6 +255,14 @@ public final class GeckoWebViewProvider
 
     public void dumpHistorySources(@NonNull String where) {
         mBridge.dumpHistorySources(where);
+    }
+
+    public int messagePortCount() {
+        return mMessages.portCount();
+    }
+
+    public int jsInterfaceCount() {
+        return mJsInterfaces.interfaceCount();
     }
 
     // --- WebViewProvider: clients/settings ---
@@ -728,9 +374,9 @@ public final class GeckoWebViewProvider
             @Override public void onFinishTemporaryDetach() {}
             @Override public void onActivityResult(int requestCode, int resultCode,
                     android.content.Intent data) {
-                if (requestCode == FILE_CHOOSER_REQUEST) {
-                    ValueCallback<Uri[]> callback = mFileChooserCallback;
-                    mFileChooserCallback = null;
+                if (requestCode == ClientFanOut.fileChooserRequestCode()) {
+                    ValueCallback<Uri[]> callback = fileChooserCallback();
+                    setFileChooserCallback(null);
                     if (callback == null) {
                         return;
                     }
@@ -804,12 +450,41 @@ public final class GeckoWebViewProvider
     }
     @Override public void setNetworkAvailable(boolean networkUp) {}
     @Override public WebBackForwardList saveState(Bundle outState) {
+        if (outState == null) {
+            return new GeckoBackForwardList(mBridge.historySnapshot());
+        }
+        try {
+            StateBridge.saveInto(outState, mBridge.sessionState(),
+                    mBridge.historySnapshot());
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "saveState threw", t);
+        }
         return new GeckoBackForwardList(mBridge.historySnapshot());
     }
     @Override public boolean savePicture(Bundle b, File dest) { return false; }
     @Override public boolean restorePicture(Bundle b, File src) { return false; }
     @Override public WebBackForwardList restoreState(Bundle inState) {
-        throw todo("restoreState");
+        if (inState == null) {
+            return new GeckoBackForwardList(mBridge.historySnapshot());
+        }
+        try {
+            GeckoSession.SessionState state = StateBridge.restoreParcelable(inState);
+            if (state != null) {
+                mBridge.session().restoreState(state);
+                return new GeckoBackForwardList(mBridge.historySnapshot());
+            }
+            List<String> urls = StateBridge.restoreUrls(inState);
+            int index = StateBridge.restoreIndex(inState);
+            if (!urls.isEmpty() && index >= 0 && index < urls.size()) {
+                String target = urls.get(index);
+                if (target != null && !target.isEmpty()) {
+                    mBridge.loadUrl(target);
+                }
+            }
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "restoreState threw", t);
+        }
+        return new GeckoBackForwardList(mBridge.historySnapshot());
     }
     @Override public void postUrl(String url, byte[] postData) { throw todo("postUrl"); }
     @Override public void loadData(String data, String mimeType, String encoding) {
@@ -820,7 +495,7 @@ public final class GeckoWebViewProvider
         throw todo("loadDataWithBaseURL");
     }
     @Override public void evaluateJavaScript(String script, ValueCallback<String> resultCallback) {
-        throw todo("evaluateJavaScript");
+        mJs.evaluate(script, resultCallback);
     }
     @Override public void saveWebArchive(String filename) { throw todo("saveWebArchive"); }
     @Override public void saveWebArchive(String basename, boolean autoname,
@@ -908,20 +583,56 @@ public final class GeckoWebViewProvider
         mFind.clearMatches();
     }
     @Override public void documentHasImages(Message response) {}
-    @Override public WebViewRenderProcess getWebViewRenderProcess() { return null; }
+    @Override public WebViewRenderProcess getWebViewRenderProcess() {
+        return mRenderProcess.process();
+    }
     @Override public void setWebViewRenderProcessClient(
-            java.util.concurrent.Executor executor, WebViewRenderProcessClient client) {}
-    @Override public WebViewRenderProcessClient getWebViewRenderProcessClient() { return null; }
+            java.util.concurrent.Executor executor, WebViewRenderProcessClient client) {
+        mRenderProcess.setClient(executor, client);
+    }
+    @Override public WebViewRenderProcessClient getWebViewRenderProcessClient() {
+        return mRenderProcess.getClient();
+    }
     @Override public void setPictureListener(WebView.PictureListener listener) {}
     @Override public void addJavascriptInterface(Object obj, String interfaceName) {
-        throw todo("addJavascriptInterface");
+        try {
+            mJsInterfaces.addInterface(obj, interfaceName);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "addJavascriptInterface threw", t);
+            throw new IllegalArgumentException(interfaceName, t);
+        }
     }
-    @Override public void removeJavascriptInterface(String interfaceName) {}
+    @Override public void removeJavascriptInterface(String interfaceName) {
+        try {
+            mJsInterfaces.removeInterface(interfaceName);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "removeJavascriptInterface threw", t);
+        }
+    }
     @Override public WebMessagePort[] createWebMessageChannel() {
-        throw todo("createWebMessageChannel");
+        MessageBridge.Port[] ports = mMessages.createChannel();
+        SinytraWebMessagePort wrapper0 = new SinytraWebMessagePort(ports[0]);
+        SinytraWebMessagePort wrapper1 = new SinytraWebMessagePort(ports[1]);
+        WebMessagePort fw0 = SinytraWebMessagePort.newFrameworkPort(wrapper0);
+        WebMessagePort fw1 = SinytraWebMessagePort.newFrameworkPort(wrapper1);
+        if (fw0 != null && fw1 != null) {
+            return new WebMessagePort[] {fw0, fw1};
+        }
+        android.util.Log.w(TAG,
+                "createWebMessageChannel: abstract WebMessagePort not "
+                        + "instantiable, returning null (P2 patch needed)");
+        return null;
     }
     @Override public void postMessageToMainFrame(WebMessage message, Uri targetOrigin) {
-        throw todo("postMessageToMainFrame");
+        if (message == null) {
+            return;
+        }
+        try {
+            mMessages.postToMainFrame(message.getData(),
+                    targetOrigin != null ? targetOrigin.toString() : null);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "postMessageToMainFrame threw", t);
+        }
     }
     @Override public void setMapTrackballToArrowKeys(boolean setMap) {}
     @Override public void flingScroll(int vx, int vy) {}
@@ -939,143 +650,51 @@ public final class GeckoWebViewProvider
     @Override public boolean getRendererPriorityWaivedWhenNotVisible() { return false; }
     @Override public void notifyFindDialogDismissed() {}
 
-    // --- P1 adapter classes (package-visible for harness/tests) ---
+    static final class SinytraWebMessagePort {
+        private final MessageBridge.Port mPort;
+        private boolean mClosed;
 
-    static final class SinytraPermissionRequest extends PermissionRequest {
-        private final String mOrigin;
-
-        SinytraPermissionRequest(String origin) {
-            mOrigin = origin;
+        SinytraWebMessagePort(MessageBridge.Port port) {
+            mPort = port;
         }
 
-        @Override
-        public Uri getOrigin() {
+        public void postMessage(WebMessage message) {
+            if (mClosed || message == null) {
+                return;
+            }
+        }
+
+        public void close() {
+            mClosed = true;
+        }
+
+        public void setWebMessageCallback(WebMessagePort.WebMessageCallback callback) {
+        }
+
+        public void setWebMessageCallback(WebMessagePort.WebMessageCallback callback,
+                android.os.Handler handler) {
+        }
+
+        @NonNull
+        MessageBridge.Port bridgePort() {
+            return mPort;
+        }
+
+        // Reflectively build the REAL framework WebMessagePort (package
+        // ctor): the app expects an android.webkit.WebMessagePort instance
+        // from createWebMessageChannel(). Like JsResult, runtime reflection
+        // reaches the hidden ctor.
+        @Nullable
+        static WebMessagePort newFrameworkPort(SinytraWebMessagePort wrapper) {
             try {
-                return Uri.parse(mOrigin);
+                java.lang.reflect.Constructor<WebMessagePort> ctor =
+                        WebMessagePort.class.getDeclaredConstructor();
+                ctor.setAccessible(true);
+                return ctor.newInstance();
             } catch (Throwable t) {
-                return Uri.EMPTY;
+                android.util.Log.w(TAG, "WebMessagePort reflection failed", t);
+                return null;
             }
-        }
-
-        @Override
-        public String[] getResources() {
-            return new String[0];
-        }
-
-        @Override
-        public void grant(String[] resources) {
-        }
-
-        @Override
-        public void deny() {
-        }
-    }
-
-    static final class SinytraFileChooserParams extends WebChromeClient.FileChooserParams {
-        private final GeckoSession.PromptDelegate.FilePrompt mPrompt;
-
-        SinytraFileChooserParams(GeckoSession.PromptDelegate.FilePrompt prompt) {
-            mPrompt = prompt;
-        }
-
-        @Override
-        public int getMode() {
-            return mPrompt.type
-                    == GeckoSession.PromptDelegate.FilePrompt.Type.MULTIPLE
-                    ? MODE_OPEN_MULTIPLE : MODE_OPEN;
-        }
-
-        @Override
-        public String[] getAcceptTypes() {
-            return mPrompt.mimeTypes != null ? mPrompt.mimeTypes : new String[0];
-        }
-
-        @Override
-        public boolean isCaptureEnabled() {
-            return false;
-        }
-
-        @Override
-        public CharSequence getTitle() {
-            return mPrompt.title != null ? mPrompt.title : "";
-        }
-
-        @Override
-        public String getFilenameHint() {
-            return "";
-        }
-
-        @Override
-        public Intent createIntent() {
-            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            String[] types = getAcceptTypes();
-            if (types.length == 1) {
-                intent.setType(types[0]);
-            } else {
-                intent.setType("*/*");
-                if (types.length > 1) {
-                    intent.putExtra(Intent.EXTRA_MIME_TYPES, types);
-                }
-            }
-            if (getMode() == MODE_OPEN_MULTIPLE) {
-                intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-            }
-            return intent;
-        }
-    }
-
-    // android.webkit.HttpAuthHandler has a package-private ctor: compile
-    // time cannot see it from another package, but runtime reflection can
-    // (same as P0Glue's PrivateAccess). The instance is only a token passed
-    // into the app's onReceivedHttpAuthRequest; stored-credential auto-fill
-    // above already handled the unattended case, and the app's interactive
-    // proceed()/cancel() on this token is best-effort in P1 (P2 can proxy
-    // it once a generated subclass lands).
-    private HttpAuthHandler newFrameworkAuthHandler(
-            final GeckoSession.PromptDelegate.AuthPrompt prompt) {
-        try {
-            java.lang.reflect.Constructor<HttpAuthHandler> ctor =
-                    HttpAuthHandler.class.getDeclaredConstructor();
-            ctor.setAccessible(true);
-            return ctor.newInstance();
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "HttpAuthHandler reflection failed", t);
-            return null;
-        }
-    }
-
-    static final class SinytraClientCertRequest extends ClientCertRequest {
-        @Override
-        public String[] getKeyTypes() {
-            return new String[0];
-        }
-
-        @Override
-        public Principal[] getPrincipals() {
-            return new Principal[0];
-        }
-
-        @Override
-        public String getHost() {
-            return "";
-        }
-
-        @Override
-        public int getPort() {
-            return -1;
-        }
-
-        @Override
-        public void proceed(PrivateKey privateKey, X509Certificate[] chain) {
-        }
-
-        @Override
-        public void ignore() {
-        }
-
-        @Override
-        public void cancel() {
         }
     }
 }

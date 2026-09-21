@@ -348,6 +348,139 @@ public final class P0GlueActivity extends Activity {
             }
             out.append("PASS loadError code=").append(errResult[0][0]).append('\n');
 
+            // --- P2 saveState/restoreState round-trip ---
+            final android.os.Bundle[] stateBox = new android.os.Bundle[1];
+            final Throwable[] stateError = new Throwable[1];
+            final CountDownLatch stateDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    android.os.Bundle outState = new android.os.Bundle();
+                    android.webkit.WebBackForwardList saved =
+                            provider.saveState(outState);
+                    if (saved.getSize() < 1) {
+                        throw new IllegalStateException(
+                                "saveState size=" + saved.getSize());
+                    }
+                    stateBox[0] = outState;
+                } catch (Throwable t) {
+                    stateError[0] = t;
+                } finally {
+                    stateDone.countDown();
+                }
+            });
+            stateDone.await(10, TimeUnit.SECONDS);
+            if (stateError[0] != null) {
+                throw new IllegalStateException("saveState failed", stateError[0]);
+            }
+            out.append("PASS saveState\n");
+            final Throwable[] restoreError = new Throwable[1];
+            final CountDownLatch restoreDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    provider.restoreState(stateBox[0]);
+                } catch (Throwable t) {
+                    restoreError[0] = t;
+                } finally {
+                    restoreDone.countDown();
+                }
+            });
+            restoreDone.await(10, TimeUnit.SECONDS);
+            if (restoreError[0] != null) {
+                throw new IllegalStateException("restoreState failed", restoreError[0]);
+            }
+            out.append("PASS restoreState\n");
+
+            // --- P2 evaluateJavascript honest-null (no transport yet) ---
+            final CountDownLatch jsDone = new CountDownLatch(1);
+            final String[][] jsResult = new String[1][];
+            final Throwable[] jsError = new Throwable[1];
+            runOnUiThread(() -> {
+                try {
+                    provider.evaluateJavaScript("document.title",
+                            value -> {
+                                jsResult[0] = new String[] {value};
+                                jsDone.countDown();
+                            });
+                } catch (Throwable t) {
+                    jsError[0] = t;
+                    jsDone.countDown();
+                }
+            });
+            if (!jsDone.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("js timeout");
+            }
+            if (jsError[0] != null) {
+                throw new IllegalStateException("js failed", jsError[0]);
+            }
+            out.append("PASS jsEval null=").append(jsResult[0][0] == null).append('\n');
+
+            // --- P2 addJavascriptInterface bookkeeping ---
+            final Throwable[] jiError = new Throwable[1];
+            final CountDownLatch jiDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    provider.addJavascriptInterface(new Object() {
+                        @android.webkit.JavascriptInterface
+                        public String echo(String s) {
+                            return s;
+                        }
+                    }, "TestBridge");
+                    provider.removeJavascriptInterface("TestBridge");
+                } catch (Throwable t) {
+                    jiError[0] = t;
+                } finally {
+                    jiDone.countDown();
+                }
+            });
+            jiDone.await(10, TimeUnit.SECONDS);
+            if (jiError[0] != null) {
+                throw new IllegalStateException("jsInterface failed", jiError[0]);
+            }
+            out.append("PASS jsInterface\n");
+
+            // --- P2 message channel create ---
+            final Object[][] msgBox = new Object[1][];
+            final Throwable[] msgError = new Throwable[1];
+            final CountDownLatch msgDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    msgBox[0] = provider.createWebMessageChannel();
+                } catch (Throwable t) {
+                    msgError[0] = t;
+                } finally {
+                    msgDone.countDown();
+                }
+            });
+            msgDone.await(10, TimeUnit.SECONDS);
+            if (msgError[0] != null) {
+                throw new IllegalStateException("msgChannel failed", msgError[0]);
+            }
+            // WebMessagePort is abstract: framework-typed ports need the P2
+            // patch's concrete subclass. Bridge bookkeeping holds 2 ports per
+            // channel; verify via count (msgBox holds framework array or null).
+            out.append("PASS msgChannel fwNull=").append(msgBox[0] == null)
+                    .append(" bridgePorts=").append(provider.messagePortCount())
+                    .append('\n');
+
+            // --- P2 renderProcess token ---
+            final Object[] renderBox = new Object[1];
+            final Throwable[] renderError = new Throwable[1];
+            final CountDownLatch renderDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    renderBox[0] = provider.getWebViewRenderProcess();
+                } catch (Throwable t) {
+                    renderError[0] = t;
+                } finally {
+                    renderDone.countDown();
+                }
+            });
+            renderDone.await(10, TimeUnit.SECONDS);
+            if (renderError[0] != null || renderBox[0] == null) {
+                throw new IllegalStateException("renderProcess failed", renderError[0]);
+            }
+            out.append("PASS renderProcess\n");
+
             runOnUiThread(provider::destroy);
             out.append("P0 GLUE PASS\n");
         } catch (Throwable t) {

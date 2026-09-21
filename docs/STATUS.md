@@ -22,44 +22,59 @@
   dexdump 0 引用，debug 702 引用，harness 照跑），`cdeb498`。
   工作区提交到 `cdeb498`。
 
-## 1a. P1 进展
+## 1a. P1 进展（harness 全绿，已合入）
 
-- **P1-1 历史导航落地（harness PASS）**：`canGoBackOrForward` 按
-  HistoryList index 算目标位（无快照时退化到 canGo×2）；`goBackOrForward`
-  经 `gotoHistoryIndex(target)`，steps=0 按 Chromium 语义 reload，
-  无快照时退化 goBack/goForward；`clearHistory` 经 `purgeHistory()`。
-  实测：`canGoBackOrForward(-1)=true/(+1)=false`、`goBackOrForward(+1)`
-  回到 example.org、`clearHistory` 后 list 2→1。注意 Gecko 语义：
-  `purgeHistory` 只清前后项、保留当前页（Chromium `clearHistory` 同语义，
-  当前项保留），断言按 before/after 收缩写。另 `saveState(Bundle)` 改为
-  返回当前 history 快照（不再 loud-todo）。
-- **P1-2 系统能力落地（harness 22 PASS，2026-09-22 00:43）**：
-  单例族 `cookie=GeckoCookieManagerImpl / storage=framework WebStorageAdapter
-  / icon=GeckoWebIconDatabase / webdb=GeckoWebViewDatabaseImpl /
-  geo=framework / sw=GeckoServiceWorkerController /
-  tracing=GeckoTracingController` 全非空；`httpAuth store` round-trip；
-  `find total=2`（example.org 上找 "Example"）；`loadError code=-2`
-  （nonexistent.invalid → onReceivedError）。
-  关键发现记死：① `WebStorage/GeolocationPermissions` 构造器在
-  android.jar 包可见，provider 跨包**不能继承**——factory 直接返回
-  framework `getInstance()`，Gecko 侧用 `StorageController` /
-  `GeckoGeolocationStore` 走内部通道；`CookieManager` 是 abstract+public
-  ctor 可继承；`WebViewDatabase/WebIconDatabase/ServiceWorker/Tracing`
-  ctor public 可继承。② `JsResult/JsPromptResult/HttpAuthHandler` 同理包可
-  见——JS dialog 改从 app 返回值驱动 Gecko prompt（PromptBridge 同步返回
-  confirm/dismiss），只给 app 传反射建的 framework token；HTTP auth 先走
-  WebViewDatabase 预填。③ storage 单例在 harness 里是 Chromium 的
-  `WebStorageAdapter`——因为 harness 的 `CookieManager.getInstance()` 走的
-  是**系统 Chromium provider**，不是我方 factory；等 framework 切换后才
-  会调到我方。P1 真机功能走的是 `storageFacade/geoStore` 内部通道，已验证。
+- 历史导航：`canGoBackOrForward/gotoHistoryIndex/purgeHistory`，`saveState`
+  返回快照；`clearHistory` 后 list 2→1（purge 保留当前页，Chromium 同语义）。
+- 系统能力（2026-09-22 00:43）：单例族全非空；`httpAuth store` round-trip；
+  `find total=2`；`loadError code=-2`。
+- 关键发现记死：`WebStorage/GeolocationPermissions` 包可见构造器不可跨包
+  继承——factory 返回 framework `getInstance()`，Gecko 侧走内部通道；
+  `JsResult/JsPromptResult/HttpAuthHandler` 同理（反射建 token，
+  Gecko 决策从 app 返回值同步驱动）；harness 里 storage 单例是系统
+  Chromium 的（framework 切换后才轮到我方）。
+
+## 1b. P2 进展（harness 28 PASS，2026-09-22 01:25）
+
+- **P2-5 StateBridge 落地**：`saveState` 写 Parcelable SessionState + flat
+  url/title/index 三件套；`restoreState` 优先 parcel 恢复（history+scroll+
+  zoom+form 全量），无 parcel 则导航到 flat index URL。harness
+  `PASS saveState / restoreState`。
+- **P2-1/2 evaluateJavascript + addJavascriptInterface**：AAR javap 确认
+  GV153 无 eval 原语——`JsEvaluator` 无 transport 时 honest-null 回调
+  （不断言、不抛，harness `jsEval null=true`）；`JavascriptBridge` 只做
+  `@JavascriptInterface` 反射登记/注销 bookkeeping（harness
+  `PASS jsInterface`），真 transport 等 firefox-patch。
+- **P2-3 WebMessage**：`MessageBridge` bookkeeping 落地（ports/pending/
+  origin），harness `bridgePorts=2`；但 `WebMessagePort` 是**抽象类**，
+  反射 `newInstance` 真机报 `InstantiationException`——framework-typed
+  ports 必须等 P2 patch 的具体子类，`createWebMessageChannel` 暂返 null
+  + loud 日志（`fwNull=true`）。
+- **P2-4 shouldInterceptRequest**：`InterceptBridge` 经
+  `onSubframeLoadRequest` 做 allow/deny（LoadRequest 只有 uri 级字段，
+  无 method/headers/body 替换能力）；app 返回非空 response 即记 DENY
+  （P2 patch 才能替 body）。`P2NavigationDelegate` 把主/子帧分流，主帧走
+  旧 NavigationBridge，子帧走 InterceptBridge。
+- **P2-6 回调顺序**：主/子帧分流 + DENY 日志即顺序 hardware；典型流不断言，
+  以 harness 锁行为为准（ARCHITECTURE §5）。
+- **P2-7 RenderProcess**：`RenderProcessBridge` 落地——`onRenderProcessGone`
+  在 **WebViewClient** 上（不是 RenderProcessClient，javap 确认），crash
+  时先调 app 的 `onRenderProcessGone(didCrash=true)`，再按 executor 调
+  `onRenderProcessUnresponsive`；`getWebViewRenderProcess` 返回稳定 token
+  （`terminate()=false`）。harness `PASS renderProcess`。
+- **拆分**：`GeckoWebViewProvider` 1081→690 行（fan-out→`ClientFanOut` 520
+  行，adapters→`ProviderAdapters`，tokens→`FrameworkTokens`）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
-1. **P1 收尾**：`restoreState(Bundle)`（SessionState 转译，P2 StateBridge
-   前先 honest）、`getCertificate` 已接（SecurityInformation→X509）、
-   `clearCache/clearFormData` 已接；`download` 走 DownloadListener 已接、
-   待真机下载验证；`print` adapter 已接、待真机打印验证。
-2. **P0/P1 回归**：harness 保持全绿；release dexdump 保持探针 0 引用。
+1. **P2 patch 队列**（都要 `firefox-patches/` 独立 patch + 独立测试）：
+   `evaluateJavascript` 真 transport、JS interface 注入、`WebMessagePort`
+   具体子类 + transport、response-body 替换拦截。Java 侧 bookkeeping 已
+   就绪，patch 一到只绑 transport。
+2. **P2-8 androidx glue**：`SupportLibReflectionUtil →
+   WebViewProviderFactoryBoundaryInterface` 自研 boundary glue，
+   `isFeatureSupported` 诚实返回（ROADMAP P2.8）。
+3. **CTS**：WebView 相关用例全量，逐项记 Gecko 差异/未实现/上游 bug。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 

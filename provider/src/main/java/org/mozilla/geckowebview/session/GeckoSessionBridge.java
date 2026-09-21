@@ -125,7 +125,6 @@ public final class GeckoSessionBridge
     public void setExtraDelegates(@NonNull PermissionBridge.Host permHost,
             @NonNull PromptBridge.Host promptHost,
             @NonNull ContentBridge.Host contentHost) {
-        mContentHost = contentHost;
         mSession.setPermissionDelegate(new PermissionBridge(permHost));
         mSession.setPromptDelegate(new PromptBridge(promptHost));
         mSession.setContentDelegate(new ContentBridge(new ContentBridge.Host() {
@@ -166,9 +165,11 @@ public final class GeckoSessionBridge
         }));
     }
 
-    @Nullable
-    public GeckoSession.ContentDelegate contentDelegate() {
-        return mSession.getContentDelegate();
+    // P2 intercept bridge (subframe allow/deny): installed separately so
+    // NavigationBridge stays a pure translator.
+    public void setInterceptBridge(@NonNull InterceptBridge intercept) {
+        mSession.setNavigationDelegate(new P2NavigationDelegate(
+                new NavigationBridge(this), intercept));
     }
 
     @NonNull
