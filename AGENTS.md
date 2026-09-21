@@ -35,10 +35,11 @@
 | `docs/API_MAPPING.md` | GeckoView delegate / controller / settings 对照表（写 bridge 前先查） |
 | `docs/BOOTSTRAP.md` | P-1 验收、AOSP 最小解耦、三层依赖模型、workspace 布局 |
 | `docs/ROADMAP.md` | P-1 → P0 → P1 → P2、P2 硬点清单、测试验收 |
+| `docs/STATUS.md` | **新会话先读我**：实现进展、下一步、已知阻塞 |
 | `docs/DEVICE.md` | 调试机档案、目标 API、adb 固定流程 |
 | `docs/SOURCES.md` | 上游引用（AOSP 一律 android14-release） |
 
-读文档顺序：先本文件 → `ARCHITECTURE.md` → 动手前读 `API_MAPPING.md` +
+读文档顺序：先本文件 → `STATUS.md` → `ARCHITECTURE.md` → 动手前读 `API_MAPPING.md` +
 `BOOTSTRAP.md` 对应章节。
 
 ## 1. 仓库结构（本 Git 只存差异）
