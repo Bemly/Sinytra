@@ -8,17 +8,21 @@ java {
 }
 
 // android.jar is not on the compile classpath of a plain java-library module.
-// Point javac at the API-34 android.jar for android.* framework types so the
-// stubs can reference real public classes (Context, View, Bundle, ...).
-// The stubs themselves only ADD the hidden webkit types missing from android.jar.
+// Use `options.bootstrapClasspath` (the supported Gradle API) so javac sees
+// BOTH android.jar (real public framework types: Context, View, WebView, ...)
+// AND this module's own source output (sibling stub types in android.webkit).
+// Plain `-classpath` compilerArgs replace the whole classpath and hide our
+// own stubs from each other — that is why sibling types went missing.
 def androidJar = System.getenv("ANDROID_HOME") + "/platforms/android-34/android.jar"
 
-tasks.withType(JavaCompile).configureEach {
-    options.compilerArgs += [
-        "-classpath",
-        androidJar + java.io.File.pathSeparator
-            + configurations.compileClasspath.asPath
-    ]
+tasks.withType(JavaCompile).configureEach { task ->
+    // Prepend android.jar to the javac classpath WITHOUT replacing the rest
+    // (which carries compileOnly deps + sibling stub source output).
+    doFirst {
+        def fullCp = androidJar + java.io.File.pathSeparator + task.classpath.asPath
+        task.options.compilerArgs = ["-classpath", fullCp] + task.options.compilerArgs
+        task.classpath = files()
+    }
 }
 
 dependencies {

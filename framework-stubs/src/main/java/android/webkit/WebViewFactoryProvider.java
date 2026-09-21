@@ -29,11 +29,16 @@ public interface WebViewFactoryProvider {
     }
 
     Statics getStatics();
-    // NOTE: real signature is createWebView(WebView, WebView.PrivateAccess).
-    // android.jar strips the hidden inner class, so stubs use WebViewPrivateAccess
-    // (same method name + arity; javac-level placeholder only — runtime linking
-    // uses the real framework classes in the host process).
-    WebViewProvider createWebView(WebView webView, WebViewPrivateAccess privateAccess);
+    // Real AOSP signature: createWebView(WebView, WebView.PrivateAccess) where
+    // PrivateAccess is a hidden inner class of android.webkit.WebView.
+    // android.jar ships WebView WITHOUT that inner class, and javac resolves
+    // inner classes through the OUTER class — so no stub jar can supply it
+    // without also shadowing WebView itself (which we must NOT do: WebView is
+    // public API and must resolve to android.jar at compile time and to the
+    // real framework at runtime). Therefore the stub erases the parameter to
+    // Object. At runtime the real framework passes the real PrivateAccess;
+    // our implementation casts/reflects as needed. See docs/BOOTSTRAP.md.
+    Object createWebView(WebView webView, Object privateAccess);
     GeolocationPermissions getGeolocationPermissions();
     CookieManager getCookieManager();
     @SuppressWarnings("deprecation")
