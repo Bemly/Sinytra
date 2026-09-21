@@ -81,6 +81,8 @@ public final class GeckoWebViewProvider
     private final MessageBridge mMessages;
     private final InterceptBridge mIntercept;
     private final RenderProcessBridge mRenderProcess;
+    private final java.util.Map<Long, WebView.VisualStateCallback> mPendingVisualState =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private WebViewClient mWebViewClient;
     private WebChromeClient mWebChromeClient;
     private DownloadListener mDownloadListener;
@@ -163,6 +165,11 @@ public final class GeckoWebViewProvider
     @Nullable
     public ValueCallback<Uri[]> fileChooserCallback() {
         return mFileChooserCallback;
+    }
+
+    @Override
+    public void fireVisualState() {
+        firePendingVisualState();
     }
 
     @Override
@@ -511,7 +518,71 @@ public final class GeckoWebViewProvider
     @Override public boolean pageDown(boolean bottom) { return false; }
     @Override public void insertVisualStateCallback(long requestId,
             WebView.VisualStateCallback callback) {
-        throw todo("insertVisualStateCallback");
+        if (callback == null) {
+            return;
+        }
+        mPendingVisualState.put(requestId, callback);
+    }
+
+    void firePendingVisualState() {
+        if (mPendingVisualState.isEmpty()) {
+            return;
+        }
+        java.util.Map<Long, WebView.VisualStateCallback> pending =
+                new java.util.HashMap<>(mPendingVisualState);
+        mPendingVisualState.clear();
+        for (java.util.Map.Entry<Long, WebView.VisualStateCallback> entry
+                : pending.entrySet()) {
+            try {
+                entry.getValue().onComplete(entry.getKey());
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "VisualStateCallback threw", t);
+            }
+        }
+    }
+
+    // Compat entry points (called by CompatWebViewProvider boundary).
+
+    public void insertVisualStateCallback(long requestId,
+            @NonNull java.lang.reflect.InvocationHandler boundary) {
+        insertVisualStateCallback(requestId,
+                org.mozilla.geckowebview.compat.CompatWebViewProvider
+                        .CompatVisualStateCallback.wrap(requestId, boundary));
+    }
+
+    public void postCompatMessage(@Nullable Object messageHandler,
+            @Nullable Object targetOrigin) {
+        String data = null;
+        if (messageHandler != null) {
+            try {
+                java.lang.reflect.Method getData =
+                        messageHandler.getClass().getMethod("getData");
+                Object value = getData.invoke(messageHandler);
+                data = value != null ? value.toString() : null;
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "compat message getData threw", t);
+            }
+        }
+        if (data == null) {
+            return;
+        }
+        String origin = targetOrigin != null ? targetOrigin.toString() : null;
+        try {
+            mMessages.postToMainFrame(data, origin);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "postCompatMessage threw", t);
+        }
+    }
+
+    public void setCompatRendererClient(
+            @Nullable java.lang.reflect.InvocationHandler boundary) {
+        if (boundary == null) {
+            mRenderProcess.setClient(null, null);
+            return;
+        }
+        mRenderProcess.setClient(null,
+                org.mozilla.geckowebview.compat.CompatRenderProcess.wrapClient(
+                        boundary, null));
     }
     @Override public void clearView() {}
     @Override public Picture capturePicture() { return null; }

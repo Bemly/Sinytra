@@ -37,6 +37,13 @@ dependencies {
     // (GV 154+ needs compileSdk 37.1 — revisit when the SDK snapshot ships it.)
     implementation("org.mozilla.geckoview:geckoview:153.0.20260810162159")
     implementation("androidx.annotation:annotation:1.9.1")
+    // androidx.webkit boundary interfaces ship inside webkit AAR classes.jar;
+    // compileOnly: real androidx classes come from the app at runtime.
+    // debugImplementation: harness (P0GlueActivity) drives the glue entry
+    // point in-process, so the debug APK must carry the boundary types;
+    // release keeps them out (app provides androidx.webkit).
+    compileOnly("androidx.webkit:webkit:1.12.1")
+    debugImplementation("androidx.webkit:webkit:1.12.1")
     // Hidden AOSP android14 webkit APIs (WebViewFactoryProvider/WebViewProvider/
     // WebViewDelegate/...). compileOnly: real classes come from the host
     // process framework at runtime; stubs are javac-only. See framework-stubs/.

@@ -61,6 +61,11 @@ public final class GeckoWebViewFactoryProvider
 
     @Override
     public Object createWebView(WebView webView, Object privateAccess) {
+        return webViewProvider(webView);
+    }
+
+    @NonNull
+    public GeckoWebViewProvider webViewProvider(@NonNull WebView webView) {
         return new GeckoWebViewProvider(webView, this);
     }
 
@@ -94,8 +99,19 @@ public final class GeckoWebViewFactoryProvider
         return mTracingController;
     }
 
+    @NonNull
+    public org.mozilla.geckowebview.storage.GeckoTracingController tracingController() {
+        return mTracingController;
+    }
+
     @Override
     public ServiceWorkerController getServiceWorkerController() {
+        return mServiceWorkerController;
+    }
+
+    @NonNull
+    public org.mozilla.geckowebview.storage.GeckoServiceWorkerController
+            serviceWorkerController() {
         return mServiceWorkerController;
     }
 

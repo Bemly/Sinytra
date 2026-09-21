@@ -56,6 +56,8 @@ final class ClientFanOut
         @Nullable
         ValueCallback<Uri[]> fileChooserCallback();
 
+        void fireVisualState();
+
         @NonNull
         org.mozilla.geckowebview.session.RenderProcessBridge renderProcess();
     }
@@ -127,6 +129,12 @@ final class ClientFanOut
             }
         } catch (Throwable t) {
             android.util.Log.w(TAG, "WebViewClient.onPageFinished threw", t);
+        } finally {
+            try {
+                mOwner.fireVisualState();
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "fireVisualState threw", t);
+            }
         }
     }
 

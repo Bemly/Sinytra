@@ -65,16 +65,42 @@
 - **拆分**：`GeckoWebViewProvider` 1081→690 行（fan-out→`ClientFanOut` 520
   行，adapters→`ProviderAdapters`，tokens→`FrameworkTokens`）。
 
+## 1c. P2-8 androidx glue 落地（harness 31 PASS，2026-09-22 02:30）
+
+- **入口**：自研 `org.chromium.support_lib_glue.SupportLibReflectionUtil`
+ （同包同类同方法名，Chromium 脏捷径禁令不适用——这是正式 boundary glue，
+  不是 bootstrap trampoline），`createWebViewProviderFactory()` 返回
+  `CompatWebViewFactory` handler。harness 反射验证
+  `PASS glue entry=CompatWebViewFactory`。
+- **诚实 feature 集（18 个）**：只宣称有 Gecko 端到端实现的；
+  `isFeatureSupported` 走 framework 判定链（framework→glue
+  `getSupportedFeatures`），未宣称的（如 JS_INJECTION、WEB_MESSAGE_LISTENER、
+  PROXY_OVERRIDE）诚实 false。harness 逐个打印 + 断言无泄漏。
+- **已接 boundary**：factory（createWebView/converter/statics/features/
+  SW/tracing）、provider（visualState/message/client/renderer/profile）、
+  statics（multiprocess=true 其余 honest）、converter（settings/request/
+  error/port/cookie/storage）、SW/tracing（含 settings）、renderer 双向、
+  profile（default 单 profile）、visualState（page-stop 触发）。
+  未宣称的 builder/proxy/dropData/profileStore 抛 honest 错误。
+- **关键修复记死**：`Proxy.newProxyInstance` 返回的是 boundary 接口实现，
+  **不能强转为 InvocationHandler**（真机 `ClassCastException: $Proxy5`）——
+  所有 `create()` 改为直接返回实现 `InvocationHandler` 的具名 Stub 类；
+  Chromium 正解是 `BoundaryInterfaceReflectionUtil.
+  createInvocationHandlerFor(adapter)`，等价。
+- **依赖**：`compileOnly webkit:1.12.1`（boundary 接口编译用）+
+  `debugImplementation`（harness 在进程内驱动 glue，debug APK 需自带
+  boundary 类型；release 不带，由 app 提供；dexdump 验证 release
+  probe 0 引用）。
+- `insertVisualStateCallback` 落地：pending map + page-stop 触发，
+  harness `PASS visualState`（requestId=42 回调）。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. **P2 patch 队列**（都要 `firefox-patches/` 独立 patch + 独立测试）：
    `evaluateJavascript` 真 transport、JS interface 注入、`WebMessagePort`
    具体子类 + transport、response-body 替换拦截。Java 侧 bookkeeping 已
    就绪，patch 一到只绑 transport。
-2. **P2-8 androidx glue**：`SupportLibReflectionUtil →
-   WebViewProviderFactoryBoundaryInterface` 自研 boundary glue，
-   `isFeatureSupported` 诚实返回（ROADMAP P2.8）。
-3. **CTS**：WebView 相关用例全量，逐项记 Gecko 差异/未实现/上游 bug。
+2. **CTS**：WebView 相关用例全量，逐项记 Gecko 差异/未实现/上游 bug。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 

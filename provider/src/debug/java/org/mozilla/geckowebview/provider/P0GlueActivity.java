@@ -481,6 +481,115 @@ public final class P0GlueActivity extends Activity {
             }
             out.append("PASS renderProcess\n");
 
+            // --- P2-8 androidx glue: SupportLibReflectionUtil entry ---
+            final Object[] glueBox = new Object[1];
+            final Throwable[] glueError = new Throwable[1];
+            final CountDownLatch glueDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    Class<?> glueClass = Class.forName(
+                            "org.chromium.support_lib_glue.SupportLibReflectionUtil",
+                            false,
+                            GeckoWebViewFactoryProvider.class.getClassLoader());
+                    java.lang.reflect.Method m = glueClass.getDeclaredMethod(
+                            "createWebViewProviderFactory");
+                    glueBox[0] = m.invoke(null);
+                } catch (Throwable t) {
+                    glueError[0] = t;
+                } finally {
+                    glueDone.countDown();
+                }
+            });
+            glueDone.await(10, TimeUnit.SECONDS);
+            if (glueError[0] != null || glueBox[0] == null) {
+                throw new IllegalStateException("glue entry failed", glueError[0]);
+            }
+            out.append("PASS glue entry=")
+                    .append(glueBox[0].getClass().getName()).append('\n');
+
+            // --- P2-8 getSupportedFeatures honest set ---
+            final Object[] featBox = new Object[1];
+            final Throwable[] featError = new Throwable[1];
+            final CountDownLatch featDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    java.lang.reflect.InvocationHandler handler =
+                            (java.lang.reflect.InvocationHandler) glueBox[0];
+                    Object[] noArgs = null;
+                    java.lang.reflect.Method getFeatures = null;
+                    for (java.lang.reflect.Method candidate
+                            : org.chromium.support_lib_boundary
+                                    .WebViewProviderFactoryBoundaryInterface.class
+                                    .getMethods()) {
+                        if (candidate.getName().equals("getSupportedFeatures")) {
+                            getFeatures = candidate;
+                            break;
+                        }
+                    }
+                    featBox[0] = handler.invoke(null, getFeatures, noArgs);
+                } catch (Throwable t) {
+                    featError[0] = t;
+                } finally {
+                    featDone.countDown();
+                }
+            });
+            featDone.await(10, TimeUnit.SECONDS);
+            if (featError[0] != null || !(featBox[0] instanceof String[])) {
+                throw new IllegalStateException("features failed", featError[0]);
+            }
+            String[] features = (String[]) featBox[0];
+            boolean hasClient = false;
+            boolean hasRenderer = false;
+            boolean hasTracing = false;
+            boolean leaksJsInjection = false;
+            for (String f : features) {
+                if ("GET_WEB_VIEW_CLIENT".equals(f)) {
+                    hasClient = true;
+                }
+                if ("GET_WEB_VIEW_RENDERER".equals(f)) {
+                    hasRenderer = true;
+                }
+                if ("TRACING_CONTROLLER_BASIC_USAGE".equals(f)) {
+                    hasTracing = true;
+                }
+                if ("JS_INJECTION_IN_FRAME_AND_WORLD".equals(f)) {
+                    leaksJsInjection = true;
+                }
+                out.append("feature ").append(f).append('\n');
+            }
+            if (!hasClient || !hasRenderer || !hasTracing || leaksJsInjection) {
+                throw new IllegalStateException("feature set dishonest");
+            }
+            out.append("PASS features count=").append(features.length).append('\n');
+
+            // --- P2-8 visual state callback fires on page stop ---
+            final CountDownLatch vsDone = new CountDownLatch(1);
+            final Throwable[] vsError = new Throwable[1];
+            runOnUiThread(() -> {
+                try {
+                    provider.insertVisualStateCallback(42L,
+                            new WebView.VisualStateCallback() {
+                                @Override
+                                public void onComplete(long requestId) {
+                                    if (requestId == 42L) {
+                                        vsDone.countDown();
+                                    }
+                                }
+                            });
+                    provider.loadUrl("https://example.com/");
+                } catch (Throwable t) {
+                    vsError[0] = t;
+                    vsDone.countDown();
+                }
+            });
+            if (!vsDone.await(45, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("visual state timeout");
+            }
+            if (vsError[0] != null) {
+                throw new IllegalStateException("visual state failed", vsError[0]);
+            }
+            out.append("PASS visualState\n");
+
             runOnUiThread(provider::destroy);
             out.append("P0 GLUE PASS\n");
         } catch (Throwable t) {
