@@ -16,7 +16,7 @@
 > ```text
 > TARGET_ANDROID_API = 34
 > AOSP_BASE = android14-release（固定 commit：<待填，provider 开工前 pin 死>）
-> GECKOVIEW_VERSION = <待填，精确版本号，开工前 pin 死，禁用 +>
+> GECKOVIEW_VERSION = 153.0.20260810162159（stable，provider/build.gradle 已 pin）
 > FIREFOX_COMMIT = <启用本地 Gecko / 发布时才填，此前留空>
 > ```
 >

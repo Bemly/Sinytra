@@ -42,9 +42,15 @@ adb -s V885Q49L8TAMFEEE shell \
 adb -s V885Q49L8TAMFEEE shell "su -c id"
 adb -s V885Q49L8TAMFEEE shell "su -c 'dumpsys webviewupdate'"
 
-# 日常装 Provider 调 P0
-./gradlew assembleDebug && adb -s V885Q49L8TAMFEEE install -r GeckoWebView.apk
+# 日常装 Provider 调 P-1/P0（applicationId 带 .debug 后缀）
+./gradlew :provider:assembleDebug \
+  && adb -s V885Q49L8TAMFEEE install -r provider/build/outputs/apk/debug/provider-debug.apk
 ```
+
+> 构建环境（2026-09-21 实测）：`JAVA_HOME=/opt/homebrew/opt/openjdk@17`，
+> Gradle wrapper 9.4.1 + AGP 9.2.0，`ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`
+>（platforms 34/36/37.1 + build-tools 34.0.0）。
+> `compileSdk = 36` 纯为满足 GeckoView 153 的构建链；`targetSdk = 34` 不变（对齐本机）。
 
 - 本机是 `user` build（非 `userdebug/eng`），没有 emulator 那种“忽略 provider
   签名检查”的便利；要进“开发者选项 → WebView 实现”切换，
