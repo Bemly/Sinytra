@@ -4,6 +4,7 @@ import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.util.List;
+import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 import org.mozilla.geckowebview.provider.GeckoRuntimeHolder;
@@ -50,6 +51,18 @@ public final class GeckoSessionBridge
             public void onHistoryStateChange(@NonNull GeckoSession session,
                     @NonNull GeckoSession.HistoryDelegate.HistoryList historyList) {
                 mHistoryList = historyList;
+            }
+
+            @Override
+            public GeckoResult<Boolean> onVisited(@NonNull GeckoSession session,
+                    @NonNull String url, @Nullable String lastVisitedURL, int flags) {
+                return GeckoResult.fromValue(Boolean.FALSE);
+            }
+
+            @Override
+            public GeckoResult<boolean[]> getVisited(@NonNull GeckoSession session,
+                    @NonNull String[] urls) {
+                return GeckoResult.fromValue(new boolean[urls.length]);
             }
         });
         ProgressBridge progress = new ProgressBridge(this);
