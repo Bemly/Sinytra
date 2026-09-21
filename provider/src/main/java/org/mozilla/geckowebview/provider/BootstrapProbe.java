@@ -34,7 +34,7 @@ public final class BootstrapProbe {
     private BootstrapProbe() {}
 
     @NonNull
-    public static Result run(@NonNull Context context) {
+    public static Result runStatic(@NonNull Context context) {
         Result result = new Result();
         result.add("package=" + context.getPackageName());
         result.add("process=" + getProcessName());
@@ -46,9 +46,23 @@ public final class BootstrapProbe {
         probeClass("org.mozilla.geckoview.GeckoView", result);
         probeNativeLibraryDir(context, result);
         probeGeckoServices(context, result);
-        probeRuntimeCreate(context, result);
-        Log.i(TAG, "\n" + result);
         return result;
+    }
+
+    /** Must be called on the UI thread: GeckoRuntime.create is @UiThread. */
+    public static void probeRuntimeCreate(@NonNull Context context, @NonNull Result result) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            result.add("GeckoRuntime.create: SKIPPED (must run on UI thread)");
+            return;
+        }
+        try {
+            long start = System.currentTimeMillis();
+            GeckoRuntimeHolder.get(context);
+            long elapsed = System.currentTimeMillis() - start;
+            result.add("GeckoRuntime.create: OK in " + elapsed + "ms");
+        } catch (Throwable t) {
+            result.add("GeckoRuntime.create: FAIL " + Log.getStackTraceString(t));
+        }
     }
 
     private static void probeClass(String name, Result result) {
@@ -87,8 +101,9 @@ public final class BootstrapProbe {
     private static void probeGeckoServices(Context context, Result result) {
         String[] services = {
             "org.mozilla.gecko.process.GeckoChildProcessServices$gpu",
-            "org.mozilla.gecko.process.GeckoChildProcessServices$tab",
+            "org.mozilla.gecko.process.GeckoChildProcessServices$tab0",
             "org.mozilla.gecko.process.GeckoChildProcessServices$socket",
+            "org.mozilla.gecko.process.GeckoChildProcessServices$rdd",
             "org.mozilla.gecko.media.MediaManager",
             "org.mozilla.gecko.crashhelper.CrashHelper",
         };
@@ -106,17 +121,6 @@ public final class BootstrapProbe {
             } catch (Throwable t) {
                 result.add("service " + service + ": FAIL " + t);
             }
-        }
-    }
-
-    private static void probeRuntimeCreate(Context context, Result result) {
-        try {
-            long start = System.currentTimeMillis();
-            GeckoRuntimeHolder.get(context);
-            long elapsed = System.currentTimeMillis() - start;
-            result.add("GeckoRuntime.create: OK in " + elapsed + "ms");
-        } catch (Throwable t) {
-            result.add("GeckoRuntime.create: FAIL " + Log.getStackTraceString(t));
         }
     }
 

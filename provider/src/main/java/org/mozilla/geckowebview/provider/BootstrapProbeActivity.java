@@ -20,10 +20,18 @@ public final class BootstrapProbeActivity extends Activity {
         setContentView(scroll);
 
         final TextView view = text;
+        final BootstrapProbe.Result result = BootstrapProbe.runStatic(this);
+        view.setText(result.toString() + "\nCreating GeckoRuntime on UI thread…");
         new Thread(() -> {
-            BootstrapProbe.Result result = BootstrapProbe.run(BootstrapProbeActivity.this);
-            Log.i(TAG, "probe done");
-            runOnUiThread(() -> view.setText(result.toString()));
+            runOnUiThread(() -> {
+                try {
+                    BootstrapProbe.probeRuntimeCreate(BootstrapProbeActivity.this, result);
+                } catch (Throwable t) {
+                    result.add("GeckoRuntime.create: FAIL " + Log.getStackTraceString(t));
+                }
+                Log.i(TAG, "\n" + result);
+                view.setText(result.toString());
+            });
         }, "bootstrap-probe").start();
     }
 }

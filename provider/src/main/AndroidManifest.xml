@@ -10,7 +10,7 @@
 
         <!-- P-1 bootstrap probe activity (not a WebView provider yet). -->
         <activity
-            android:name=".BootstrapProbeActivity"
+            android:name="org.mozilla.geckowebview.provider.BootstrapProbeActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
