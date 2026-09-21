@@ -1,6 +1,7 @@
 package org.mozilla.geckowebview.provider;
 
 import android.app.Activity;
+import android.content.Context;
 import android.os.Bundle;
 import android.util.Log;
 import android.webkit.WebView;
@@ -248,6 +249,105 @@ public final class P0GlueActivity extends Activity {
             });
             out.append("PASS settings roundtrip\n");
 
+            // --- P1 singleton checks (factory-owned implementations) ---
+            final Object[] singletons = new Object[7];
+            final Throwable[] singletonError = new Throwable[1];
+            final CountDownLatch singletonDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    Context app = P0GlueActivity.this.getApplicationContext();
+                    singletons[0] = factory.cookieManager(app);
+                    singletons[1] = factory.getWebStorage();
+                    singletons[2] = factory.icons(app);
+                    singletons[3] = factory.webViewDatabase(app);
+                    singletons[4] = factory.getGeolocationPermissions();
+                    singletons[5] = factory.getServiceWorkerController();
+                    singletons[6] = factory.getTracingController();
+                } catch (Throwable t) {
+                    singletonError[0] = t;
+                } finally {
+                    singletonDone.countDown();
+                }
+            });
+            singletonDone.await(10, TimeUnit.SECONDS);
+            if (singletonError[0] != null) {
+                throw new IllegalStateException("singletons failed", singletonError[0]);
+            }
+            String[] names = {"cookie", "storage", "icon", "webdb", "geo", "sw", "tracing"};
+            for (int i = 0; i < singletons.length; i++) {
+                if (singletons[i] == null) {
+                    throw new IllegalStateException("singleton null: " + names[i]);
+                }
+                out.append("singleton ").append(names[i]).append('=')
+                        .append(singletons[i].getClass().getName()).append('\n');
+            }
+            out.append("PASS singletons\n");
+
+            // --- P1 WebViewDatabase HTTP-auth round-trip ---
+            final Throwable[] dbError = new Throwable[1];
+            final CountDownLatch dbDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    provider.setHttpAuthUsernamePassword(
+                            "example.com", "realm1", "user1", "pass1");
+                    String[] creds = provider.getHttpAuthUsernamePassword(
+                            "example.com", "realm1");
+                    if (creds == null || !"user1".equals(creds[0])
+                            || !"pass1".equals(creds[1])) {
+                        throw new IllegalStateException(
+                                "auth creds mismatch");
+                    }
+                } catch (Throwable t) {
+                    dbError[0] = t;
+                } finally {
+                    dbDone.countDown();
+                }
+            });
+            dbDone.await(10, TimeUnit.SECONDS);
+            if (dbError[0] != null) {
+                throw new IllegalStateException("wevdb auth failed", dbError[0]);
+            }
+            out.append("PASS httpAuth store\n");
+
+            // --- P1 find-in-page on the live example.org page ---
+            final CountDownLatch findDone = new CountDownLatch(1);
+            final int[][] findResult = new int[1][];
+            final Throwable[] findError = new Throwable[1];
+            runOnUiThread(() -> {
+                try {
+                    provider.setFindListener((active, total, done) -> {
+                        findResult[0] = new int[] {active, total, done ? 1 : 0};
+                        findDone.countDown();
+                    });
+                    provider.findAllAsync("Example");
+                } catch (Throwable t) {
+                    findError[0] = t;
+                    findDone.countDown();
+                }
+            });
+            if (!findDone.await(30, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("find timeout");
+            }
+            if (findError[0] != null) {
+                throw new IllegalStateException("find failed", findError[0]);
+            }
+            int total = findResult[0] != null ? findResult[0][1] : 0;
+            out.append("PASS find total=").append(total).append('\n');
+            runOnUiThread(provider::clearMatches);
+
+            // --- P1 error mapping: bad host must fan out onReceivedError ---
+            final CountDownLatch errDone = new CountDownLatch(1);
+            final int[][] errResult = new int[1][];
+            TestClient errClient = new TestClient();
+            runOnUiThread(() -> {
+                provider.setWebViewClient(errClient.errClient(errDone, errResult));
+                provider.loadUrl("https://nonexistent.invalid/");
+            });
+            if (!errDone.await(45, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("error mapping timeout");
+            }
+            out.append("PASS loadError code=").append(errResult[0][0]).append('\n');
+
             runOnUiThread(provider::destroy);
             out.append("P0 GLUE PASS\n");
         } catch (Throwable t) {
@@ -289,6 +389,26 @@ public final class P0GlueActivity extends Activity {
                 }
             }
         };
+
+        android.webkit.WebViewClient errClient(CountDownLatch done, int[][] out) {
+            return new android.webkit.WebViewClient() {
+                @Override
+                public void onReceivedError(WebView view, int errorCode,
+                        String description, String failingUrl) {
+                    Log.i(TAG, "errClient: onReceivedError " + errorCode + " "
+                            + failingUrl);
+                    out[0] = new int[] {errorCode};
+                    done.countDown();
+                }
+
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    if (url != null && url.contains("nonexistent.invalid")) {
+                        done.countDown();
+                    }
+                }
+            };
+        }
         final android.webkit.WebChromeClient chrome = new android.webkit.WebChromeClient() {
         };
         private final CountDownLatch started = new CountDownLatch(1);

@@ -24,6 +24,8 @@ public final class GeckoSessionBridge
         void onPageFinished(boolean success);
         void onProgressChanged(int progress);
         void onTitleChanged(@Nullable String title);
+        void onLoadError(int errorCode, @NonNull String description,
+                @Nullable String failingUrl);
     }
 
     private static final String TAG = "Sinytra/session";
@@ -44,6 +46,10 @@ public final class GeckoSessionBridge
     // until the next flush), so copyBackForwardList prefers this.
     @Nullable
     private GeckoSession.HistoryDelegate.HistoryList mHistoryList;
+    @Nullable
+    private ContentBridge.Host mContentHost;
+    @Nullable
+    private GeckoSession.ProgressDelegate.SecurityInformation mSecurityInfo;
 
     public GeckoSessionBridge(@NonNull Client client) {
         mClient = client;
@@ -111,6 +117,58 @@ public final class GeckoSessionBridge
                 mClient.onTitleChanged(title);
             }
         });
+        mContentHost = null;
+    }
+
+    // P1 delegates that must not clobber each other: the provider owns one
+    // Permission/Prompt/Content delegate each and fans out to sub-bridges.
+    public void setExtraDelegates(@NonNull PermissionBridge.Host permHost,
+            @NonNull PromptBridge.Host promptHost,
+            @NonNull ContentBridge.Host contentHost) {
+        mContentHost = contentHost;
+        mSession.setPermissionDelegate(new PermissionBridge(permHost));
+        mSession.setPromptDelegate(new PromptBridge(promptHost));
+        mSession.setContentDelegate(new ContentBridge(new ContentBridge.Host() {
+            @Override
+            public void onDownloadStart(@NonNull String url, @Nullable String userAgent,
+                    @Nullable String contentDisposition, @NonNull String mimeType,
+                    long contentLength) {
+                contentHost.onDownloadStart(url, userAgent, contentDisposition,
+                        mimeType, contentLength);
+            }
+
+            @Override
+            public void onTitleChanged(@Nullable String title) {
+                mTitle = title;
+                mClient.onTitleChanged(title);
+                contentHost.onTitleChanged(title);
+            }
+
+            @Override
+            public void onFullScreen(boolean fullScreen) {
+                contentHost.onFullScreen(fullScreen);
+            }
+
+            @Override
+            public void onCloseWindow() {
+                contentHost.onCloseWindow();
+            }
+
+            @Override
+            public void onFocusRequest() {
+                contentHost.onFocusRequest();
+            }
+
+            @Override
+            public void onCrash() {
+                contentHost.onCrash();
+            }
+        }));
+    }
+
+    @Nullable
+    public GeckoSession.ContentDelegate contentDelegate() {
+        return mSession.getContentDelegate();
     }
 
     @NonNull
@@ -147,6 +205,12 @@ public final class GeckoSessionBridge
         return mClient.shouldOverrideUrlLoading(url);
     }
 
+    @Override
+    public void onLoadError(int errorCode, @NonNull String description,
+            @Nullable String failingUrl) {
+        mClient.onLoadError(errorCode, description, failingUrl);
+    }
+
     // --- ProgressBridge.Host ---
 
     @Override
@@ -171,6 +235,7 @@ public final class GeckoSessionBridge
     @Override
     public void onSecurityChanged(
             @NonNull GeckoSession.ProgressDelegate.SecurityInformation securityInfo) {
+        mSecurityInfo = securityInfo;
     }
 
     // --- P0 navigation surface (called by GeckoWebViewProvider) ---
@@ -277,6 +342,20 @@ public final class GeckoSessionBridge
     @Nullable
     public GeckoSession.SessionState sessionState() {
         return mSessionState;
+    }
+
+    @Nullable
+    public android.net.http.SslCertificate certificate() {
+        GeckoSession.ProgressDelegate.SecurityInformation info = mSecurityInfo;
+        if (info == null || info.certificate == null) {
+            return null;
+        }
+        try {
+            return new android.net.http.SslCertificate(info.certificate);
+        } catch (Throwable t) {
+            Log.w(TAG, "certificate convert threw", t);
+            return null;
+        }
     }
 
     public List<GeckoSession.HistoryDelegate.HistoryItem> historySnapshot() {

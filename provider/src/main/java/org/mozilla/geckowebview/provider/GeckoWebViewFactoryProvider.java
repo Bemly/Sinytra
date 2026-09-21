@@ -14,10 +14,18 @@ import android.webkit.WebView;
 import android.webkit.WebViewDatabase;
 import android.webkit.WebViewProvider;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import org.mozilla.geckowebview.session.GeckoSessionBridge;
 import org.mozilla.geckowebview.settings.GeckoWebSettings;
 import org.mozilla.geckowebview.storage.GeckoCookieManager;
+import org.mozilla.geckowebview.storage.GeckoCookieManagerImpl;
+import org.mozilla.geckowebview.storage.GeckoGeolocationStore;
+import org.mozilla.geckowebview.storage.GeckoServiceWorkerController;
+import org.mozilla.geckowebview.storage.GeckoTracingController;
+import org.mozilla.geckowebview.storage.GeckoWebIconDatabase;
 import org.mozilla.geckowebview.storage.GeckoWebStorage;
+import org.mozilla.geckowebview.storage.GeckoWebStorageFacade;
+import org.mozilla.geckowebview.storage.GeckoWebViewDatabaseImpl;
 import org.mozilla.geckowebview.view.GeckoViewHost;
 
 // Entry point the framework loads via reflection (BOOTSTRAP.md §2):
@@ -33,7 +41,16 @@ public final class GeckoWebViewFactoryProvider
 
     private final GeckoWebViewStatics mStatics = new GeckoWebViewStatics();
     private volatile GeckoCookieManager mCookieManager;
+    private volatile GeckoCookieManagerImpl mCookieManagerImpl;
     private volatile GeckoWebStorage mWebStorage;
+    private volatile GeckoWebStorageFacade mStorageFacade;
+    private volatile GeckoWebIconDatabase mIconDatabase;
+    private volatile GeckoWebViewDatabaseImpl mWebViewDatabase;
+    private volatile GeckoGeolocationStore mGeoStore;
+    private final GeckoServiceWorkerController mServiceWorkerController =
+            new GeckoServiceWorkerController();
+    private final GeckoTracingController mTracingController =
+            new GeckoTracingController();
 
     public GeckoWebViewFactoryProvider() {}
 
@@ -54,12 +71,16 @@ public final class GeckoWebViewFactoryProvider
 
     @Override
     public GeolocationPermissions getGeolocationPermissions() {
-        return GeolocationPermissions.getInstance();
+        GeolocationPermissions framework = GeckoGeolocationStore.frameworkInstance();
+        return framework != null ? framework
+                : GeolocationPermissions.getInstance();
     }
 
     @Override
     public CookieManager getCookieManager() {
-        return CookieManager.getInstance();
+        throw new IllegalStateException(
+                "getCookieManager(): framework must pass a Context "
+                        + "(use cookieManager(context))");
     }
 
     @Override
@@ -70,27 +91,29 @@ public final class GeckoWebViewFactoryProvider
 
     @Override
     public TracingController getTracingController() {
-        throw new UnsupportedOperationException("TracingController: P2");
+        return mTracingController;
     }
 
     @Override
     public ServiceWorkerController getServiceWorkerController() {
-        throw new UnsupportedOperationException("ServiceWorkerController: P2");
+        return mServiceWorkerController;
     }
 
     @Override
     public WebIconDatabase getWebIconDatabase() {
-        return WebIconDatabase.getInstance();
+        throw new IllegalStateException(
+                "getWebIconDatabase(): framework must pass a Context (use icons(context))");
     }
 
     @Override
     public WebStorage getWebStorage() {
-        return WebStorage.getInstance();
+        android.webkit.WebStorage framework = GeckoWebStorageFacade.frameworkInstance();
+        return framework != null ? framework : WebStorage.getInstance();
     }
 
     @Override
     public WebViewDatabase getWebViewDatabase(Context context) {
-        return WebViewDatabase.getInstance(context);
+        return webViewDatabase(context);
     }
 
     @Override
@@ -123,6 +146,85 @@ public final class GeckoWebViewFactoryProvider
                 if (existing == null) {
                     existing = new GeckoWebStorage(context);
                     mWebStorage = existing;
+                }
+            }
+        }
+        return existing;
+    }
+
+    // android.webkit singleton implementations (returned to the framework).
+    // The framework may call these before any WebView exists, so each takes
+    // the harness/activity context explicitly — no "before provider init"
+    // failure mode. All instances are host-process singletons.
+    @NonNull
+    public CookieManager cookieManager(@NonNull Context context) {
+        GeckoCookieManagerImpl existing = mCookieManagerImpl;
+        if (existing == null) {
+            synchronized (this) {
+                existing = mCookieManagerImpl;
+                if (existing == null) {
+                    existing = new GeckoCookieManagerImpl(context);
+                    mCookieManagerImpl = existing;
+                }
+            }
+        }
+        return existing;
+    }
+
+    @NonNull
+    public GeckoWebStorageFacade storageFacade(@NonNull Context context) {
+        GeckoWebStorageFacade existing = mStorageFacade;
+        if (existing == null) {
+            synchronized (this) {
+                existing = mStorageFacade;
+                if (existing == null) {
+                    existing = new GeckoWebStorageFacade(context);
+                    mStorageFacade = existing;
+                }
+            }
+        }
+        return existing;
+    }
+
+    @NonNull
+    public WebIconDatabase icons(@NonNull Context context) {
+        GeckoWebIconDatabase existing = mIconDatabase;
+        if (existing == null) {
+            synchronized (this) {
+                existing = mIconDatabase;
+                if (existing == null) {
+                    existing = new GeckoWebIconDatabase(context);
+                    mIconDatabase = existing;
+                }
+            }
+        }
+        return existing;
+    }
+
+    @NonNull
+    public WebViewDatabase webViewDatabase(@NonNull Context context) {
+        GeckoWebViewDatabaseImpl existing = mWebViewDatabase;
+        if (existing == null) {
+            synchronized (this) {
+                existing = mWebViewDatabase;
+                if (existing == null) {
+                    existing = new GeckoWebViewDatabaseImpl(context);
+                    mWebViewDatabase = existing;
+                }
+            }
+        }
+        return existing;
+    }
+
+    @NonNull
+    public GeckoGeolocationStore geoStore(@NonNull Context context) {
+        GeckoGeolocationStore existing = mGeoStore;
+        if (existing == null) {
+            synchronized (this) {
+                existing = mGeoStore;
+                if (existing == null) {
+                    existing = new GeckoGeolocationStore(context);
+                    mGeoStore = existing;
                 }
             }
         }

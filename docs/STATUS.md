@@ -33,17 +33,33 @@
   `purgeHistory` 只清前后项、保留当前页（Chromium `clearHistory` 同语义，
   当前项保留），断言按 before/after 收缩写。另 `saveState(Bundle)` 改为
   返回当前 history 快照（不再 loud-todo）。
+- **P1-2 系统能力落地（harness 22 PASS，2026-09-22 00:43）**：
+  单例族 `cookie=GeckoCookieManagerImpl / storage=framework WebStorageAdapter
+  / icon=GeckoWebIconDatabase / webdb=GeckoWebViewDatabaseImpl /
+  geo=framework / sw=GeckoServiceWorkerController /
+  tracing=GeckoTracingController` 全非空；`httpAuth store` round-trip；
+  `find total=2`（example.org 上找 "Example"）；`loadError code=-2`
+  （nonexistent.invalid → onReceivedError）。
+  关键发现记死：① `WebStorage/GeolocationPermissions` 构造器在
+  android.jar 包可见，provider 跨包**不能继承**——factory 直接返回
+  framework `getInstance()`，Gecko 侧用 `StorageController` /
+  `GeckoGeolocationStore` 走内部通道；`CookieManager` 是 abstract+public
+  ctor 可继承；`WebViewDatabase/WebIconDatabase/ServiceWorker/Tracing`
+  ctor public 可继承。② `JsResult/JsPromptResult/HttpAuthHandler` 同理包可
+  见——JS dialog 改从 app 返回值驱动 Gecko prompt（PromptBridge 同步返回
+  confirm/dismiss），只给 app 传反射建的 framework token；HTTP auth 先走
+  WebViewDatabase 预填。③ storage 单例在 harness 里是 Chromium 的
+  `WebStorageAdapter`——因为 harness 的 `CookieManager.getInstance()` 走的
+  是**系统 Chromium provider**，不是我方 factory；等 framework 切换后才
+  会调到我方。P1 真机功能走的是 `storageFacade/geoStore` 内部通道，已验证。
 
 ## 2. 下一步（按顺序，一次做一件）
 
-1. **P0 生产修复（flush 落地 glue）**：harness 证明了 flush 能救回 history，
-   但生产路径 `copyBackForwardList()` 不能依赖调用方先 flush——bridge 应在
-   `onPageStop(success)` 后自动 `flushSessionState()`，让后续 copy 读到新鲜
-   snapshot。改完重跑 P0Glue（flush 分支应走不到，直接首读 size=2）。
-2. **P0 收尾**：glue 全绿后，把 `P0RenderActivity / P0GlueActivity /
-   BootstrapProbeActivity` 三个探针 activity 退役或移到 `tests/`（别进出货 APK）；
-   `ROADMAP.md` P0 验收打勾（loadUrl/reload/stop/goBack/goForward/canGo×2/
-   url/title/progress + 三个 client 回调 + 基础 settings）。
+1. **P1 收尾**：`restoreState(Bundle)`（SessionState 转译，P2 StateBridge
+   前先 honest）、`getCertificate` 已接（SecurityInformation→X509）、
+   `clearCache/clearFormData` 已接；`download` 走 DownloadListener 已接、
+   待真机下载验证；`print` adapter 已接、待真机打印验证。
+2. **P0/P1 回归**：harness 保持全绿；release dexdump 保持探针 0 引用。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 
