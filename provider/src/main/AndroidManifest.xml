@@ -7,23 +7,7 @@
     <application
         android:label="Sinytra Gecko WebView"
         android:allowBackup="false">
-
-        <!-- P-1 bootstrap probe activity (not a WebView provider yet). -->
-        <activity
-            android:name="org.mozilla.geckowebview.provider.BootstrapProbeActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-        <!-- P0 render probe: GeckoView + session + load example.com. -->
-        <activity
-            android:name="org.mozilla.geckowebview.provider.P0RenderActivity"
-            android:exported="true" />
-        <!-- P0 glue harness: drives GeckoWebViewProvider via reflection. -->
-        <activity
-            android:name="org.mozilla.geckowebview.provider.P0GlueActivity"
-            android:exported="true" />
+        <!-- Debug harnesses (P-1/P0 probes) live in src/debug + its manifest;
+             the shipping manifest declares no activities. -->
     </application>
 </manifest>

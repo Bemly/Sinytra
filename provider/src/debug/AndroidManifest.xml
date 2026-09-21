@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!-- Debug-only harnesses: P-1 probe, P0 render probe, P0 glue harness.
+             Merged into debug APKs only; release/shipping APKs never contain them. -->
+        <activity
+            android:name="org.mozilla.geckowebview.provider.BootstrapProbeActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="org.mozilla.geckowebview.provider.P0RenderActivity"
+            android:exported="true" />
+        <activity
+            android:name="org.mozilla.geckowebview.provider.P0GlueActivity"
+            android:exported="true" />
+    </application>
+</manifest>
