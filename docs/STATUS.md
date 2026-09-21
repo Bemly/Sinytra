@@ -183,6 +183,29 @@ HistoryList=0, SessionState=0         → Gecko 没 flush，再测 hidden GeckoV
   先看 `am_proc_start ... :<child>` 是否出现，再看 denials；
   跑 harness 前先跑 `P0RenderActivity` 确认 child 起得来（金丝雀）。
 
+## 5. PoC 开发者选项切换（分支 poc/dev-option-switch，2026-09-22 06:21）
+
+- **Valid+切换达成**：manifest 补 `WebViewLibrary=libxul.so` + versionCode
+  647900000（branch 6479>stock 6478/8037/8066），经 AnyWebView v1.3（scope=system）
+  进 Valid 列表；`set-webview-implementation firefox.bemly.moe.debug` Success，
+  Current/Preferred 均为我方（applicationId 已改 `firefox.bemly.moe`）。
+- **Cromite 结论**：`com.android.webview` 包名 + `libwebviewchromium.so` +
+  真 Factory 类天然过关；Sinytra 走保持包名+hook 路线（可逆，不写/system），
+  不学顶包名。AnyWebView v1.4.x 要 libxposed API 101（机上 LSPosed v1.11.0 不
+  支持，hook 静默失败），必须用 v1.3（de.robv 入口）。
+- **FrameworkEntryActivity PASS**：`new WebView()` + `onPageFinished` 走真
+  `WebViewFactory` 路径。关键修复：trampoline 必须用 Proxy 实现真实接口
+  （exact descriptor；直接 impl 因 stub erase 到 Object 报 AbstractMethodError）；
+  PrivateAccess 保留 + `super_setLayoutParams` 解决 Activity measure NPE；
+  WebViewZygote `preloadInZygote` NoSuchMethod  benign（Chromium 私有静态方法，
+  无则跳过，不影响后续 load）。
+- **已知缺口（P2 aosp-patch）**：WebStorage/GeolocationPermissions 构造器
+  package-private 不可继承 + `getInstance()` 经 Proxy 自循环——切换后设备上
+  harness 内已无 Chromium fallback，单例检查对 storage/geo 诚实容忍（null +
+  P2-pending 标记），其余 5 单例照常断言。P0Glue **P0 GLUE PASS**（31 项全过，
+  含 features 18 + visualState）。
+- **回滚**：开发者选项切回任一官方包即可；分支不合入 main（trampoline 禁令）。
+
 ## 4. 已实现文件速览
 
 ```text
