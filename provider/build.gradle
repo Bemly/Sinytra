@@ -1,0 +1,40 @@
+plugins {
+    id("com.android.application")
+}
+
+android {
+    namespace = "org.mozilla.geckowebview"
+    // GeckoView 153 stable: AAR minCompileSdk=1, androidx.core 1.18.0 — builds clean
+    // with AGP 9.x + compileSdk 36. (GV 154+ demands compileSdk 37.1, not yet
+    // exposed by the installed SDK snapshot.) targetSdk stays 34 (API-34 device).
+    compileSdk = 36
+
+    defaultConfig {
+        applicationId = "org.mozilla.geckowebview"
+        minSdk = 26
+        targetSdk = 34
+        versionCode = 1
+        versionName = "0.1.0-p1"
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix = ".debug"
+        }
+        release {
+            minifyEnabled = false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Pinned stable. GV 153: minCompileSdk=1, builds with compileSdk 36.
+    // (GV 154+ needs compileSdk 37.1 — revisit when the SDK snapshot ships it.)
+    implementation("org.mozilla.geckoview:geckoview:153.0.20260810162159")
+    implementation("androidx.annotation:annotation:1.9.1")
+}
