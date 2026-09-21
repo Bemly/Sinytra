@@ -1,0 +1,26 @@
+plugins {
+    id("java-library")
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+// android.jar is not on the compile classpath of a plain java-library module.
+// Point javac at the API-34 android.jar for android.* framework types so the
+// stubs can reference real public classes (Context, View, Bundle, ...).
+// The stubs themselves only ADD the hidden webkit types missing from android.jar.
+def androidJar = System.getenv("ANDROID_HOME") + "/platforms/android-34/android.jar"
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += [
+        "-classpath",
+        androidJar + java.io.File.pathSeparator
+            + configurations.compileClasspath.asPath
+    ]
+}
+
+dependencies {
+    compileOnly("androidx.annotation:annotation:1.9.1")
+}
