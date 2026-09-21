@@ -13,7 +13,14 @@ android {
         applicationId = "org.mozilla.geckowebview"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
+        // PoC WebView-switch: user builds enforce versionCode >= max(stock
+        // available-by-default versionCodes) via versionCodeGE on the BBBB
+        // branch field (dumpsys: Minimum WebView version code 647807131 =
+        // com.android.webview 126 branch 6478). Below that → "Version code
+        // too low". Set 647900000 (branch 6479, above all 3 stock branches
+        // 6478/8037/8066) so validity passes without touching stock.
+        // Stable 路线 versionCode 方案另议，此值仅 PoC 用。
+        versionCode = 647900000
         versionName = "0.1.0-p1"
     }
 

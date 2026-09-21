@@ -9,5 +9,15 @@
         android:allowBackup="false">
         <!-- Debug harnesses (P-1/P0 probes) live in src/debug + its manifest;
              the shipping manifest declares no activities. -->
+        <!-- PoC WebView-provider candidacy: WebViewUpdateServiceImpl.validityResult
+             rejects packages without this flag (VALIDITY_NO_LIBRARY_FLAG), and
+             AnyWebView only appends installed packages that declare it. Value must
+             be a loadable .so: Gecko's is libxul.so (BOOTSTRAP/P-1: GeckoLoader
+             loads base.apk!/lib/arm64-v8a directly, NOT via this flag — RELRO
+             loadNativeLibrary will fail on it, but validity only checks presence).
+             P0 后正式路线 (aosp-patches) 做 engine="gecko" 分流，此 flag 仅 PoC 用。 -->
+        <meta-data
+            android:name="com.android.webview.WebViewLibrary"
+            android:value="libxul.so" />
     </application>
 </manifest>
