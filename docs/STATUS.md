@@ -2,37 +2,30 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-21 晚。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-21 深夜。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
 - **P-1：通过**（结论①：bootstrap 可行）。`GeckoRuntime.create`（~190ms）→
   libxul 加载（~30ms，`GeckoThread RUNNING`）→ child service bind → P0Render
   完整渲染 example.com（含进度 15→55→100 + `onPageStop success=true`），截图验证通过。
-  约束见 `BOOTSTRAP.md` §1（vendor bad-process 问题见 §3）。
-- **P0 glue：7/8 通过**。`P0GlueActivity` harness（真机反射注入
-  `WebView + PrivateAccess`，绕开 framework 切换）在干净环境跑出：
-  `PASS provider construct / createWebView type / page1 finished /
-  page1 progress-url / page2 finished / canGoBack / goBack finished`，
-  `title1=Example Domain`。**唯一挂的是最后一步 `copyBackForwardList`
-  （`size=0 index=-1`）**，修了但还没在干净环境验证（见 §2）。
-- 工作区干净（已提交到 `3c39d45`），构建 `BUILD SUCCESSFUL`。
+  约束见 `BOOTSTRAP.md` §1（vendor launch 故障见 §3）。
+- **P0 glue：8/8 通过（连续两轮 P0 GLUE PASS，2026-09-21 22:37/22:39）**。
+  `P0GlueActivity` harness（真机反射注入 `WebView + PrivateAccess`，绕开
+  framework 切换）：`PASS provider construct / createWebView type /
+  page1 finished / page1 progress-url / page2 finished / canGoBack /
+  goBack finished / backForwardList size=2 / settings roundtrip`，
+  `title1=Example Domain`。copy=0 根因已定性（见 §2a）：Gecko 有 history
+  只是没及时 flush，`flushSessionState()` 后 `size=2 index=0`。
+- DuraSpeed 总开关已关（见 §3），child bind 连续两轮 `0 failed binds`、
+  `duraspeed block` 计数 0。工作区提交到 `976a8b0`（flush 诊断版）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
-1. **拿 `P0 GLUE PASS`**：先保证 child launch 稳定（DuraSpeed 排除见 §3，
-   不以重启为正常条件）→亮屏解锁→`P0RenderActivity` 先跑确认 child
-   起来→立刻跑 `P0GlueActivity`。预期：含 `backForwardList size>=2` 全绿。
-   相关修：`e1459c9`（live `HistoryList`）+ `3c39d45`（补 `onVisited/getVisited`
-   honest-default）。**修正**：visited 应答与 `GeckoView:StateUpdated` 是独立
-   分支（GV153 `HistoryDelegate` 三方法全是 default，返回 null 即按默认处理），
-   补 false/空数组只是诚实默认值，**不是** copy=0 的根因；诊断矩阵见 §2a。
-   命令：
-   ```bash
-   adb -s V885Q49L8TAMFEEE shell am start -S -n \
-     org.mozilla.geckowebview.debug/org.mozilla.geckowebview.provider.P0GlueActivity
-   ```
-   判 pass：logcat `Sinytra/p0glue` 出现 `P0 GLUE PASS`。
+1. **P0 生产修复（flush 落地 glue）**：harness 证明了 flush 能救回 history，
+   但生产路径 `copyBackForwardList()` 不能依赖调用方先 flush——bridge 应在
+   `onPageStop(success)` 后自动 `flushSessionState()`，让后续 copy 读到新鲜
+   snapshot。改完重跑 P0Glue（flush 分支应走不到，直接首读 size=2）。
 2. **P0 收尾**：glue 全绿后，把 `P0RenderActivity / P0GlueActivity /
    BootstrapProbeActivity` 三个探针 activity 退役或移到 `tests/`（别进出货 APK）；
    `ROADMAP.md` P0 验收打勾（loadUrl/reload/stop/goBack/goForward/canGo×2/
@@ -61,6 +54,14 @@ HistoryList=0, SessionState=0         → Gecko 没 flush，再测 hidden GeckoV
 
 - 顺序：先 `flushSessionState()` 看 SessionState 是否变 2（信息量最大的一步）；
   只有 flush 后仍 0，才上 hidden `GeckoViewHost` 做 A/B。
+- **实测结论（2026-09-21 22:37/22:39，两轮一致）**：goBack 的 `onPageFinished`
+  时刻三路全空（`live=null state=null snapshot=size=0`），`flushSessionState()`
+  后 Gecko 立刻补发 `onSessionStateChange size=2` + `onHistoryStateChange size=2`
+ （`urls=[example.com/, example.org/]`），post-flush 三路全 `size=2 index=0`。
+  定性：**HistoryList=0 + SessionState=0 → flush 后全 2 = Gecko 有 history
+  只是 headless 没及时 flush**；HistoryDelegate wiring 正常（flush 后立刻收到），
+  不是 bridge/cache bug。hidden-View A/B 不必做。生产修复：在
+  `onPageStop(success)` 后自动 flush（见 §2 下一步 1）。
 3. **P1 开工**：按 `ROADMAP.md` §3 逐项认领（CookieManager 落地 P2 patch 前先保持
    honest-default；权限/文件选择/下载/SSL/HTTP Auth/WebStorage/geolocation/
    查找/打印）。
@@ -96,6 +97,17 @@ HistoryList=0, SessionState=0         → Gecko 没 flush，再测 hidden GeckoV
   有 block 无 bad→vendor 问题；有 bad→AOSP 问题；都有→vendor 先杀 child
   再被推进 bad、两套机制放大。P0 期间优先把测试包加 DuraSpeed whitelist/
   后台无限制（DuraSpeed 本职就是限后台 service），而不是反复重装猜状态。
+- **已解决（2026-09-21 深夜，不重启，无重装）**：root 起 DuraSpeed 界面
+  （`su -c 'am start -n com.mediatek.duraspeed/.DuraSpeedMainActivity'`，
+  shell 直接起会 `SecurityException: not exported`）→截图确认
+  “前台优先模式”总开关开着→`input tap` 关总开关（uiautomator 复核
+  `checked=false`）。另把测试包写进 `app_list.db`（`status 0→1`，root
+  替换 + `force-stop com.mediatek.duraspeed` 生效，DB 语义待定，总开关是
+  主因）。效果：whitelist 前 `duraspeed block` 28 条 + 全 `0 successful
+  binds`；关总开关后两轮 `block` 计数 0、`successful binds` 全过、
+  P0Render 完整渲染（progress 15→55→100）、P0Glue 连续两轮 PASS。
+  **“必须重启”彻底证伪**：同一开机会话内从全失败到全 PASS。
+  注意：这是测试环境手段，量产 ROM 仍需 vendor 电源管理白名单（BOOTSTRAP）。
 - 调试纪律：保持亮屏解锁（Doze+锁屏冻心跳、截图全黑属正常）；
   先看 `am_proc_start ... :<child>` 是否出现，再看 denials；
   跑 harness 前先跑 `P0RenderActivity` 确认 child 起得来（金丝雀）。

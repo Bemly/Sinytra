@@ -157,6 +157,9 @@ public final class GeckoSessionBridge
     @Override
     public void onPageFinished(boolean success) {
         mClient.onPageFinished(success);
+        if (success) {
+            flushHistory();
+        }
     }
 
     @Override
