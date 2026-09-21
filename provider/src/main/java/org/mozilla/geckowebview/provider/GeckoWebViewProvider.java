@@ -233,6 +233,14 @@ public final class GeckoWebViewProvider
         return new GeckoBackForwardList(mBridge.historySnapshot());
     }
 
+    public void flushHistory() {
+        mBridge.flushHistory();
+    }
+
+    public void dumpHistorySources(@NonNull String where) {
+        mBridge.dumpHistorySources(where);
+    }
+
     // --- WebViewProvider: clients/settings ---
 
     @Override

@@ -34,17 +34,22 @@ process bootstrap（这是 P2 之外的前置 patch，优先级高于一切 brid
 - ✅ Service 可解析性：gpu/tab0/socket/rdd/media/crashhelper 全部 `PackageManager`
   可解析（AAR manifest 合并进 APK，89 个 `<service>`，`query-services` 除外——
   该命令在此 ROM 上对所有包都返回空，不是我们的特例）。
-- ⚠️ child process bind：**首次启动必成，后续启动走 `process is bad` 被拒**。
-  根因（已定位到 AOSP android14-release 源码）：`ActiveServices.bringUpServiceInnerLocked`
-  里 `mAm.startProcessLocked(...)` 返回 null（`ProcessList.startProcessLocked` 因
-  `AppErrors.isBadProcess(processName, uid)` 直接返回 null、不 fork）→ AMS 打出
-  `Unable to launch app ... : process is bad` → Gecko 侧 `BindException: Cannot connect`。
-  “bad” 由 `AppErrors` 维护：进程短时间内 crash 两次（或超 `PROCESS_CRASH_COUNT_LIMIT`）
-  即标记，直到用户显式启动该进程才清除（`resetProcessCrashTime`）。
-  触发器是 MTK DuraSpeed（`AiuiAmsExt: duraspeed block ... bringUpServiceLocked`）：
-  它拦截每次 service 拉起，偶发卡死/杀掉正在启动的 child（crashhelper 首当其冲，
-  每次重装/重启后第一次必现），把 child 进程推入 crash→bad 循环。
-  禁掉 `com.mediatek.duraspeed` 包无用（hook 在 `system_server` 内）。
+- ⚠️ child process bind：**首次启动必成，后续启动偶发被拒**（统一文案
+  `Unable to launch app ... : process is bad`——注意这句≠已命中
+  `mBadProcesses`，`ActiveServices` 只要 `startProcessLocked()` 返回 null
+  就打这句）。双路模型：AOSP bad-process（background bind + bad 名单→null；
+  Gecko child 永远后台 bind，`BIND_AUTO_CREATE+BIND_IMPORTANT`）与 MTK
+  DuraSpeed vendor veto 都能触发。最强证据：卸载重装换新 UID 后首启仍
+  `duraspeed block` 失败——bad 名单按 `processName+uid` 查询，旧 UID 残留
+  命中不了新 UID，至少这次是 vendor veto。触发器是 MTK DuraSpeed
+  （`AiuiAmsExt: duraspeed block ... bringUpServiceLocked`）：拦截每次
+  service 拉起，偶发卡死/杀掉正在启动的 child（crashhelper 首当其冲，
+  每次重装/重启后第一次必现），可能再把 child 推入 crash→bad 循环（两套
+  机制放大）。禁掉 `com.mediatek.duraspeed` 包无用（hook 在 `system_server` 内）。
+  `force-stop` 不清 bad 名单（只 `resetProcessCrashTime`，不清
+  `mBadProcesses`；且主进程显式启动清的也是主进程名≠`:gpu/:tabN`）。
+  **重启不是 GeckoView 的要求**：只是清 `system_server`/AMS 内存态所以暂时
+  恢复；P0 不以重启为正常条件，优先 DuraSpeed whitelist/后台无限制。
 - ✅ P0Render（`GeckoView + session + loadUri`）：child 起 Gramm 后完整渲染
   example.com（含进度 15→55→100 + `onPageStop success=true`），截图验证通过。
   → **P-1 结论①：bootstrap 可行**，约束：child bind 失败时页面停在 `about:blank`

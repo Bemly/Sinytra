@@ -162,8 +162,34 @@ public final class P0GlueActivity extends Activity {
 
             android.webkit.WebBackForwardList list = provider.copyBackForwardList();
             if (list.getSize() < 2 || list.getCurrentIndex() < 0) {
-                throw new IllegalStateException(
-                        "list size=" + list.getSize() + " index=" + list.getCurrentIndex());
+                final CountDownLatch flushed = new CountDownLatch(1);
+                runOnUiThread(() -> {
+                    try {
+                        provider.dumpHistorySources("pre-flush");
+                        provider.flushHistory();
+                    } finally {
+                        flushed.countDown();
+                    }
+                });
+                flushed.await(5, TimeUnit.SECONDS);
+                Thread.sleep(3000);
+                final CountDownLatch dumped = new CountDownLatch(1);
+                runOnUiThread(() -> {
+                    try {
+                        provider.dumpHistorySources("post-flush");
+                    } finally {
+                        dumped.countDown();
+                    }
+                });
+                dumped.await(5, TimeUnit.SECONDS);
+                list = provider.copyBackForwardList();
+                out.append("flushed: size=").append(list.getSize())
+                        .append(" index=").append(list.getCurrentIndex()).append('\n');
+                if (list.getSize() < 2 || list.getCurrentIndex() < 0) {
+                    throw new IllegalStateException(
+                            "list size=" + list.getSize() + " index="
+                                    + list.getCurrentIndex());
+                }
             }
             out.append("PASS backForwardList size=").append(list.getSize()).append('\n');
 

@@ -1,6 +1,7 @@
 package org.mozilla.geckowebview.session;
 
 import android.content.Context;
+import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.util.List;
@@ -24,6 +25,8 @@ public final class GeckoSessionBridge
         void onProgressChanged(int progress);
         void onTitleChanged(@Nullable String title);
     }
+
+    private static final String TAG = "Sinytra/session";
 
     private final GeckoSession mSession;
     private final Client mClient;
@@ -51,6 +54,9 @@ public final class GeckoSessionBridge
             public void onHistoryStateChange(@NonNull GeckoSession session,
                     @NonNull GeckoSession.HistoryDelegate.HistoryList historyList) {
                 mHistoryList = historyList;
+                Log.i(TAG, "history: onHistoryStateChange size=" + historyList.size()
+                        + " index=" + safeIndex(historyList)
+                        + " urls=" + snapshotUrls(historyList));
             }
 
             @Override
@@ -92,6 +98,9 @@ public final class GeckoSessionBridge
             public void onSessionStateChange(@NonNull GeckoSession session,
                     @NonNull GeckoSession.SessionState sessionState) {
                 mSessionState = sessionState;
+                Log.i(TAG, "history: onSessionStateChange size=" + sessionState.size()
+                        + " index=" + safeIndex(sessionState)
+                        + " urls=" + snapshotUrls(sessionState));
             }
         });
         mSession.setContentDelegate(new GeckoSession.ContentDelegate() {
@@ -217,6 +226,69 @@ public final class GeckoSessionBridge
         }
         GeckoSession.SessionState state = mSessionState;
         return state != null ? state : java.util.Collections.emptyList();
+    }
+
+    // Ask Gecko to push the latest session data (incl. navigation history)
+    // through onSessionStateChange. No GeckoView attach required.
+    public void flushHistory() {
+        try {
+            mSession.flushSessionState();
+        } catch (Throwable t) {
+            Log.w(TAG, "flushSessionState threw", t);
+        }
+    }
+
+    // One-shot dump of all three history sources for the copy=0 diagnosis
+    // matrix (STATUS.md §2a): live HistoryList, SessionState, and the snapshot
+    // copyBackForwardList actually reads.
+    public void dumpHistorySources(@NonNull String where) {
+        GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
+        GeckoSession.SessionState state = mSessionState;
+        List<GeckoSession.HistoryDelegate.HistoryItem> snapshot = historySnapshot();
+        Log.i(TAG, "history: [" + where + "] live="
+                + describe(live) + " state=" + describe(state)
+                + " snapshot=" + describe(snapshot));
+    }
+
+    private static String describe(
+            @Nullable List<GeckoSession.HistoryDelegate.HistoryItem> list) {
+        if (list == null) {
+            return "null";
+        }
+        return "size=" + list.size() + " index=" + safeIndex(list)
+                + " urls=" + snapshotUrls(list);
+    }
+
+    private static int safeIndex(
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> list) {
+        if (list instanceof GeckoSession.HistoryDelegate.HistoryList) {
+            try {
+                return ((GeckoSession.HistoryDelegate.HistoryList) list)
+                        .getCurrentIndex();
+            } catch (UnsupportedOperationException e) {
+                return -1;
+            }
+        }
+        return list.isEmpty() ? -1 : list.size() - 1;
+    }
+
+    @NonNull
+    private static String snapshotUrls(
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> list) {
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (GeckoSession.HistoryDelegate.HistoryItem item : list) {
+            if (!first) {
+                sb.append(", ");
+            }
+            first = false;
+            try {
+                sb.append(item.getUri());
+            } catch (UnsupportedOperationException e) {
+                sb.append("<invalid>");
+            }
+        }
+        return sb.append(']').toString();
     }
 
     public void close() {
