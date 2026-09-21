@@ -195,6 +195,63 @@ public final class GeckoSessionBridge
         mSession.goForward();
     }
 
+    public boolean canGoBackOrForward(int steps) {
+        GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
+        if (live != null && !live.isEmpty()) {
+            return targetIndex(live, steps) >= 0;
+        }
+        GeckoSession.SessionState state = mSessionState;
+        if (state != null && !state.isEmpty()) {
+            return targetIndex(state, steps) >= 0;
+        }
+        if (steps < 0) {
+            return mCanGoBack;
+        }
+        if (steps > 0) {
+            return mCanGoForward;
+        }
+        return true;
+    }
+
+    public void goBackOrForward(int steps) {
+        if (steps == 0) {
+            reload();
+            return;
+        }
+        GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
+        int target = live != null && !live.isEmpty()
+                ? targetIndex(live, steps) : -1;
+        if (target < 0) {
+            GeckoSession.SessionState state = mSessionState;
+            if (state != null && !state.isEmpty()) {
+                target = targetIndex(state, steps);
+            }
+        }
+        if (target >= 0) {
+            mSession.gotoHistoryIndex(target);
+        } else if (steps < 0 && mCanGoBack) {
+            mSession.goBack();
+        } else if (steps > 0 && mCanGoForward) {
+            mSession.goForward();
+        }
+    }
+
+    private static int targetIndex(
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> list, int steps) {
+        int current = safeIndex(list);
+        if (current < 0) {
+            return -1;
+        }
+        int target = current + steps;
+        return target >= 0 && target < list.size() ? target : -1;
+    }
+
+    public void clearHistory() {
+        mSession.purgeHistory();
+        mSessionState = null;
+        mHistoryList = null;
+    }
+
     public boolean canGoBack() {
         return mCanGoBack;
     }

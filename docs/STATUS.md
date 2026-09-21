@@ -17,8 +17,22 @@
   goBack finished / backForwardList size=2 / settings roundtrip`，
   `title1=Example Domain`。copy=0 根因已定性（见 §2a）：Gecko 有 history
   只是没及时 flush，`flushSessionState()` 后 `size=2 index=0`。
-- DuraSpeed 总开关已关（见 §3），child bind 连续两轮 `0 failed binds`、
-  `duraspeed block` 计数 0。工作区提交到 `976a8b0`（flush 诊断版）。
+- DuraSpeed 总开关已关（见 §3），child bind 连续多轮 `0 failed binds`、
+  `duraspeed block` 计数 0。P0 收尾完成：探针退到 `src/debug`（release
+  dexdump 0 引用，debug 702 引用，harness 照跑），`cdeb498`。
+  工作区提交到 `cdeb498`。
+
+## 1a. P1 进展
+
+- **P1-1 历史导航落地（harness PASS）**：`canGoBackOrForward` 按
+  HistoryList index 算目标位（无快照时退化到 canGo×2）；`goBackOrForward`
+  经 `gotoHistoryIndex(target)`，steps=0 按 Chromium 语义 reload，
+  无快照时退化 goBack/goForward；`clearHistory` 经 `purgeHistory()`。
+  实测：`canGoBackOrForward(-1)=true/(+1)=false`、`goBackOrForward(+1)`
+  回到 example.org、`clearHistory` 后 list 2→1。注意 Gecko 语义：
+  `purgeHistory` 只清前后项、保留当前页（Chromium `clearHistory` 同语义，
+  当前项保留），断言按 before/after 收缩写。另 `saveState(Bundle)` 改为
+  返回当前 history 快照（不再 loud-todo）。
 
 ## 2. 下一步（按顺序，一次做一件）
 

@@ -193,6 +193,53 @@ public final class P0GlueActivity extends Activity {
             }
             out.append("PASS backForwardList size=").append(list.getSize()).append('\n');
 
+            if (!provider.canGoBackOrForward(-1)) {
+                throw new IllegalStateException("expected canGoBackOrForward(-1)=true");
+            }
+            if (provider.canGoBackOrForward(1)) {
+                throw new IllegalStateException("expected canGoBackOrForward(+1)=false");
+            }
+            out.append("PASS canGoBackOrForward\n");
+            TestClient client4 = new TestClient();
+            final CountDownLatch goForwardDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    provider.setWebViewClient(client4.client);
+                    provider.goBackOrForward(1);
+                } finally {
+                    goForwardDone.countDown();
+                }
+            });
+            goForwardDone.await(5, TimeUnit.SECONDS);
+            if (client4.awaitFinished(30) == null) {
+                throw new IllegalStateException("goBackOrForward(+1) timeout");
+            }
+            if (!provider.getUrl().contains("example.org")) {
+                throw new IllegalStateException(
+                        "goBackOrForward(+1): url=" + provider.getUrl());
+            }
+            out.append("PASS goBackOrForward\n");
+            int beforeClear = provider.copyBackForwardList().getSize();
+            runOnUiThread(provider::clearHistory);
+            final CountDownLatch historyCleared = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    provider.flushHistory();
+                } finally {
+                    historyCleared.countDown();
+                }
+            });
+            historyCleared.await(5, TimeUnit.SECONDS);
+            Thread.sleep(2000);
+            provider.dumpHistorySources("post-clear");
+            int afterClear = provider.copyBackForwardList().getSize();
+            if (afterClear >= beforeClear || afterClear < 0) {
+                throw new IllegalStateException(
+                        "clearHistory: before=" + beforeClear + " after=" + afterClear);
+            }
+            out.append("PASS clearHistory before=").append(beforeClear)
+                    .append(" after=").append(afterClear).append('\n');
+
             runOnUiThread(() -> provider.getSettings().setTextZoom(150));
             runOnUiThread(() -> {
                 if (provider.getSettings().getTextZoom() != 150) {

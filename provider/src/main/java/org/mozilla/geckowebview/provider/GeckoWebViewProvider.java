@@ -392,7 +392,7 @@ public final class GeckoWebViewProvider
     }
     @Override public void setNetworkAvailable(boolean networkUp) {}
     @Override public WebBackForwardList saveState(Bundle outState) {
-        throw todo("saveState");
+        return new GeckoBackForwardList(mBridge.historySnapshot());
     }
     @Override public boolean savePicture(Bundle b, File dest) { return false; }
     @Override public boolean restorePicture(Bundle b, File src) { return false; }
@@ -415,8 +415,10 @@ public final class GeckoWebViewProvider
             ValueCallback<String> callback) {
         throw todo("saveWebArchive");
     }
-    @Override public boolean canGoBackOrForward(int steps) { return false; }
-    @Override public void goBackOrForward(int steps) { throw todo("goBackOrForward"); }
+    @Override public boolean canGoBackOrForward(int steps) {
+        return mBridge.canGoBackOrForward(steps);
+    }
+    @Override public void goBackOrForward(int steps) { mBridge.goBackOrForward(steps); }
     @Override public boolean isPrivateBrowsingEnabled() { return false; }
     @Override public boolean pageUp(boolean top) { return false; }
     @Override public boolean pageDown(boolean bottom) { return false; }
@@ -448,7 +450,9 @@ public final class GeckoWebViewProvider
     @Override public void freeMemory() {}
     @Override public void clearCache(boolean includeDiskFiles) {}
     @Override public void clearFormData() {}
-    @Override public void clearHistory() {}
+    @Override public void clearHistory() {
+        mBridge.clearHistory();
+    }
     @Override public void clearSslPreferences() {}
     @Override public void setFindListener(WebView.FindListener listener) {}
     @Override public void findNext(boolean forward) {}
