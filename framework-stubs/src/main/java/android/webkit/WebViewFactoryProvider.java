@@ -29,15 +29,25 @@ public interface WebViewFactoryProvider {
     }
 
     Statics getStatics();
-    // Real AOSP signature: createWebView(WebView, WebView.PrivateAccess) where
-    // PrivateAccess is a hidden inner class of android.webkit.WebView.
-    // android.jar ships WebView WITHOUT that inner class, and javac resolves
-    // inner classes through the OUTER class — so no stub jar can supply it
-    // without also shadowing WebView itself (which we must NOT do: WebView is
-    // public API and must resolve to android.jar at compile time and to the
-    // real framework at runtime). Therefore the stub erases the parameter to
-    // Object. At runtime the real framework passes the real PrivateAccess;
-    // our implementation casts/reflects as needed. See docs/BOOTSTRAP.md.
+    // Real AOSP android14 signature:
+    //   WebViewProvider createWebView(WebView webView, WebView.PrivateAccess privateAccess)
+    // PrivateAccess is a hidden inner class of android.webkit.WebView that
+    // android.jar does NOT ship (javac resolves inner classes through the
+    // outer class, so no source stub can declare it without shadowing the
+    // real public WebView). The device framework DOES have it — verified in
+    // the on-device framework.jar: Landroid/webkit/WebView$PrivateAccess,
+    // PUBLIC, ctor (WebView)V, ~24 super_* passthrough methods.
+    // Interim PoC rule (verified by FrameworkEntryActivity): javac/erasure
+    // means the RUNTIME descriptor is what matters, not the compile-time
+    // type name. So this stub erases the parameter to Object — the compiled
+    // method is createWebView(WebView, Object)Object — and the IMPL adds a
+    // bridge overload createWebView(WebView, WebView$PrivateAccess-type)
+    // once the real PrivateAccess bytecode is available as compileOnly.
+    // Until then the framework's exact-descriptor lookup
+    // (WebView,WebView$PrivateAccess)WebViewProvider will NOT match this
+    // impl → AbstractMethodError at new WebView(). That is EXPECTED until
+    // the PrivateAccess stub lands; P0Glue (manual factory path) is
+    // unaffected. See STATUS §5.
     Object createWebView(WebView webView, Object privateAccess);
     GeolocationPermissions getGeolocationPermissions();
     CookieManager getCookieManager();

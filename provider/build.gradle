@@ -3,14 +3,14 @@ plugins {
 }
 
 android {
-    namespace = "org.mozilla.geckowebview"
+    namespace = "firefox.bemly.moe"
     // GeckoView 153 stable: AAR minCompileSdk=1, androidx.core 1.18.0 — builds clean
     // with AGP 9.x + compileSdk 36. (GV 154+ demands compileSdk 37.1, not yet
     // exposed by the installed SDK snapshot.) targetSdk stays 34 (API-34 device).
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "org.mozilla.geckowebview"
+        applicationId = "firefox.bemly.moe"
         minSdk = 26
         targetSdk = 34
         // PoC WebView-switch: user builds enforce versionCode >= max(stock

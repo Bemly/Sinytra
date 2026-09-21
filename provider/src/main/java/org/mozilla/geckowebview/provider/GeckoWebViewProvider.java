@@ -89,6 +89,14 @@ public final class GeckoWebViewProvider
     @Nullable
     private ValueCallback<Uri[]> mFileChooserCallback;
     private volatile boolean mDestroyed;
+    // Real framework PrivateAccess retained by the trampoline Proxy at
+    // createWebView time (the impl signature is erased to Object, so the
+    // framework never passes it here directly). Opaque Object: touched
+    // ONLY via the public super_* methods (TEST-API, allowed) — the legal
+    // channel that writes View fields without recursion or hiddenapi
+    // violations. Today: super_setLayoutParams (measure NPE fix).
+    @Nullable
+    private volatile Object mPrivateAccess;
 
     public GeckoWebViewProvider(@NonNull WebView webView,
             @NonNull GeckoWebViewFactoryProvider factory) {
@@ -116,6 +124,36 @@ public final class GeckoWebViewProvider
     @NonNull
     GeckoSessionBridge bridge() {
         return mBridge;
+    }
+
+    // Called by the trampoline Proxy with the REAL framework PrivateAccess
+    // (Object-typed: the impl cannot name the hidden class at compile time).
+    // Retained for ViewDelegate super_* calls (legal params-write channel).
+    public void retainPrivateAccess(@Nullable Object privateAccess) {
+        mPrivateAccess = privateAccess;
+    }
+
+    @Nullable
+    Object privateAccess() {
+        return mPrivateAccess;
+    }
+
+    // Push LayoutParams through the legal super_ channel. Returns true if
+    // the write landed (framework will measure cleanly afterwards).
+    boolean pushLayoutParams(@NonNull ViewGroup.LayoutParams params) {
+        Object access = mPrivateAccess;
+        if (access == null) {
+            return false;
+        }
+        try {
+            java.lang.reflect.Method superSet = access.getClass().getMethod(
+                    "super_setLayoutParams", ViewGroup.LayoutParams.class);
+            superSet.invoke(access, params);
+            return true;
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "super_setLayoutParams threw", t);
+            return false;
+        }
     }
 
     // --- ClientFanOut.Owner ---
@@ -308,105 +346,155 @@ public final class GeckoWebViewProvider
 
     @Override
     public ViewDelegate getViewDelegate() {
-        return new ViewDelegate() {
-            @Override public boolean shouldDelayChildPressedState() { return false; }
-            @Override public void onProvideVirtualStructure(
-                    android.view.ViewStructure structure) {}
-            @Override public android.view.accessibility.AccessibilityNodeProvider
-                    getAccessibilityNodeProvider() { return null; }
-            @Override public void onInitializeAccessibilityNodeInfo(
-                    android.view.accessibility.AccessibilityNodeInfo info) {}
-            @Override public void onInitializeAccessibilityEvent(
-                    android.view.accessibility.AccessibilityEvent event) {}
-            @Override public boolean performAccessibilityAction(int action, Bundle arguments) {
-                return false;
+        return new ForwardingViewDelegate(this);
+    }
+
+    // ViewDelegate that forwards View-tree operations to the real
+    // framework WebView (super_*/PrivateAccess semantics) instead of
+    // no-op'ing them. Verified against device framework.jar:
+    // WebView.setLayoutParams does ONLY
+    //   mProvider.getViewDelegate().setLayoutParams(params)
+    // with NO super call — the PROVIDER owns the real LayoutParams write
+    // (Chromium's impl forwards into its content view). Our old no-op left
+    // the framework View with null LayoutParams → NPE in
+    // ViewGroup.measureChildWithMargins during Activity measure
+    // (FrameworkEntryActivity crash). Same for setOverScrollMode (framework
+    // does super call itself, delegate only mirrors state — no-op safe),
+    // onDraw (provider draws content — no-op safe, GeckoViewHost draws in
+    // P1), and layout-affecting methods below.
+    // Rule: any delegate method whose framework caller does NOT also call
+    // super must perform the real View operation here.
+    static final class ForwardingViewDelegate implements ViewDelegate {
+        private final GeckoWebViewProvider mProvider;
+        private final WebView mView;
+        // Stash of the latest LayoutParams the framework handed us.
+        // Flushed via provider.pushLayoutParams (PrivateAccess super_
+        // channel) — the only legal write path.
+        private volatile ViewGroup.LayoutParams mPendingParams;
+
+        ForwardingViewDelegate(GeckoWebViewProvider provider) {
+            mProvider = provider;
+            mView = provider.webView();
+        }
+
+        @Override public boolean shouldDelayChildPressedState() { return false; }
+        @Override public void onProvideVirtualStructure(
+                android.view.ViewStructure structure) {}
+        @Override public android.view.accessibility.AccessibilityNodeProvider
+                getAccessibilityNodeProvider() { return null; }
+        @Override public void onInitializeAccessibilityNodeInfo(
+                android.view.accessibility.AccessibilityNodeInfo info) {}
+        @Override public void onInitializeAccessibilityEvent(
+                android.view.accessibility.AccessibilityEvent event) {}
+        @Override public boolean performAccessibilityAction(int action, Bundle arguments) {
+            return false;
+        }
+        @Override public void setOverScrollMode(int mode) {}
+        @Override public void setScrollBarStyle(int style) {}
+        @Override public void onDrawVerticalScrollBar(Canvas canvas,
+                android.graphics.drawable.Drawable scrollBar, int l, int t, int r,
+                int b) {}
+        @Override public void onOverScrolled(int scrollX, int scrollY, boolean clampedX,
+                boolean clampedY) {}
+        @Override public void onWindowVisibilityChanged(int visibility) {}
+        @Override public void onDraw(Canvas canvas) {}
+        @Override public void setLayoutParams(ViewGroup.LayoutParams layoutParams) {
+            // Framework does NO super call — provider owns the write.
+            // Legal channel: PrivateAccess.super_setLayoutParams (retained
+            // by the trampoline Proxy at createWebView). Stash + push
+            // immediately: at create time the Proxy already pushed defaults,
+            // later calls (setContentView/addView) refresh here.
+            if (layoutParams != null) {
+                mPendingParams = layoutParams;
+                mProvider.pushLayoutParams(layoutParams);
             }
-            @Override public void setOverScrollMode(int mode) {}
-            @Override public void setScrollBarStyle(int style) {}
-            @Override public void onDrawVerticalScrollBar(Canvas canvas,
-                    android.graphics.drawable.Drawable scrollBar, int l, int t, int r,
-                    int b) {}
-            @Override public void onOverScrolled(int scrollX, int scrollY, boolean clampedX,
-                    boolean clampedY) {}
-            @Override public void onWindowVisibilityChanged(int visibility) {}
-            @Override public void onDraw(Canvas canvas) {}
-            @Override public void setLayoutParams(ViewGroup.LayoutParams layoutParams) {}
-            @Override public boolean performLongClick() { return false; }
-            @Override public void onConfigurationChanged(
-                    android.content.res.Configuration newConfig) {}
-            @Override public android.view.inputmethod.InputConnection onCreateInputConnection(
-                    android.view.inputmethod.EditorInfo outAttrs) { return null; }
-            @Override public boolean onDragEvent(android.view.DragEvent event) { return false; }
-            @Override public boolean onKeyMultiple(int keyCode, int repeatCount,
-                    android.view.KeyEvent event) { return false; }
-            @Override public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
-                return false;
-            }
-            @Override public boolean onKeyUp(int keyCode, android.view.KeyEvent event) {
-                return false;
-            }
-            @Override public void onAttachedToWindow() {}
-            @Override public void onDetachedFromWindow() {}
-            @Override public void onVisibilityChanged(View changedView, int visibility) {}
-            @Override public void onWindowFocusChanged(boolean hasWindowFocus) {}
-            @Override public void onFocusChanged(boolean focused, int direction,
-                    android.graphics.Rect previouslyFocusedRect) {}
-            @Override public boolean setFrame(int left, int top, int right, int bottom) {
-                return false;
-            }
-            @Override public void onSizeChanged(int w, int h, int ow, int oh) {}
-            @Override public void onScrollChanged(int l, int t, int oldl, int oldt) {}
-            @Override public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-                return false;
-            }
-            @Override public boolean onTouchEvent(android.view.MotionEvent ev) { return false; }
-            @Override public boolean onHoverEvent(android.view.MotionEvent event) {
-                return false;
-            }
-            @Override public boolean onGenericMotionEvent(android.view.MotionEvent event) {
-                return false;
-            }
-            @Override public boolean onTrackballEvent(android.view.MotionEvent ev) {
-                return false;
-            }
-            @Override public boolean requestFocus(int direction,
-                    android.graphics.Rect previouslyFocusedRect) { return false; }
-            @Override public void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {}
-            @Override public boolean requestChildRectangleOnScreen(View child,
-                    android.graphics.Rect rect, boolean immediate) { return false; }
-            @Override public void setBackgroundColor(int color) {}
-            @Override public void setLayerType(int layerType, android.graphics.Paint paint) {}
-            @Override public void preDispatchDraw(Canvas canvas) {}
-            @Override public void onStartTemporaryDetach() {}
-            @Override public void onFinishTemporaryDetach() {}
-            @Override public void onActivityResult(int requestCode, int resultCode,
-                    android.content.Intent data) {
-                if (requestCode == ClientFanOut.fileChooserRequestCode()) {
-                    ValueCallback<Uri[]> callback = fileChooserCallback();
-                    setFileChooserCallback(null);
-                    if (callback == null) {
-                        return;
-                    }
+        }
+        @Override public boolean performLongClick() { return false; }
+        @Override public void onConfigurationChanged(
+                android.content.res.Configuration newConfig) {}
+        @Override public android.view.inputmethod.InputConnection onCreateInputConnection(
+                android.view.inputmethod.EditorInfo outAttrs) { return null; }
+        @Override public boolean onDragEvent(android.view.DragEvent event) { return false; }
+        @Override public boolean onKeyMultiple(int keyCode, int repeatCount,
+                android.view.KeyEvent event) { return false; }
+        @Override public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+            return false;
+        }
+        @Override public boolean onKeyUp(int keyCode, android.view.KeyEvent event) {
+            return false;
+        }
+        @Override public void onAttachedToWindow() {
+            // addView→attach→addView recurses (StackOverflowError verified),
+            // so do NOT touch the parent here. Instead retain PrivateAccess
+            // for the future super_* channel and let the framework's own
+            // generateLayoutParams handle params at addView time.
+            // The NPE crash is pre-existing for ANY bare new WebView() in
+            // this probe layout — Chromium survives it because its provider
+            // hosts a real child content view with valid params. Our P1
+            // GeckoViewHost child will close the same gap; until then the
+            // probe must supply params AND a content child (see
+            // FrameworkEntryActivity).
+        }
+        @Override public void onDetachedFromWindow() {}
+        @Override public void onVisibilityChanged(View changedView, int visibility) {}
+        @Override public void onWindowFocusChanged(boolean hasWindowFocus) {}
+        @Override public void onFocusChanged(boolean focused, int direction,
+                android.graphics.Rect previouslyFocusedRect) {}
+        @Override public boolean setFrame(int left, int top, int right, int bottom) {
+            return false;
+        }
+        @Override public void onSizeChanged(int w, int h, int ow, int oh) {}
+        @Override public void onScrollChanged(int l, int t, int oldl, int oldt) {}
+        @Override public boolean dispatchKeyEvent(android.view.KeyEvent event) {
+            return false;
+        }
+        @Override public boolean onTouchEvent(android.view.MotionEvent ev) { return false; }
+        @Override public boolean onHoverEvent(android.view.MotionEvent event) {
+            return false;
+        }
+        @Override public boolean onGenericMotionEvent(android.view.MotionEvent event) {
+            return false;
+        }
+        @Override public boolean onTrackballEvent(android.view.MotionEvent ev) {
+            return false;
+        }
+        @Override public boolean requestFocus(int direction,
+                android.graphics.Rect previouslyFocusedRect) { return false; }
+        @Override public void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {}
+        @Override public boolean requestChildRectangleOnScreen(View child,
+                android.graphics.Rect rect, boolean immediate) { return false; }
+        @Override public void setBackgroundColor(int color) {}
+        @Override public void setLayerType(int layerType, android.graphics.Paint paint) {}
+        @Override public void preDispatchDraw(Canvas canvas) {}
+        @Override public void onStartTemporaryDetach() {}
+        @Override public void onFinishTemporaryDetach() {}
+        @Override public void onActivityResult(int requestCode, int resultCode,
+                android.content.Intent data) {
+            if (requestCode == ClientFanOut.fileChooserRequestCode()) {
+                ValueCallback<Uri[]> callback = mProvider.fileChooserCallback();
+                mProvider.setFileChooserCallback(null);
+                if (callback == null) {
+                    return;
+                }
+                try {
+                    Uri[] results = WebChromeClient.FileChooserParams.parseResult(
+                            resultCode, data);
+                    callback.onReceiveValue(results);
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG, "file chooser parse threw", t);
                     try {
-                        Uri[] results = WebChromeClient.FileChooserParams.parseResult(
-                                resultCode, data);
-                        callback.onReceiveValue(results);
-                    } catch (Throwable t) {
-                        android.util.Log.w(TAG, "file chooser parse threw", t);
-                        try {
-                            callback.onReceiveValue(null);
-                        } catch (Throwable ignored) {
-                        }
+                        callback.onReceiveValue(null);
+                    } catch (Throwable ignored) {
                     }
                 }
             }
-            @Override public android.os.Handler getHandler(android.os.Handler originalHandler) {
-                return originalHandler;
-            }
-            @Override public View findFocus(View originalFocusedView) {
-                return originalFocusedView;
-            }
-        };
+        }
+        @Override public android.os.Handler getHandler(android.os.Handler originalHandler) {
+            return originalHandler;
+        }
+        @Override public View findFocus(View originalFocusedView) {
+            return originalFocusedView;
+        }
     }
 
     @Override

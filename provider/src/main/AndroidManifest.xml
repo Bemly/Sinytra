@@ -19,5 +19,13 @@
         <meta-data
             android:name="com.android.webview.WebViewLibrary"
             android:value="libxul.so" />
+        <!-- PoC factory entry: Android 14 WebViewFactory hardcodes
+             com.android.webview.chromium.WebViewChromiumFactoryProviderForT.create
+             (no metadata route). BOOTSTRAP.md §2.2: trampoline allowed on
+             branch only, never main. Real route (metadata self-declaration)
+             arrives with aosp-patches. -->
+        <meta-data
+            android:name="android.webkit.WebViewFactoryClass"
+            android:value="org.mozilla.geckowebview.provider.GeckoWebViewFactoryProvider" />
     </application>
 </manifest>

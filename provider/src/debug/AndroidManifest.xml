@@ -18,5 +18,8 @@
         <activity
             android:name="org.mozilla.geckowebview.provider.P0GlueActivity"
             android:exported="true" />
+        <activity
+            android:name="org.mozilla.geckowebview.provider.FrameworkEntryActivity"
+            android:exported="true" />
     </application>
 </manifest>

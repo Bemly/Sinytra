@@ -69,6 +69,16 @@ public final class GeckoCookieManagerImpl extends CookieManager {
         return mDelegate.getCookie(url);
     }
 
+    // NOTE: getCookie(String, boolean), hasCookies(boolean),
+    // allowFileSchemeCookiesImpl, setAcceptFileSchemeCookiesImpl and
+    // getCookie(WebAddress) exist only on the device framework (hidden
+    // @SystemApi), NOT in android.jar 34 compile stubs — confirmed by javap
+    // above. They are NOT overridden here (javac would reject @Override);
+    // at runtime the base-class concrete impls run instead:
+    // getCookie(uri)→getCookie(uri.toString()) and static file-scheme
+    // policy. If a real AbstractMethodError ever surfaces on these paths,
+    // add framework-stubs entries, not @Overrides here.
+
     @Override
     @Deprecated
     public void removeSessionCookie() {
