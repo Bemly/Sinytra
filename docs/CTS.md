@@ -7,6 +7,10 @@
 ## 1. 环境约束（实测确认）
 
 - CTS 官方包（cts-tradefed）**只发 linux_x86**，macOS 上无法原生跑 harness。
+- **包按设备 ABI 分两份**：`android-cts-14_r7-linux_x86-x86.zip`（x86 设备/
+  模拟器）与 `android-cts-14_r7-linux_x86-arm.zip`（arm 真机，~9.7GB）。
+  本机真机用 **arm 包**（x86 包里 CtsWebkitTestCases 只有 x86_64 APK，
+  实测确认）。
 - 本机（MOONDROP MD-PH-001）是 `user release-keys`——CTS 正是为 user build
   设计的，设备侧无障碍；缺的是 Linux 宿主。
 - 本机 macOS 无 Docker。两条路任选：
