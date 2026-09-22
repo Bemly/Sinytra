@@ -14,11 +14,12 @@
 
 ## Stack（自下而上，编号即应用顺序）
 
-（空——首个 patch 是 response-body 拦截，等 objdir 构建通过后再落文件；
-
-| # | 文件 | 解决哪个 WebView API | 为什么 public API 不够 | 上游对应 |
+| # | 文件 | 解决哪个 WebView API | 为什么 public API 不够 | 状态 |
 |---|---|---|---|---|
-| （拟）0001 | necko response-body 拦截 | `shouldInterceptRequest` 返回自定义 body | GV153 `onLoadRequest` 只有 ALLOW/DENY，`LoadRequest` 无 method/headers/body 替换 primitive（AAR javap 已核） | 待查 searchfox（nsIInterceptedChannel 一族） |
+| 0001 | response-body 拦截（导航级） | `shouldInterceptRequest` 返回自定义 body | GV153 `onLoadRequest` 只返回 AllowOrDeny；决策在 docshell 层，无 Java→Gecko 响应体通道（树内核实，详见 0001 设计文档） | 设计定稿，patch 未落 |
+
+设计文档：`0001-response-body-interception.md`（含树内勘察、地基选型、
+边界与测试计划）。
 
 ## 工作流
 

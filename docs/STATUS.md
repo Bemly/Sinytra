@@ -239,11 +239,13 @@
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~等 mach build + 替换校准~~ ✅（§1g）。
-2. **firefox-patches/0001：response-body 拦截**（Gecko 侧 patch + 独立
-   测试；GeckoViewContentChannel/GeckoViewStreamListener 为候选地基）；
-   开发闭环：改树 → `mach build binaries` → `mach gradle
-   geckoview:publishDebugPublicationToMavenRepository` →
-   `-PsinytraLocalGecko` 构建 → harness 回归。
+2. **firefox-patches/0001：response-body 拦截——设计定稿**
+   （`firefox-patches/0001-response-body-interception.md`）：v1 导航级
+   （NavigationDelegate 可选 `onLoadRequestResponse` 返回 WebResponse，
+   body 经 GeckoViewInputStream JNI 流 + 新 GeckoViewResponseChannel
+   呈现）；子资源网络级拦截 = 0002。树内勘察已做（决策链
+   LoadURIDelegate→OnLoadRequest、content:// 证明 JNI 流子进程可用、
+   WebResponse.body 即 InputStream）。下一步落 patch 文件。
    framework 面 WebMessagePort 仍等 AOSP patch（决策点
    `ProviderAdapters.WebMessagePortFactory`）。
 3. **CTS 过渡第一轮已跑（2026-09-23 04:5x，Chromium 基线）**：
