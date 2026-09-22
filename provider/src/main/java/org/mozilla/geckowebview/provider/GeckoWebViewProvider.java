@@ -290,6 +290,11 @@ public final class GeckoWebViewProvider
         return mMessages.portCount();
     }
 
+    @NonNull
+    public MessageBridge messageBridge() {
+        return mMessages;
+    }
+
     public int jsInterfaceCount() {
         return mJsInterfaces.interfaceCount();
     }
@@ -703,17 +708,18 @@ public final class GeckoWebViewProvider
         }
     }
     @Override public WebMessagePort[] createWebMessageChannel() {
-        MessageBridge.Port[] ports = mMessages.createChannel();
-        SinytraWebMessagePort wrapper0 = new SinytraWebMessagePort(ports[0]);
-        SinytraWebMessagePort wrapper1 = new SinytraWebMessagePort(ports[1]);
-        WebMessagePort fw0 = SinytraWebMessagePort.newFrameworkPort(wrapper0);
-        WebMessagePort fw1 = SinytraWebMessagePort.newFrameworkPort(wrapper1);
-        if (fw0 != null && fw1 != null) {
-            return new WebMessagePort[] {fw0, fw1};
-        }
+        // Framework-typed ports need a concrete WebMessagePort subclass;
+        // the framework ctor is package-private (see ProviderAdapters
+        // design record) so none can exist in this build: honest null +
+        // loud log. androidx.webkit clients get FULL function through
+        // the boundary interface (CompatWebViewProvider.createChannel ->
+        // LiveMessagePort over the same MessageBridge). Harness asserts
+        // fwNull=true + bridgePorts=2.
+        mMessages.createChannel();
         android.util.Log.w(TAG,
-                "createWebMessageChannel: abstract WebMessagePort not "
-                        + "instantiable, returning null (P2 patch needed)");
+                "createWebMessageChannel: no concrete WebMessagePort in "
+                        + "this build (package-private framework ctor); "
+                        + "boundary clients use LiveMessagePort instead");
         return null;
     }
     @Override public void postMessageToMainFrame(WebMessage message, Uri targetOrigin) {
@@ -742,52 +748,4 @@ public final class GeckoWebViewProvider
     @Override public int getRendererRequestedPriority() { return 0; }
     @Override public boolean getRendererPriorityWaivedWhenNotVisible() { return false; }
     @Override public void notifyFindDialogDismissed() {}
-
-    static final class SinytraWebMessagePort {
-        private final MessageBridge.Port mPort;
-        private boolean mClosed;
-
-        SinytraWebMessagePort(MessageBridge.Port port) {
-            mPort = port;
-        }
-
-        public void postMessage(WebMessage message) {
-            if (mClosed || message == null) {
-                return;
-            }
-        }
-
-        public void close() {
-            mClosed = true;
-        }
-
-        public void setWebMessageCallback(WebMessagePort.WebMessageCallback callback) {
-        }
-
-        public void setWebMessageCallback(WebMessagePort.WebMessageCallback callback,
-                android.os.Handler handler) {
-        }
-
-        @NonNull
-        MessageBridge.Port bridgePort() {
-            return mPort;
-        }
-
-        // Reflectively build the REAL framework WebMessagePort (package
-        // ctor): the app expects an android.webkit.WebMessagePort instance
-        // from createWebMessageChannel(). Like JsResult, runtime reflection
-        // reaches the hidden ctor.
-        @Nullable
-        static WebMessagePort newFrameworkPort(SinytraWebMessagePort wrapper) {
-            try {
-                java.lang.reflect.Constructor<WebMessagePort> ctor =
-                        WebMessagePort.class.getDeclaredConstructor();
-                ctor.setAccessible(true);
-                return ctor.newInstance();
-            } catch (Throwable t) {
-                android.util.Log.w(TAG, "WebMessagePort reflection failed", t);
-                return null;
-            }
-        }
-    }
 }

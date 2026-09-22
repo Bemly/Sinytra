@@ -75,13 +75,13 @@ public final class CompatWebViewProvider implements InvocationHandler {
 
     @Nullable
     private InvocationHandler[] createChannel() {
-        android.webkit.WebMessagePort[] ports = mProvider.createWebMessageChannel();
-        if (ports == null) {
-            return null;
-        }
+        org.mozilla.geckowebview.session.MessageBridge bridge =
+                mProvider.messageBridge();
+        org.mozilla.geckowebview.session.MessageBridge.Port[] ports =
+                bridge.createChannel();
         InvocationHandler[] handlers = new InvocationHandler[ports.length];
         for (int i = 0; i < ports.length; i++) {
-            handlers[i] = CompatSmallBoundaries.messagePort();
+            handlers[i] = CompatSmallBoundaries.messagePort(bridge, ports[i]);
         }
         return handlers;
     }

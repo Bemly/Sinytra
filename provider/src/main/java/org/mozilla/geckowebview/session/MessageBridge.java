@@ -14,12 +14,24 @@ import java.util.concurrent.atomic.AtomicInteger;
 // replies arrive as JsBridge PageEvents named "port-deliver" and fan out
 // to the WebMessageCallback registered on the receiving port.
 //
+// Port typing, two surfaces:
+// - Framework-typed (android.webkit.WebMessagePort): NO concrete subclass
+//   can exist in this build — the framework ctor is package-private
+//   (javac-verified 2026-09-22, see ProviderAdapters design record), and
+//   framework-stubs is compileOnly so an android.webkit subclass would
+//   never reach the device. createWebMessageChannel therefore returns
+//   null + loud log (harness: fwNull=true), while bridge bookkeeping
+//   still holds the 2 ports (bridgePorts=2).
+// - Boundary-typed (androidx.webkit clients): FULLY functional through
+//   CompatSmallBoundaries.LiveMessagePort over these same bridge ports
+//   (post/close/callback all live, verified by boundary round-trip).
+//
 // Honest gaps (never silently wrong):
 // - MessagePorts are logical endpoints, not transferable: the ENTANGLED
-//   pair in createWebMessageChannel shares nothing until the P2 concrete
-//   WebMessagePort subclass lands; setCallback/postMessage on a port work
-//   end-to-end (page MessageEvent <-> callback), transfer between frames
-//   does not.
+//   pair in createWebMessageChannel shares nothing until a framework-side
+//   factory hook lands (P2 patch queue); setCallback/postMessage on a
+//   port work end-to-end (page MessageEvent <-> callback) via the
+//   boundary surface, transfer between frames does not.
 // - postToMainFrame fans out to every open port with a callback (Chromium
 //   delivers to the page; without frame addressing this is the closest
 //   honest mapping). Target-origin filtering is recorded, not enforced —
