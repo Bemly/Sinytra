@@ -20,7 +20,9 @@ final class P2TransportProbes {
 
     static void run(Activity activity, StringBuilder out,
             GeckoWebViewProvider provider, WebView webView,
-            GeckoWebViewFactoryProvider factory) throws Exception {
+            GeckoWebViewFactoryProvider factory,
+            P0GlueActivity.TestClient client)
+            throws Exception {
             // --- P2 saveState/restoreState round-trip ---
             final android.os.Bundle[] stateBox = new android.os.Bundle[1];
             final Throwable[] stateError = new Throwable[1];
@@ -437,5 +439,74 @@ final class P2TransportProbes {
                 throw new IllegalStateException("visual state failed", vsError[0]);
             }
             out.append("PASS visualState\n");
+
+            // --- P2-4 deny value: non-null shouldInterceptRequest ⇒
+            // subframe DENY. The DENY GeckoResult was verified nowhere
+            // (JVM: GeckoResult class-init needs a live UI Looper; device:
+            // no probe). E2E here: inject an iframe to a deny-marker host
+            // through the eval transport; the app client answers non-null;
+            // DENY must cancel the load before network so the frame never
+            // leaves about:blank (an allow would navigate it to an
+            // unresolvable host and end cross-origin / error-paged).
+            client.interceptedUri.set(null);
+            final CountDownLatch denyEvalDone = new CountDownLatch(1);
+            final String[][] denyEvalResult = new String[1][];
+            activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                    "(function(){var f=document.createElement('iframe');"
+                            + "f.src='https://example.org/?"
+                            + "sinytra-deny-probe=1';"
+                            + "document.body.appendChild(f);"
+                            + "return 'iframes='+document.querySelectorAll"
+                            + "('iframe').length;})()",
+                    value -> {
+                        denyEvalResult[0] = new String[] {value};
+                        android.util.Log.i("Sinytra/p0glue",
+                                "deny inject eval result=" + value);
+                        denyEvalDone.countDown();
+                    }));
+            if (!denyEvalDone.await(45, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("deny inject eval timeout");
+            }
+            long waited = 0;
+            while (client.interceptedUri.get() == null && waited < 20_000) {
+                Thread.sleep(250);
+                waited += 250;
+            }
+            String denyUri = client.interceptedUri.get();
+            if (denyUri == null) {
+                throw new IllegalStateException(
+                        "shouldInterceptRequest never saw the deny marker");
+            }
+            if (!denyUri.contains("sinytra-deny-probe")) {
+                throw new IllegalStateException("deny marker uri: " + denyUri);
+            }
+            // Settle: an allowed load would be in-flight; deny keeps the
+            // frame at its initial about:blank.
+            Thread.sleep(8_000);
+            final CountDownLatch frameDone = new CountDownLatch(1);
+            final String[][] frameState = new String[1][];
+            activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                    "(function(){try{return document.querySelector('iframe')"
+                            + ".contentWindow.location.href}"
+                            + "catch(e){return 'ERR:'+e.name}})()",
+                    value -> {
+                        frameState[0] = new String[] {value};
+                        frameDone.countDown();
+                    }));
+            if (!frameDone.await(45, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("deny frame eval timeout");
+            }
+            String frameHref = frameState[0][0];
+            if (frameHref == null) {
+                throw new IllegalStateException("deny frame href null");
+            }
+            // evaluateJavaScript reports JSON-encoded: strip the quotes.
+            String href = frameHref.replace("\"", "");
+            if (!"about:blank".equals(href)) {
+                throw new IllegalStateException(
+                        "deny did not hold the frame at about:blank: " + href);
+            }
+            out.append("PASS denyIntercept uri=").append(denyUri)
+                    .append(" frame=about:blank\n");
     }
 }

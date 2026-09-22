@@ -347,9 +347,12 @@ public final class P0GlueActivity extends Activity {
                 throw new IllegalStateException("error mapping timeout");
             }
             out.append("PASS loadError code=").append(errResult[0][0]).append('\n');
+            // Restore the recording client — the deny probe downstream
+            // depends on TestClient.shouldInterceptRequest being installed.
+            runOnUiThread(() -> provider.setWebViewClient(client.client));
 
             // --- P2 probes: transport + androidx glue (own file, file-size rule) ---
-            P2TransportProbes.run(this, out, provider, webView, factory);
+            P2TransportProbes.run(this, out, provider, webView, factory, client);
 
             runOnUiThread(provider::destroy);
             out.append("P0 GLUE PASS\n");
@@ -372,8 +375,27 @@ public final class P0GlueActivity extends Activity {
         throw new IllegalStateException("WebView.PrivateAccess not found on device");
     }
 
-    private static final class TestClient {
+    static final class TestClient {
+        // P2-4 deny probe: set when the app client returns a non-null
+        // response for the deny-marker host (shouldInterceptRequest
+        // consulted).
+        final java.util.concurrent.atomic.AtomicReference<String>
+                interceptedUri = new java.util.concurrent.atomic.AtomicReference<>();
+
         final android.webkit.WebViewClient client = new android.webkit.WebViewClient() {
+            @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(
+                    WebView view, android.webkit.WebResourceRequest request) {
+                String uri = request.getUrl().toString();
+                if (uri.contains("sinytra-deny-probe")) {
+                    interceptedUri.set(uri);
+                    return new android.webkit.WebResourceResponse(
+                            "text/plain", "utf-8",
+                            new java.io.ByteArrayInputStream(new byte[0]));
+                }
+                return null;
+            }
+
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 Log.i(TAG, "client: onPageStarted " + url);

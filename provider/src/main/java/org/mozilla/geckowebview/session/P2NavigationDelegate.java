@@ -23,6 +23,8 @@ final class P2NavigationDelegate implements GeckoSession.NavigationDelegate {
     @Override
     public GeckoResult<AllowOrDeny> onLoadRequest(@NonNull GeckoSession session,
             @NonNull LoadRequest request) {
+        android.util.Log.d("Sinytra/navigation",
+                "onLoadRequest " + request.uri);
         return mMain.onLoadRequest(session, request);
     }
 
@@ -30,6 +32,8 @@ final class P2NavigationDelegate implements GeckoSession.NavigationDelegate {
     @Override
     public GeckoResult<AllowOrDeny> onSubframeLoadRequest(@NonNull GeckoSession session,
             @NonNull LoadRequest request) {
+        android.util.Log.d("Sinytra/navigation",
+                "onSubframeLoadRequest " + request.uri);
         return mIntercept.onSubframeLoadRequest(session, request);
     }
 
