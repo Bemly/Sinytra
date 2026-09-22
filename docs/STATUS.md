@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-23 02:27。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-23 02:50。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -178,6 +178,16 @@
   全段（saveState→visualState）抽到 `P2TransportProbes.run(...)`，440 +
   448 两文件；同一契约（探针只 append PASS 或抛，编排层转 FAIL）。真机
   回归 PASS 数与拆分前一致（02:27）。`.commandcode/` 已进 .gitignore。
+- **P2-4 deny 值探针补上（7924558，harness 29 PASS，02:50）**：deny 的
+  GeckoResult 此前两端都没验证（JVM 上 GeckoResult 类初始化要活 UI
+  Looper）。新 `denyIntercept` 探针：eval 注入 deny 标记 iframe → app
+  `shouldInterceptRequest` 返回非 null → 断言子帧从未离开 about:blank
+  （DENY 在网络前取消加载）。**两条记死**：① Gecko 对 NXDOMAIN host 的
+  iframe（blocked.example）不发 LoadRequest——deny 标记必须用可解析
+  host + 查询参数（example.org/?sinytra-deny-probe=1）；② harness bug：
+  loadError 探针换上的 errClient 从不还原，下游所有
+  shouldInterceptRequest 探针会静默拿错 client——已在探针后还原。
+  P2NavigationDelegate 增加 Log.d 入口日志（Sinytra/navigation）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
@@ -190,9 +200,8 @@
 2. **unit 测试扩面（43 锁，见 §1e）**：可 JVM 测的 bridge 已基本覆盖
    （MessageBridge/JavascriptBridge/SupportedFeatures/GeckoBackForwardList/
    GeckoWebSettings/ErrorBridge/InterceptBridge）；StateBridge Bundle 面、
-   deny 值、页面 round-trip 归设备 harness。**harness 待补 deny 探针**
-   （P2-4 的 DENY GeckoResult 值目前两端都没验证）。接下来排 **CTS**
-   全量。
+   deny 值、页面 round-trip 归设备 harness（deny 值探针已补，02:50）。
+   接下来排 **CTS** 全量。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 
