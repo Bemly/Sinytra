@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-23 03:40。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-23 05:00。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -225,8 +225,18 @@
    测试；GeckoViewContentChannel/GeckoViewStreamListener 为候选地基）；
    framework 面 WebMessagePort 仍等 AOSP patch（决策点
    `ProviderAdapters.WebMessagePortFactory`）。
-3. **CTS 过渡轮**：arm 包落地后抽 CtsWebkitTestCases APK 对 Chromium
-   基线跑 `am instrument`，结果逐项归因记入本文件。
+3. **CTS 过渡第一轮已跑（2026-09-23 04:5x，Chromium 基线）**：
+   `CtsWebkitTestCases`（14_r7 arm 包）直 `am instrument`，**285 用例
+   4 失败（98.6%）**，用时 ~10.4 分钟。4 条 fail 全部在系统 Chromium 上
+   出现 → 环境归因，非 provider 语义：
+   - `GeolocationTest.testSimpleGeolocationRequestAccept{Always,Once}`
+     （JS didn't get position ×2——真机定位服务未开）；
+   - `WebViewTest.testSetNetworkAvailable`（ConnectivityManager 依赖超时）；
+   - `WebViewTest.testCanInjectHeaders`（Referer 未达——CTS 本地测试
+     服务器/缓存行为，无 tradefed 设备准备的已知依赖）。
+   **该 98.6% 就是 Sinytra 对照轮（ROM 阶段切 provider 后）的基线参照系**；
+   4 条 fail 在 Sinytra 轮不计入回归。直接 `am instrument` 过渡跑法可用性
+   实锤。
 2. **unit 测试扩面（43 锁，见 §1e）**：可 JVM 测的 bridge 已基本覆盖
    （MessageBridge/JavascriptBridge/SupportedFeatures/GeckoBackForwardList/
    GeckoWebSettings/ErrorBridge/InterceptBridge）；StateBridge Bundle 面、
