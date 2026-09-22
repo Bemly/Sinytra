@@ -30,6 +30,26 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    // JVM unit tests (ROADMAP §5 tests/unit): android.* calls that the code
+    // touches incidentally (Log, WebMessage ctor) must no-op instead of
+    // throwing "not mocked" — the logic under test is bridge translation,
+    // not framework behavior (that is the device harness's job).
+    testOptions {
+        unitTests {
+            returnDefaultValues = true
+        }
+    }
+
+    sourceSets {
+        test {
+            // AGENTS.md §1 layout: unit tests live in the top-level tests/
+            // tree, compiled into the standard Gradle unit-test source set.
+            java {
+                srcDirs += rootProject.file('tests/unit/java')
+            }
+        }
+    }
 }
 
 dependencies {
@@ -48,4 +68,9 @@ dependencies {
     // WebViewDelegate/...). compileOnly: real classes come from the host
     // process framework at runtime; stubs are javac-only. See framework-stubs/.
     compileOnly(project(":framework-stubs"))
+    // JVM unit tests: JUnit4 + REAL org.json (the mockable android.jar stubs
+    // JSONObject to no-ops, which would make optString/optJSON routing
+    // untestable — MessageBridge/JavascriptBridge depend on real JSON).
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
