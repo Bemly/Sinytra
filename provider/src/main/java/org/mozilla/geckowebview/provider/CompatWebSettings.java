@@ -251,6 +251,10 @@ final class CompatWebSettings extends WebSettings {
         mDelegate.setCacheMode(mode);
     }
 
+    // The delegate stores exactly the int the app set (framework WebSettings
+    // already intdef-checks callers) and defaults to LOAD_DEFAULT (-1) —
+    // in-range by construction, but not provable across the delegation.
+    @android.annotation.SuppressLint("WrongConstant")
     @Override public int getCacheMode() {
         return mDelegate.getCacheMode();
     }

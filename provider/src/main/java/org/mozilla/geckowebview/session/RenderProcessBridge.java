@@ -21,7 +21,10 @@ public final class RenderProcessBridge {
     private volatile Executor mExecutor;
     @Nullable
     private volatile WebViewRenderProcessClient mClient;
-    private final SinytraRenderProcess mProcess = new SinytraRenderProcess();
+    // API 29 framework class: created lazily behind an SDK guard so the
+    // bridge (constructed eagerly inside the provider) loads on 26-28 too.
+    @Nullable
+    private volatile SinytraRenderProcess mProcess;
 
     public void setClient(@Nullable Executor executor,
             @Nullable WebViewRenderProcessClient client) {
@@ -34,9 +37,24 @@ public final class RenderProcessBridge {
         return mClient;
     }
 
-    @NonNull
+    @Nullable
     public WebViewRenderProcess process() {
-        return mProcess;
+        SinytraRenderProcess process = mProcess;
+        if (process == null) {
+            if (android.os.Build.VERSION.SDK_INT < 29) {
+                android.util.Log.w("Sinytra/render",
+                        "process(): WebViewRenderProcess is API 29+");
+                return null;
+            }
+            synchronized (this) {
+                process = mProcess;
+                if (process == null) {
+                    process = new SinytraRenderProcess();
+                    mProcess = process;
+                }
+            }
+        }
+        return process;
     }
 
     public void onGeckoCrash(@NonNull WebView view,
@@ -50,7 +68,7 @@ public final class RenderProcessBridge {
 
             @Override
             public int rendererPriorityAtExit() {
-                return 0;
+                return android.webkit.WebView.RENDERER_PRIORITY_WAIVED;
             }
         };
         if (webViewClient != null) {
@@ -66,10 +84,15 @@ public final class RenderProcessBridge {
         if (client == null) {
             return;
         }
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            android.util.Log.w("Sinytra/render",
+                    "onGeckoCrash: renderer client is API 29+");
+            return;
+        }
         Executor executor = mExecutor;
         Runnable dispatch = () -> {
             try {
-                client.onRenderProcessUnresponsive(view, mProcess);
+                client.onRenderProcessUnresponsive(view, process());
             } catch (Throwable t) {
                 android.util.Log.w("Sinytra/render",
                         "onRenderProcessUnresponsive threw", t);
@@ -91,13 +114,18 @@ public final class RenderProcessBridge {
         if (client == null) {
             return;
         }
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            android.util.Log.w("Sinytra/render",
+                    "onResponsive: renderer client is API 29+");
+            return;
+        }
         Executor executor = mExecutor;
         Runnable dispatch = () -> {
             try {
                 if (responsive) {
-                    client.onRenderProcessResponsive(view, mProcess);
+                    client.onRenderProcessResponsive(view, process());
                 } else {
-                    client.onRenderProcessUnresponsive(view, mProcess);
+                    client.onRenderProcessUnresponsive(view, process());
                 }
             } catch (Throwable t) {
                 android.util.Log.w("Sinytra/render", "responsive dispatch threw", t);
@@ -114,6 +142,7 @@ public final class RenderProcessBridge {
         dispatch.run();
     }
 
+    @androidx.annotation.RequiresApi(29)
     static final class SinytraRenderProcess extends WebViewRenderProcess {
         @Override
         public boolean terminate() {

@@ -47,10 +47,14 @@ public final class GeckoWebViewFactoryProvider
     private volatile GeckoWebIconDatabase mIconDatabase;
     private volatile GeckoWebViewDatabaseImpl mWebViewDatabase;
     private volatile GeckoGeolocationStore mGeoStore;
-    private final GeckoServiceWorkerController mServiceWorkerController =
-            new GeckoServiceWorkerController();
-    private final GeckoTracingController mTracingController =
-            new GeckoTracingController();
+    // API-28 framework singletons (ServiceWorkerController/TracingController
+    // classes did not exist below API 28): created lazily behind an SDK
+    // guard. Eager fields here would NoClassDefFoundError the whole factory
+    // on API 26/27 hosts the moment the class is constructed.
+    @Nullable
+    private volatile GeckoServiceWorkerController mServiceWorkerController;
+    @Nullable
+    private volatile GeckoTracingController mTracingController;
     // One provider per WebView for its lifetime (Chromium glue keeps the same
     // WebView→WebViewChromium map): androidx.webkit's boundary factory resolves
     // the EXISTING provider for an already-created WebView, and a phantom
@@ -119,23 +123,52 @@ public final class GeckoWebViewFactoryProvider
 
     @Override
     public TracingController getTracingController() {
-        return mTracingController;
+        return tracingController();
     }
 
-    @NonNull
+    @Nullable
     public org.mozilla.geckowebview.storage.GeckoTracingController tracingController() {
-        return mTracingController;
+        // API 28+: the framework class does not exist below Q; hosts that
+        // old never call these accessors (the interface method itself is
+        // API 28), so honest null instead of a class-load crash.
+        if (android.os.Build.VERSION.SDK_INT < 28) {
+            return null;
+        }
+        GeckoTracingController controller = mTracingController;
+        if (controller == null) {
+            synchronized (this) {
+                controller = mTracingController;
+                if (controller == null) {
+                    controller = new GeckoTracingController();
+                    mTracingController = controller;
+                }
+            }
+        }
+        return controller;
     }
 
     @Override
     public ServiceWorkerController getServiceWorkerController() {
-        return mServiceWorkerController;
+        return serviceWorkerController();
     }
 
-    @NonNull
+    @Nullable
     public org.mozilla.geckowebview.storage.GeckoServiceWorkerController
             serviceWorkerController() {
-        return mServiceWorkerController;
+        if (android.os.Build.VERSION.SDK_INT < 28) {
+            return null;
+        }
+        GeckoServiceWorkerController controller = mServiceWorkerController;
+        if (controller == null) {
+            synchronized (this) {
+                controller = mServiceWorkerController;
+                if (controller == null) {
+                    controller = new GeckoServiceWorkerController();
+                    mServiceWorkerController = controller;
+                }
+            }
+        }
+        return controller;
     }
 
     @Override

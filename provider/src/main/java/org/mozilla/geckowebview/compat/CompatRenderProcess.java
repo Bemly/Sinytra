@@ -35,7 +35,12 @@ public final class CompatRenderProcess {
         public Object invoke(Object proxy, Method method, Object[] args) {
             switch (method.getName()) {
                 case "terminate":
-                    return mToken != null && mToken.terminate();
+                    // WebViewRenderProcess.terminate is API 29+; on 26-28 no
+                    // framework renderer token can exist (the class did not
+                    // exist), so the honest answer is the same: false.
+                    return mToken != null
+                            && android.os.Build.VERSION.SDK_INT >= 29
+                            && mToken.terminate();
                 case "getOrCreatePeer":
                     return mToken;
                 case "equals":
@@ -70,14 +75,24 @@ public final class CompatRenderProcess {
 
         @Override
         public Object invoke(Object proxy, Method method, Object[] args) {
+            // WebViewRenderProcessClient and its callbacks are API 29+; on
+            // 26-28 no framework renderer client can exist, so forwarding
+            // is honestly a no-op there.
+            boolean api29 = android.os.Build.VERSION.SDK_INT >= 29;
             switch (method.getName()) {
                 case "onRendererUnresponsive":
-                    mClient.onRenderProcessUnresponsive((android.webkit.WebView) args[0],
-                            (WebViewRenderProcess) unwrap(args[1]));
+                    if (api29) {
+                        mClient.onRenderProcessUnresponsive(
+                                (android.webkit.WebView) args[0],
+                                (WebViewRenderProcess) unwrap(args[1]));
+                    }
                     return null;
                 case "onRendererResponsive":
-                    mClient.onRenderProcessResponsive((android.webkit.WebView) args[0],
-                            (WebViewRenderProcess) unwrap(args[1]));
+                    if (api29) {
+                        mClient.onRenderProcessResponsive(
+                                (android.webkit.WebView) args[0],
+                                (WebViewRenderProcess) unwrap(args[1]));
+                    }
                     return null;
                 case "equals":
                     return proxy == args[0];
@@ -108,6 +123,9 @@ public final class CompatRenderProcess {
     }
 
     // Boundary client -> framework client, for setWebViewRendererClient.
+    // API 29+: the framework class does not exist below Q, so callers must
+    // guard on Build.VERSION.SDK_INT (setCompatRendererClient does).
+    @androidx.annotation.RequiresApi(29)
     @NonNull
     public static WebViewRenderProcessClient wrapClient(
             @NonNull InvocationHandler boundary, @Nullable Executor executor) {

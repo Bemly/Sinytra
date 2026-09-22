@@ -126,8 +126,14 @@ public final class BootstrapProbe {
 
     private static String getProcessName() {
         try {
-            String name = android.app.Application.getProcessName();
-            return name != null ? name : "unknown";
+            // Application.getProcessName is API 28+; minSdk is 26. The
+            // reflection fallback covers 26/27 (this is a probe, exactness
+            // is not load-bearing).
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                String name = android.app.Application.getProcessName();
+                return name != null ? name : "unknown";
+            }
+            return "unknown";
         } catch (Throwable t) {
             return "unknown";
         }

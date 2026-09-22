@@ -3,12 +3,17 @@ package org.mozilla.geckowebview.storage;
 import android.webkit.TracingConfig;
 import android.webkit.TracingController;
 import androidx.annotation.NonNull;
+import androidx.annotation.RequiresApi;
 import java.io.OutputStream;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 // android.webkit.TracingController implementation. No GeckoView equivalent;
 // honest no-op that reports not-tracing (API_MAPPING.md §7).
+// The framework superclass is API 28+: instantiate only behind an
+// SDK guard (GeckoWebViewFactoryProvider does; see the latent
+// NoClassDefFoundError note in its field comment).
+@RequiresApi(28)
 public final class GeckoTracingController extends TracingController {
     private final AtomicBoolean mTracing = new AtomicBoolean(false);
 

@@ -10,6 +10,7 @@ import androidx.annotation.Nullable;
 // ServiceWorker stack via GeckoRuntime.ServiceWorkerDelegate (API_MAPPING
 // §2); until the provider wires that delegate, this reports honest
 // defaults and holds the client reference.
+@androidx.annotation.RequiresApi(28)
 public final class GeckoServiceWorkerController extends ServiceWorkerController {
     @Nullable
     private volatile ServiceWorkerClient mClient;
@@ -24,7 +25,7 @@ public final class GeckoServiceWorkerController extends ServiceWorkerController 
 
             @Override
             public int getCacheMode() {
-                return 0;
+                return android.webkit.WebSettings.LOAD_DEFAULT;
             }
 
             @Override

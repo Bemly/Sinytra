@@ -1,6 +1,7 @@
 package org.mozilla.geckowebview.compat;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import java.io.OutputStream;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -13,18 +14,20 @@ import org.chromium.support_lib_boundary.TracingControllerBoundaryInterface;
 // are accepted and ignored (Gecko tracing has no category set); the
 // provider impl records tracing state honestly.
 public final class CompatTracingController implements InvocationHandler {
-    @NonNull
+    // Null below API 28 (framework class does not exist): every boundary
+    // method then throws honest UnsupportedOperationException.
+    @Nullable
     private final org.mozilla.geckowebview.storage.GeckoTracingController mController;
 
     private CompatTracingController(
-            @NonNull org.mozilla.geckowebview.storage.GeckoTracingController
+            @Nullable org.mozilla.geckowebview.storage.GeckoTracingController
                     controller) {
         mController = controller;
     }
 
     @NonNull
     public static InvocationHandler create(
-            @NonNull org.mozilla.geckowebview.storage.GeckoTracingController
+            @Nullable org.mozilla.geckowebview.storage.GeckoTracingController
                     controller) {
         return new CompatTracingController(controller);
     }
@@ -33,12 +36,31 @@ public final class CompatTracingController implements InvocationHandler {
     public Object invoke(Object proxy, Method method, Object[] args) {
         switch (method.getName()) {
             case "isTracing":
+                if (android.os.Build.VERSION.SDK_INT < 28 || mController == null) {
+                    throw new UnsupportedOperationException(
+                            "CompatTracingController: framework TracingController "
+                                    + "is API 28+");
+                }
                 return mController.isTracing();
             case "start":
+                // TracingConfig (and framework tracing generally) is API 28+;
+                // below Q there is no legal config to hand the provider impl,
+                // so refuse honestly instead of fabricating one.
+                if (android.os.Build.VERSION.SDK_INT < 28 || mController == null) {
+                    throw new UnsupportedOperationException(
+                            "CompatTracingController: framework TracingController "
+                                    + "is API 28+");
+                }
                 mController.start(new android.webkit.TracingConfig.Builder().build());
                 return null;
             case "stop":
-                return mController.stop((OutputStream) args[0], (Executor) args[1]);
+                if (android.os.Build.VERSION.SDK_INT < 28 || mController == null) {
+                    throw new UnsupportedOperationException(
+                            "CompatTracingController: framework TracingController "
+                                    + "is API 28+");
+                }
+                return mController.stop(
+                        (OutputStream) args[0], (Executor) args[1]);
             case "equals":
                 return proxy == args[0];
             case "hashCode":

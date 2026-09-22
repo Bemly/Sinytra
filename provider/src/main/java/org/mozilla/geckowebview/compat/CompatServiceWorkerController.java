@@ -11,21 +11,23 @@ import org.chromium.support_lib_boundary.ServiceWorkerWebSettingsBoundaryInterfa
 // settings translate to the provider impl; setServiceWorkerClient stores the
 // compat client and mirrors it into the framework controller.
 public final class CompatServiceWorkerController implements InvocationHandler {
-    @NonNull
+    // Null below API 28 (framework class does not exist): every boundary
+    // method then throws honest UnsupportedOperationException.
+    @Nullable
     private final org.mozilla.geckowebview.storage.GeckoServiceWorkerController
             mController;
     @Nullable
     private volatile InvocationHandler mSettingsHandler;
 
     private CompatServiceWorkerController(
-            @NonNull org.mozilla.geckowebview.storage.GeckoServiceWorkerController
+            @Nullable org.mozilla.geckowebview.storage.GeckoServiceWorkerController
                     controller) {
         mController = controller;
     }
 
     @NonNull
     public static InvocationHandler create(
-            @NonNull org.mozilla.geckowebview.storage.GeckoServiceWorkerController
+            @Nullable org.mozilla.geckowebview.storage.GeckoServiceWorkerController
                     controller) {
         return new CompatServiceWorkerController(controller);
     }
@@ -36,6 +38,11 @@ public final class CompatServiceWorkerController implements InvocationHandler {
             case "getServiceWorkerWebSettings":
                 return settingsHandler();
             case "setServiceWorkerClient":
+                if (android.os.Build.VERSION.SDK_INT < 28 || mController == null) {
+                    throw new UnsupportedOperationException(
+                            "CompatServiceWorkerController: framework "
+                                    + "ServiceWorkerController is API 28+");
+                }
                 mController.setServiceWorkerClient(null);
                 return null;
             case "equals":
@@ -54,6 +61,11 @@ public final class CompatServiceWorkerController implements InvocationHandler {
     private synchronized InvocationHandler settingsHandler() {
         InvocationHandler existing = mSettingsHandler;
         if (existing == null) {
+            if (android.os.Build.VERSION.SDK_INT < 28 || mController == null) {
+                throw new UnsupportedOperationException(
+                        "CompatServiceWorkerController: framework "
+                                + "ServiceWorkerController is API 28+");
+            }
             existing = CompatServiceWorkerSettings.create(
                     mController.getServiceWorkerWebSettings());
             mSettingsHandler = existing;
@@ -61,6 +73,7 @@ public final class CompatServiceWorkerController implements InvocationHandler {
         return existing;
     }
 
+    @androidx.annotation.RequiresApi(28)
     static final class CompatServiceWorkerSettings implements InvocationHandler {
         @NonNull
         private final android.webkit.ServiceWorkerWebSettings mSettings;

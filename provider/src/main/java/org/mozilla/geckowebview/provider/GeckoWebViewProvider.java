@@ -608,6 +608,15 @@ public final class GeckoWebViewProvider
             mRenderProcess.setClient(null, null);
             return;
         }
+        // WebViewRenderProcessClient is API 29+; below Q there is no
+        // framework renderer client to forward to, so the boundary client
+        // is honestly dropped.
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            android.util.Log.w(TAG,
+                    "setCompatRendererClient: renderer client is API 29+, "
+                            + "not available on this device");
+            return;
+        }
         mRenderProcess.setClient(null,
                 org.mozilla.geckowebview.compat.CompatRenderProcess.wrapClient(
                         boundary, null));
