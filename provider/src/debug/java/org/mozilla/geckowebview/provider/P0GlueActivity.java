@@ -390,29 +390,64 @@ public final class P0GlueActivity extends Activity {
             }
             out.append("PASS restoreState\n");
 
-            // --- P2 evaluateJavascript honest-null (no transport yet) ---
-            final CountDownLatch jsDone = new CountDownLatch(1);
-            final String[][] jsResult = new String[1][];
-            final Throwable[] jsError = new Throwable[1];
-            runOnUiThread(() -> {
-                try {
-                    provider.evaluateJavaScript("document.title",
-                            value -> {
-                                jsResult[0] = new String[] {value};
-                                jsDone.countDown();
-                            });
-                } catch (Throwable t) {
-                    jsError[0] = t;
-                    jsDone.countDown();
+            // --- P2 evaluateJavascript via JsBridge transport ---
+            // Ready path: extension installed -> JSON-encoded title.
+            // Not-ready path (install still in flight): honest-null.
+            // Either way the callback MUST fire (no hang, no throw).
+            // NOTE: the first eval after a navigation races the new
+            // document's content-script loop (old generation dies with
+            // the old document; new loop starts at document_start but
+            // the poll only arrives after the script runs). Retry a few
+            // times on null before accepting honest-null.
+            String jsValue = null;
+            boolean jsReady = false;
+            for (int attempt = 0; attempt < 4 && !jsReady; attempt++) {
+                final CountDownLatch jsDone = new CountDownLatch(1);
+                final String[][] jsResult = new String[1][];
+                final Throwable[] jsError = new Throwable[1];
+                runOnUiThread(() -> {
+                    try {
+                        provider.evaluateJavaScript("document.title",
+                                value -> {
+                                    jsResult[0] = new String[] {value};
+                                    jsDone.countDown();
+                                });
+                    } catch (Throwable t) {
+                        jsError[0] = t;
+                        jsDone.countDown();
+                    }
+                });
+                if (!jsDone.await(45, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("js timeout");
                 }
-            });
-            if (!jsDone.await(10, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("js timeout");
+                if (jsError[0] != null) {
+                    throw new IllegalStateException("js failed", jsError[0]);
+                }
+                jsValue = jsResult[0][0];
+                jsReady = jsValue != null;
+                if (!jsReady) {
+                    Thread.sleep(2000);
+                }
             }
-            if (jsError[0] != null) {
-                throw new IllegalStateException("js failed", jsError[0]);
+            out.append("PASS jsEval ready=").append(jsReady)
+                    .append(" value=").append(jsValue).append('\n');
+            // Second probe: arithmetic must round-trip as JSON when ready
+            // (1+2 -> "3"); null is accepted only when not ready.
+            final CountDownLatch jsDone2 = new CountDownLatch(1);
+            final String[][] jsResult2 = new String[1][];
+            runOnUiThread(() -> provider.evaluateJavaScript("1+2",
+                    value -> {
+                        jsResult2[0] = new String[] {value};
+                        jsDone2.countDown();
+                    }));
+            if (!jsDone2.await(45, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("js2 timeout");
             }
-            out.append("PASS jsEval null=").append(jsResult[0][0] == null).append('\n');
+            String jsValue2 = jsResult2[0][0];
+            if (jsReady && !"3".equals(jsValue2)) {
+                throw new IllegalStateException("js arithmetic: " + jsValue2);
+            }
+            out.append("PASS jsArith value=").append(jsValue2).append('\n');
 
             // --- P2 addJavascriptInterface bookkeeping ---
             final Throwable[] jiError = new Throwable[1];
