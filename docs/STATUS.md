@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-21 深夜。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-23 00:22。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -94,13 +94,58 @@
 - `insertVisualStateCallback` 落地：pending map + page-stop 触发，
   harness `PASS visualState`（requestId=42 回调）。
 
+## 1d. P2 JS transport 落地（feat/p2-js-transport 分支，harness 29 PASS，2026-09-23 00:22）
+
+- **路线修正（重要）**：`evaluateJavascript` / `addJavascriptInterface` /
+  WebMessage 的 transport **不需要 firefox-patch**——GV153 的 public API
+  `WebExtensionController.ensureBuiltIn` + `SessionController.setMessageDelegate`
+  就够。实现是内置 WebExtension `sinytra-js`（`provider/src/main/assets/`，
+  id `sinytra-js@bemly.moe`）：content script 单飞轮询 native message，
+  Java 把请求入队 session mailbox、以 GeckoResult 应答 poll（长轮询语义），
+  page-shim.js 以 MAIN-world `<script>` 执行 eval / 装 interface stub /
+  收发端口消息。协议全文见 `content.js` 头注释；transport 设计见
+  `JsBridge.java` 头注释（含 7 轮真机排除 Port push 的记录）。
+  §1b/§2 里"真 transport 等 firefox-patch"的旧表述作废。
+- **P2-1 eval 实测**：harness `jsEval ready=true value="Example Domain"`、
+  `jsArith value=3`（JSON round-trip）；首个导航后 eval 竞争新 document
+  轮询启动，重试 4 次兜底 honest-null。
+- **P2-2 interface dispatch**：`register` 入队 → shim 装 `window[iface]`
+  stub（`__sinytraStub` 标记，防覆盖诚实上报）→ 页面调用走
+  `sinytra-event` iface-call → Java 反射 invoke。harness `PASS jsInterface`。
+- **P2-3 WebMessage 双面（已提交 a760ac6）**：
+  - framework 面：`createWebMessageChannel` 维持 honest null（框架 ctor
+    package-private，javac 实测不可子类化；反射真机被 hidden-API 拦截；
+    Chromium 的 `WebMessagePortImpl` 在 android.webkit 包内，provider APK
+    不能撞包）。决策点记录在 `ProviderAdapters.WebMessagePortFactory`
+    （AOSP patch 放开 ctor vs framework factory hook）。
+  - boundary 面（androidx.webkit）：**全功能**。`CompatSmallBoundaries.
+    LiveMessagePort` 把 postMessage/close/setWebMessageCallback 路由进
+    MessageBridge → JsBridge transport。
+- **glue factory 保真度修复（1b50409）**：`CompatWebViewFactory.
+  createWebView` 原来会对已有 WebView 构造**第二个** provider（新开
+  GeckoSession、transport 未绑，glue 功能悄悄哑火）。现
+  `GeckoWebViewFactoryProvider` 持 WeakHashMap 注册表：createWebView 注册、
+  `webViewProvider()` 查活实例（查不到 honest 抛错）、destroy() 注销。
+- **boundary round-trip 真机验证（f2db384 探针）**：harness 新增
+  `boundaryPort` 探针——setFactoryForTests 绑 harness factory →
+  boundary createWebView 拿**活** provider → createChannel → 端口[1]
+  注册 boundary onMessage → post `sinytra-boundary-echo` → shim 回显
+  `sinytra-port-deliver` → 回调收到同数据。`via=page`（走完整页面传输，
+  非本地回退）；close 后 bridgePorts 精确 -1（delta 断言，msgChannel
+  探针的 2 个 bookkeeping 端口也在册）。
+- 注意：`P0GlueActivity` 852 行，逼近 900 行拆分线，下次加探针前先拆。
+
 ## 2. 下一步（按顺序，一次做一件）
 
-1. **P2 patch 队列**（都要 `firefox-patches/` 独立 patch + 独立测试）：
-   `evaluateJavascript` 真 transport、JS interface 注入、`WebMessagePort`
-   具体子类 + transport、response-body 替换拦截。Java 侧 bookkeeping 已
-   就绪，patch 一到只绑 transport。
-2. **CTS**：WebView 相关用例全量，逐项记 Gecko 差异/未实现/上游 bug。
+1. **P2 剩余 patch 项**（真需要 firefox-patch / AOSP-patch 的只剩这两个）：
+   - `shouldInterceptRequest` response-body 替换：LoadRequest 无
+     method/headers/body 替换能力，Gecko 网络栈语义，扩展通道做不到。
+   - framework 面 WebMessagePort：需 AOSP patch 放开 ctor 或 framework
+     factory hook（决策点见 `ProviderAdapters.WebMessagePortFactory`）。
+   Java 侧 bookkeeping 与 boundary 面已就绪，patch 一到只绑 transport。
+2. **unit 测试从 0 到 1**：`tests/unit` JUnit 覆盖各 bridge 映射逻辑
+   （StateBridge 转译、MessageBridge 端口簿记、CompatWebSettings 翻译等，
+   纯 JVM 可测部分先建骨架）；CTS 全量另行排在 unit 骨架之后。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 
