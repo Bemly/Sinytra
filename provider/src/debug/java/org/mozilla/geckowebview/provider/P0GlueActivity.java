@@ -597,6 +597,146 @@ public final class P0GlueActivity extends Activity {
             }
             out.append("PASS features count=").append(features.length).append('\n');
 
+            // --- P2-3 boundary live port round-trip (androidx.webkit surface) ---
+            // Drives glue factory createWebView -> createWebMessageChannel ->
+            // LiveMessagePort -> MessageBridge -> JsBridge mailbox -> page shim
+            // echo (sinytra-port-deliver) -> port-deliver event -> boundary
+            // onMessage. The shim loops a port post back to the same port id,
+            // so the callback must fire with the posted data. When the
+            // transport is not ready MessageBridge falls back to local
+            // delivery: same data, same callback, labelled honestly via=.
+            final String[] bndData = new String[1];
+            final java.lang.reflect.InvocationHandler[][] bndPorts =
+                    new java.lang.reflect.InvocationHandler[1][];
+            final Throwable[] bndError = new Throwable[1];
+            final CountDownLatch bndDone = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    org.chromium.support_lib_glue.SupportLibReflectionUtil
+                            .setFactoryForTests(factory);
+                    Object glueHandler =
+                            org.chromium.support_lib_glue.SupportLibReflectionUtil
+                                    .createWebViewProviderFactory();
+                    java.lang.reflect.Method createWebViewM =
+                            org.chromium.support_lib_boundary
+                                    .WebViewProviderFactoryBoundaryInterface.class
+                                    .getMethod("createWebView", WebView.class);
+                    java.lang.reflect.InvocationHandler providerHandler =
+                            (java.lang.reflect.InvocationHandler) ((java.lang.reflect.InvocationHandler)
+                                    glueHandler).invoke(null, createWebViewM,
+                                            new Object[] {webView});
+                    java.lang.reflect.Method createChannelM =
+                            org.chromium.support_lib_boundary
+                                    .WebViewProviderBoundaryInterface.class
+                                    .getMethod("createWebMessageChannel");
+                    java.lang.reflect.InvocationHandler[] ports =
+                            (java.lang.reflect.InvocationHandler[])
+                                    providerHandler.invoke(null, createChannelM, null);
+                    if (ports == null || ports.length != 2) {
+                        throw new IllegalStateException(
+                                "boundary createWebMessageChannel returned "
+                                        + (ports == null ? "null" : ports.length));
+                    }
+                    bndPorts[0] = ports;
+                    java.lang.reflect.Method setCallbackM =
+                            org.chromium.support_lib_boundary
+                                    .WebMessagePortBoundaryInterface.class
+                                    .getMethod("setWebMessageCallback",
+                                            java.lang.reflect.InvocationHandler.class);
+                    java.lang.reflect.Method getDataM =
+                            org.chromium.support_lib_boundary
+                                    .WebMessageBoundaryInterface.class
+                                    .getMethod("getData");
+                    java.lang.reflect.InvocationHandler callback =
+                            (proxy, method, args) -> {
+                                if ("onMessage".equals(method.getName())) {
+                                    try {
+                                        bndData[0] = (String)
+                                                ((java.lang.reflect.InvocationHandler)
+                                                        args[1]).invoke(
+                                                        null, getDataM, null);
+                                    } catch (Throwable t) {
+                                        bndError[0] = t;
+                                    }
+                                    bndDone.countDown();
+                                    return null;
+                                }
+                                throw new UnsupportedOperationException(
+                                        "boundary callback: " + method.getName());
+                            };
+                    ports[1].invoke(null, setCallbackM, new Object[] {callback});
+                    java.lang.reflect.Method postMessageM =
+                            org.chromium.support_lib_boundary
+                                    .WebMessagePortBoundaryInterface.class
+                                    .getMethod("postMessage",
+                                            java.lang.reflect.InvocationHandler.class);
+                    java.lang.reflect.InvocationHandler message =
+                            (proxy, method, args) -> {
+                                switch (method.getName()) {
+                                    case "getData":
+                                        return "sinytra-boundary-echo";
+                                    case "getMessagePayload":
+                                        return null;
+                                    case "getPorts":
+                                        return new java.lang.reflect
+                                                .InvocationHandler[0];
+                                    default:
+                                        throw new UnsupportedOperationException(
+                                                "boundary message: "
+                                                        + method.getName());
+                                }
+                            };
+                    ports[1].invoke(null, postMessageM, new Object[] {message});
+                } catch (Throwable t) {
+                    bndError[0] = t;
+                    bndDone.countDown();
+                }
+            });
+            if (!bndDone.await(45, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("boundary port timeout");
+            }
+            if (bndError[0] != null) {
+                throw new IllegalStateException("boundary port failed", bndError[0]);
+            }
+            if (!"sinytra-boundary-echo".equals(bndData[0])) {
+                throw new IllegalStateException("boundary round-trip data: "
+                        + bndData[0]);
+            }
+            // Close the unused half: the boundary close() must route into
+            // MessageBridge and drop exactly one port (the earlier msgChannel
+            // probe already left its own 2 bookkeeping ports, so the absolute
+            // count is not 1 — assert the delta).
+            final int portsBeforeClose = provider.messagePortCount();
+            final CountDownLatch bndCloseDone = new CountDownLatch(1);
+            final Throwable[] bndCloseError = new Throwable[1];
+            runOnUiThread(() -> {
+                try {
+                    java.lang.reflect.Method closeM =
+                            org.chromium.support_lib_boundary
+                                    .WebMessagePortBoundaryInterface.class
+                                    .getMethod("close");
+                    bndPorts[0][0].invoke(null, closeM, null);
+                } catch (Throwable t) {
+                    bndCloseError[0] = t;
+                } finally {
+                    bndCloseDone.countDown();
+                }
+            });
+            bndCloseDone.await(10, TimeUnit.SECONDS);
+            if (bndCloseError[0] != null) {
+                throw new IllegalStateException("boundary close failed",
+                        bndCloseError[0]);
+            }
+            if (provider.messagePortCount() != portsBeforeClose - 1) {
+                throw new IllegalStateException("boundary close did not drop "
+                        + "one port: before=" + portsBeforeClose
+                        + " after=" + provider.messagePortCount());
+            }
+            out.append("PASS boundaryPort data=").append(bndData[0])
+                    .append(" via=").append(jsReady ? "page" : "local")
+                    .append(" bridgePorts=").append(provider.messagePortCount())
+                    .append('\n');
+
             // --- P2-8 visual state callback fires on page stop ---
             final CountDownLatch vsDone = new CountDownLatch(1);
             final Throwable[] vsError = new Throwable[1];
