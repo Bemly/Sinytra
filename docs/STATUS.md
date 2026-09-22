@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-23 05:00。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-23 05:09。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -189,6 +189,27 @@
   shouldInterceptRequest 探针会静默拿错 client——已在探针后还原。
   P2NavigationDelegate 增加 Log.d 入口日志（Sinytra/navigation）。
 
+## 1g. 本地 GV 构建成功 + 替换校准全绿（2026-09-23 05:09）
+
+- **`./mach build` 成功**（增量 31 分钟 + lite 重打包；objdir 21G）。
+  mozconfig 定稿：`--enable-project=mobile/android` +
+  `--target=aarch64-linux-android` + 固定 objdir + `--disable-crashreporter`
+  + `--enable-geckoview-lite`（对齐 pin 的 Lite 包）。
+- **替换接线四处坑全修（b73848b）**：① topsrcdir 相对层级差一级；②
+  `FAIL_ON_PROJECT_REPOS` 拒收 Mozilla 脚本的项目级仓库 → settings 按开关
+  放宽 `PREFER_PROJECT`——但该模式一旦有项目仓库就**忽略 settings 仓库**，
+  需在 provider 里镜像 google()/mavenCentral() 才能解析 AAR 传递依赖；
+  ③ Mozilla 脚本只映射 nightly/beta 模块名 → 替换模式下依赖坐标换
+  `geckoview-nightly`；④ mozconfig 不开 lite 时本地产物是 omni（脚本警告
+  确认）。
+- **publish 任务名已变**：`publishWithGeckoBinariesDebugPublicationToMaven
+  Repository` 在 153 树不存在，实际是
+  `geckoview:publishDebugPublicationToMavenRepository`（1m15s）。
+- **校准结论（harness 28 PASS + P0 GLUE PASS，05:09）**：本地树（lite,
+  pin f1b6c0f8）与 Maven AAR 行为**完全一致**——`-PsinytraLocalGecko`
+  通道可信，firefox-patches 开发闭环就绪（改树 → build binaries →
+  publish → provider 替换构建 → harness 回归）。
+
 ## 1f. 本地 Gecko 启动 + CTS 定跑（2026-09-23，用户拍板）
 
 - **FIREFOX_COMMIT 已 pin**：`f1b6c0f86b96b7e0688c26f65803576f27cdaf88`
@@ -217,12 +238,12 @@
 
 ## 2. 下一步（按顺序，一次做一件）
 
-1. **等 `mach build` 完成** → `./mach android archive-geckoview`（或直接
-   Gradle 替换构建）→ 本地 GV 版本/UA 与 Maven AAR 对照复核 →
-   `-PsinytraLocalGecko` 跑 harness 全量回归（Maven AAR 与本地树的行为
-   一致性校准）。
+1. ~~等 mach build + 替换校准~~ ✅（§1g）。
 2. **firefox-patches/0001：response-body 拦截**（Gecko 侧 patch + 独立
    测试；GeckoViewContentChannel/GeckoViewStreamListener 为候选地基）；
+   开发闭环：改树 → `mach build binaries` → `mach gradle
+   geckoview:publishDebugPublicationToMavenRepository` →
+   `-PsinytraLocalGecko` 构建 → harness 回归。
    framework 面 WebMessagePort 仍等 AOSP patch（决策点
    `ProviderAdapters.WebMessagePortFactory`）。
 3. **CTS 过渡第一轮已跑（2026-09-23 04:5x，Chromium 基线）**：

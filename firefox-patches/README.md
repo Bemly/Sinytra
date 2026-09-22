@@ -24,9 +24,19 @@
 
 ```bash
 cd /Volumes//Projects/firefox
-git checkout FIREFOX_153_0_RELEASE        # 或 pin commit
-git am / am 逐个应用本目录 patch（或 quilt 式逐个 cherry-pick）
-./mach build                              # 本地 GeckoView（topobjdir）
+git checkout sinytra-pin                  # FIREFOX_153_0_RELEASE 的分支
+#（逐个应用/修改 patch 后）
+MOZBUILD_STATE_PATH=/Volumes//Projects/mozbuild PATH="$HOME/.cargo/bin:$PATH" \
+  ./mach build binaries                   # 增量
+MOZBUILD_STATE_PATH=/Volumes//Projects/mozbuild PATH="$HOME/.cargo/bin:$PATH" \
+  ./mach gradle geckoview:publishDebugPublicationToMavenRepository
+# 153 树的任务名：publishWithGeckoBinaries* 不存在（脚本文档过时）
+cd /Volumes//Projects/Sinytra
+./gradlew :provider:assembleDebug -PsinytraLocalGecko=true   # 替换构建
+# 真机回归：P0RenderActivity 金丝雀 + P0GlueActivity 29 探针
 ```
+
+环境备忘：rust 用 rustup 工具链（homebrew rustc 缺 android target 的
+std；`~/.cargo/bin` 已放 rustc/cargo/rustdoc shim，构建 PATH 需前置）。
 
 升级 Firefox 版本时：逐个 rebase，冲突不解决不许升级（AGENTS.md §5）。
