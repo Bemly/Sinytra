@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-23 01:12。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-23 01:52。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -156,6 +156,16 @@
   真机回归：金丝雀 + harness 29 PASS（01:12）。
 - JVM 测不了仍归设备 harness 的：onPortDeliver 路由（JsBridge 分发入口
   private）、页面 round-trip 数据面、eval/iface-call 端到端。
+- **第二批 +12 锁（3a1a5c5，33 锁全绿）**：GeckoBackForwardList 6
+  （index 推导三态：HistoryList getCurrentIndex 尊重 / 平 List 回退末项 /
+  空表 -1；hostile HistoryItem 降级；clone 独立且保 index）+
+  GeckoWebSettings 6（默认值基线、setter 往返、toSessionSettings 的
+  initOnly 三键映射 + build 独立性）。**又挖出一个真 bug 已修
+  （7133517）**：clone 用空表重建 → copyBackForwardList() 的 currentIndex
+  变 -1、getCurrentItem() 变 null，违反 framework 拷贝契约。真机回归
+  harness 29 PASS（01:52）。**StateBridge 的 Bundle/Parcel 面明确不做
+  JVM 测**（mockable jar 全桩，只有设备 harness 的 saveState/restoreState
+  探针能诚实验证）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
@@ -165,9 +175,10 @@
    - framework 面 WebMessagePort：需 AOSP patch 放开 ctor 或 framework
      factory hook（决策点见 `ProviderAdapters.WebMessagePortFactory`）。
    Java 侧 bookkeeping 与 boundary 面已就绪，patch 一到只绑 transport。
-2. **unit 测试扩面（骨架已建，21 锁，见 §1e）**：逐个补 StateBridge 转译、
-   GeckoBackForwardList、CompatWebSettings/GeckoWebSettings 翻译锁；
-   全部就绪后再排 **CTS** 全量。
+2. **unit 测试扩面（33 锁，见 §1e）**：可 JVM 测的 bridge 已基本覆盖
+   （MessageBridge/JavascriptBridge/SupportedFeatures/GeckoBackForwardList/
+   GeckoWebSettings）；StateBridge Bundle 面、页面 round-trip 归设备
+   harness。接下来排 **CTS** 全量。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 
