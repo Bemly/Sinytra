@@ -71,10 +71,33 @@ DENY——body/status/headers 无处安放;子资源(图片/CSS/XHR)根本不进
 - body 走 base64 而非流引用:channel 在 child,Java 流对象跨不了 JVM;
   v1 接受内存上限,0002 评估流式 IPC。
 
-**C++ 侧(Group 3)**:child necko 在 channel 创建处(对齐 SW 拦截的
-nsIInterceptedChannel 构造点)命中 uri filter 时经 EventDispatcher 查询
-parent Java,取回 body 后按 SW 拦截语义换体(URL 身份保持)。
-过滤条件由 Java 注册侧下发(uri 前缀集,避免每请求跨进程)。
+**C++ 侧(Group 3,勘察定稿 2026-09-23 晚)**:
+- **钩子契约是 necko 公开接口** `nsINetworkInterceptController`
+  (`netwerk/base/nsINetworkInterceptController.idl`):
+  `shouldPrepareForIntercept(uri, channel)` + `channelIntercepted(channel)`。
+  SW 只是它的一个实现(`ServiceWorkerInterceptController`,
+  NS_DECL_NSINETWORKINTERCEPTCONTROLLER);消费端模式 =
+  new 一个 controller 挂进 channel 的 notificationCallbacks 链
+  (`FetchDriver.cpp:1692`、`RemoteWorkerChild.cpp:80` 即此模式)。
+- **合成响应**:`nsHttpChannel::RedirectToInterceptedChannel()`(nsHttpChannel.cpp:12273)
+  经 `GetCallback(controller)` 解析 controller → 命中后内部重定向到
+  `InterceptedHttpChannel::CreateForInterception(...)` → controller.
+  channelIntercepted 拿到 `nsIInterceptedChannel` →
+  `SetSynthesizedStatus/SetSynthesizedHeader + StartSynthesizedResponse(流)`
+  ——URL 身份由内部重定向天然保持,无需 nsHttpChannel 手术。
+- **实现形态**:`mobile/android/components/geckoview/` 新
+  `GeckoViewResponseController.cpp`(实现 nsINetworkInterceptController):
+  shouldPrepareForIntercept 查进程级 uri 前缀表(Java 注册侧经
+  EventDispatcher 下发,命中才跨进程查询);channelIntercepted 经
+  EventDispatcher 原生桥向 parent Java 发 `GeckoView:OnRequestResponse`
+  查询,取回 Group 1 应答(bundle:b64/status/headers)→ 内存流
+  StartSynthesizedResponse。注册进 callback 链:对齐 FetchDriver 模式,
+  在 GeckoView 的 docshell 加载路径挂接(具体挂点 = 实现期第一件事:
+  确认 child docshell loads 的 notificationCallbacks 聚合位置)。
+- **不确定项(实现期解决)**:① child 进程 EventDispatcher 原生桥对
+  C++ 发起查询的支持面(widget/android/EventDispatcher.cpp);
+  ② callback 链挂点的最小侵入位置;③ 每请求查询的节流(uri 前缀表
+  在 child 命中后才跨进程,无前缀命中零开销)。
 
 **JS 侧(Group 2)**:无(查询不经 JS actor——necko C++ 直接走
 EventDispatcher 的 C++ 接口)。
