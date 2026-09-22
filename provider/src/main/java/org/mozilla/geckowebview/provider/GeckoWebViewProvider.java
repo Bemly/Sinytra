@@ -209,6 +209,7 @@ public final class GeckoWebViewProvider
     @Override
     public void destroy() {
         mDestroyed = true;
+        mFactory.unregisterWebViewProvider(this);
         try {
             mBridge.close();
         } catch (Throwable t) {

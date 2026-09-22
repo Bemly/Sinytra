@@ -51,6 +51,14 @@ public final class GeckoWebViewFactoryProvider
             new GeckoServiceWorkerController();
     private final GeckoTracingController mTracingController =
             new GeckoTracingController();
+    // One provider per WebView for its lifetime (Chromium glue keeps the same
+    // WebView→WebViewChromium map): androidx.webkit's boundary factory resolves
+    // the EXISTING provider for an already-created WebView, and a phantom
+    // second provider here would open a dead second GeckoSession whose glue
+    // features (message channels etc.) silently dead-end. Weak keys so
+    // destroy()d WebViews do not pin their owners.
+    private final java.util.Map<WebView, GeckoWebViewProvider> mWebViews =
+            java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
     public GeckoWebViewFactoryProvider() {}
 
@@ -61,12 +69,27 @@ public final class GeckoWebViewFactoryProvider
 
     @Override
     public Object createWebView(WebView webView, Object privateAccess) {
-        return webViewProvider(webView);
+        GeckoWebViewProvider provider = new GeckoWebViewProvider(webView, this);
+        mWebViews.put(webView, provider);
+        return provider;
     }
 
     @NonNull
     public GeckoWebViewProvider webViewProvider(@NonNull WebView webView) {
-        return new GeckoWebViewProvider(webView, this);
+        GeckoWebViewProvider provider = mWebViews.get(webView);
+        if (provider == null) {
+            throw new IllegalStateException(
+                    "webViewProvider: no provider registered for this "
+                            + "WebView (not created by this factory, or "
+                            + "already destroyed)");
+        }
+        return provider;
+    }
+
+    void unregisterWebViewProvider(@NonNull GeckoWebViewProvider provider) {
+        synchronized (mWebViews) {
+            mWebViews.values().removeIf(p -> p == provider);
+        }
     }
 
     @Override
