@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-23 02:50。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-23 03:40。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -189,14 +189,44 @@
   shouldInterceptRequest 探针会静默拿错 client——已在探针后还原。
   P2NavigationDelegate 增加 Log.d 入口日志（Sinytra/navigation）。
 
+## 1f. 本地 Gecko 启动 + CTS 定跑（2026-09-23，用户拍板）
+
+- **FIREFOX_COMMIT 已 pin**：`f1b6c0f86b96b7e0688c26f65803576f27cdaf88`
+  （tag `FIREFOX_153_0_RELEASE`，153.0 正式构建源码，对齐 GV AAR
+  `153.0.20260810162159`；`browser/config/version.txt`=153.0 已核）。
+  sibling checkout 在 `/Volumes//Projects/firefox`（分支 sinytra-pin；
+  内置盘仅 ~7GB，偏离 BOOTSTRAP §4 的 ~/src 布局，已记录）。
+- **`mach bootstrap`（mobile_android）已过**：NDK r29 + SDK + JDK + clang
+  全套落 `/Volumes//Projects/mozbuild`（~13G）；生成的 mozconfig 补了
+  `--target=aarch64-linux-android` + 固定 objdir + 关 crashreporter。
+  **`./mach build` 已在后台启动**（首次全量构建，小时级）。
+- **本地替换接线（默认关）**：`provider/build.gradle` 接了
+  `substitute-local-geckoview.gradle`，`-PsinytraLocalGecko` 启用；日常
+  构建继续走 Maven AAR，objdir 出来后切。
+- **firefox-patches/ 已建**（README 记 stack 纪律 + pin + 首个 patch 拟稿
+  条目：response-body 拦截）。树内勘察记死：GV 模块已迁
+  `mobile/shared/modules/geckoview/`（不在 mobile/android/modules）；
+  `mobile/android/components/geckoview/` 已有 `GeckoViewContentChannel`
+  （IPDL）+ `GeckoViewStreamListener` 流原语——0001 patch 的候选地基。
+- **CTS 定跑（docs/CTS.md 新文件）**：版本 android-cts-14_r7；官方
+  tradefed 只发 linux_x86 → 路线 A（Linux 宿主跑正式）+ 路线 B（本机
+  `am instrument` 直跑官方测试 APK 过渡）。**包按设备 ABI 分两份**，
+  真机用 arm 包（x86 包里 CtsWebkitTestCases 仅 x86_64 APK，实测）；
+  WebView 模块在 14_r7 已改名 **CtsWebkitTestCases**（无
+  CtsWebViewTestCases）。arm 包已下载中；过渡第一轮跑 Chromium 基线。
+
 ## 2. 下一步（按顺序，一次做一件）
 
-1. **P2 剩余 patch 项**（真需要 firefox-patch / AOSP-patch 的只剩这两个）：
-   - `shouldInterceptRequest` response-body 替换：LoadRequest 无
-     method/headers/body 替换能力，Gecko 网络栈语义，扩展通道做不到。
-   - framework 面 WebMessagePort：需 AOSP patch 放开 ctor 或 framework
-     factory hook（决策点见 `ProviderAdapters.WebMessagePortFactory`）。
-   Java 侧 bookkeeping 与 boundary 面已就绪，patch 一到只绑 transport。
+1. **等 `mach build` 完成** → `./mach android archive-geckoview`（或直接
+   Gradle 替换构建）→ 本地 GV 版本/UA 与 Maven AAR 对照复核 →
+   `-PsinytraLocalGecko` 跑 harness 全量回归（Maven AAR 与本地树的行为
+   一致性校准）。
+2. **firefox-patches/0001：response-body 拦截**（Gecko 侧 patch + 独立
+   测试；GeckoViewContentChannel/GeckoViewStreamListener 为候选地基）；
+   framework 面 WebMessagePort 仍等 AOSP patch（决策点
+   `ProviderAdapters.WebMessagePortFactory`）。
+3. **CTS 过渡轮**：arm 包落地后抽 CtsWebkitTestCases APK 对 Chromium
+   基线跑 `am instrument`，结果逐项归因记入本文件。
 2. **unit 测试扩面（43 锁，见 §1e）**：可 JVM 测的 bridge 已基本覆盖
    （MessageBridge/JavascriptBridge/SupportedFeatures/GeckoBackForwardList/
    GeckoWebSettings/ErrorBridge/InterceptBridge）；StateBridge Bundle 面、
