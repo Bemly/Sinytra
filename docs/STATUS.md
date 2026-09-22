@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-23 05:09。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-23 06:55。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -251,9 +251,24 @@
      child 侧 `GeckoView:OnRequestResponse` 查询：排干 body→base64
      （16MB 上限，超限拒绝+loud log），headers 拍平成 name:value 数组）。
      无消费端时惰性。
-   - **待做**：Group 3 C++ necko 钩子（child 侧对齐 SW 拦截的
-     nsIInterceptedChannel 构造点 + uri filter 下发）；随后 Sinytra
-     glue 绑定 InterceptBridge → interceptBody 探针。
+   - **Group 3 已进树（sinytra-pin @ 6ef2cc7dc4be，build binaries 绿 +
+     真机回归不变）**：`GeckoViewResponseController`（parent 进程，
+     nsINetworkInterceptController：前缀命中→接管 channel，经注入的
+     EventDispatcher 发 `GeckoView:OnRequestResponse` 查询 Group 1 的
+     Java 处理器，`SynthesizeStatus/Header + StartSynthesizedResponse`
+     合成响应——URL 身份由内部重定向保持）；nsDocShell 在 Android 上用
+     它包装 SW controller；未注册 filters 时完全惰性（真机 29 探针
+     验证行为不变）。
+   - **树内踩坑记录**：AutoJSAPI 在 `mozilla/dom/ScriptSettings.h`；
+     合成 API 是 `SynthesizeStatus/SynthesizeHeader`（无 Set 前缀）；
+     xpidl 生成的 callback 是 `OnSuccess(数据, cx)`（cx 在尾）；
+     moz.build 列表严格字母序；dom/serviceworkers 头要用
+     `mozilla/dom/` 限定路径。
+   - **待做（接线 + 验证）**：① Java setResponseDelegate 时下发
+     filters + session dispatcher 到 C++（SetFilters 入口已备，hop 待
+     定：Java dispatchToGecko → parent JS → Cc service）；② Sinytra
+     glue 的 InterceptBridge 绑定 ResponseDelegate；③ harness
+     interceptBody 探针（iframe contentDocument 断言替身 body）。
    framework 面 WebMessagePort 仍等 AOSP patch（决策点
    `ProviderAdapters.WebMessagePortFactory`）。
 3. **CTS 过渡第一轮已跑（2026-09-23 04:5x，Chromium 基线）**：
