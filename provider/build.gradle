@@ -2,6 +2,19 @@ plugins {
     id("com.android.application")
 }
 
+// BOOTSTRAP §3②: local GeckoView substitution is OPT-IN until a local
+// objdir exists (`./mach build` under the sibling checkout). Daily builds
+// keep the pinned Maven AAR below; enable with -PsinytraLocalGecko.
+// Sibling checkout: /Volumes//Projects/firefox (BOOTSTRAP §4 recommends
+// ~/src — this machine's internal disk has ~7GB free, so the sibling
+// lives on the external volume; recorded in firefox-patches/README.md).
+def sinytraLocalGecko = (project.findProperty('sinytraLocalGecko') ?: 'false').toBoolean()
+if (sinytraLocalGecko) {
+    ext.topsrcdir = file('../firefox').absolutePath
+    ext.topobjdir = file('../firefox/objdir-opt').absolutePath
+    apply from: "${ext.topsrcdir}/substitute-local-geckoview.gradle"
+}
+
 android {
     namespace = "org.mozilla.geckowebview"
     // GeckoView 153 stable: AAR minCompileSdk=1, androidx.core 1.18.0 — builds clean

@@ -17,7 +17,11 @@
 > TARGET_ANDROID_API = 34
 > AOSP_BASE = android14-release（固定 commit：<待填，provider 开工前 pin 死>）
 > GECKOVIEW_VERSION = 153.0.20260810162159（stable，provider/build.gradle 已 pin）
-> FIREFOX_COMMIT = <启用本地 Gecko / 发布时才填，此前留空>
+> FIREFOX_COMMIT = f1b6c0f86b96b7e0688c26f65803576f27cdaf88
+>   （tag FIREFOX_153_0_RELEASE：153.0 正式构建源码，对齐上面的 GV AAR；
+>    sibling checkout：/Volumes//Projects/firefox，分支 sinytra-pin——
+>    内置盘仅剩 ~7GB，故偏离 BOOTSTRAP §4 的 ~/src 布局，记录于
+>    firefox-patches/README.md；本地替换默认关闭，-PsinytraLocalGecko 启用）
 > ```
 >
 > - AOSP 接口语义、类名、加载流程一律以 `AOSP_BASE`（Android 14）为准；
