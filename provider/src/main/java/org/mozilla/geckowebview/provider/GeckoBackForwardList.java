@@ -15,7 +15,21 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
 
     GeckoBackForwardList(
             @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history) {
-        mItems = new ArrayList<>(history.size());
+        this(translate(history), deriveIndex(history));
+    }
+
+    // Value copy for clone(): shares the immutable GeckoHistoryItem
+    // instances (they are value holders) but owns a fresh list so later
+    // mutations never cross. Preserves the current index — the framework
+    // contract for WebBackForwardList.clone()/copyBackForwardList().
+    private GeckoBackForwardList(
+            @NonNull List<GeckoHistoryItem> items, int currentIndex) {
+        mItems = new ArrayList<>(items);
+        mCurrentIndex = currentIndex;
+    }
+
+    private static int deriveIndex(
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history) {
         int current = -1;
         if (history instanceof GeckoSession.HistoryDelegate.HistoryList) {
             try {
@@ -28,6 +42,14 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
         if (current < 0 && !history.isEmpty()) {
             current = history.size() - 1;
         }
+        return current;
+    }
+
+    @NonNull
+    private static List<GeckoHistoryItem> translate(
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history) {
+        List<GeckoHistoryItem> items =
+                new ArrayList<>(history.size());
         for (GeckoSession.HistoryDelegate.HistoryItem item : history) {
             String uri;
             String title;
@@ -41,12 +63,11 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
             } catch (UnsupportedOperationException e) {
                 title = null;
             }
-            mItems.add(new GeckoHistoryItem(uri, title));
+            items.add(new GeckoHistoryItem(uri, title));
         }
-        mCurrentIndex = current;
+        return items;
     }
 
-    @Nullable
     @Override
     public WebHistoryItem getCurrentItem() {
         if (mCurrentIndex < 0 || mCurrentIndex >= mItems.size()) {
@@ -72,9 +93,7 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
 
     @Override
     protected android.webkit.WebBackForwardList clone() {
-        GeckoBackForwardList copy = new GeckoBackForwardList(java.util.Collections.emptyList());
-        copy.mItems.addAll(mItems);
-        return copy;
+        return new GeckoBackForwardList(mItems, mCurrentIndex);
     }
 
     private static final class GeckoHistoryItem extends WebHistoryItem {
