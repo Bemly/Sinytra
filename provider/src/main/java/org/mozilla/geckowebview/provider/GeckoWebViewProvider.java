@@ -55,6 +55,7 @@ import org.mozilla.geckowebview.session.PromptBridge;
 import org.mozilla.geckowebview.session.StateBridge;
 import org.mozilla.geckowebview.session.InterceptBridge;
 import org.mozilla.geckowebview.session.JavascriptBridge;
+import org.mozilla.geckowebview.session.JsBridge;
 import org.mozilla.geckowebview.session.JsEvaluator;
 import org.mozilla.geckowebview.session.MessageBridge;
 import org.mozilla.geckowebview.session.RenderProcessBridge;
@@ -77,6 +78,7 @@ public final class GeckoWebViewProvider
     private final FindBridge mFind;
     private final PrintBridge mPrint;
     private final JsEvaluator mJs;
+    private final JsBridge mJsBridge;
     private final JavascriptBridge mJsInterfaces;
     private final MessageBridge mMessages;
     private final InterceptBridge mIntercept;
@@ -100,8 +102,12 @@ public final class GeckoWebViewProvider
         mFind = new FindBridge(mBridge.session(), mFanOut);
         mPrint = new PrintBridge(mBridge.session());
         mJs = new JsEvaluator();
+        mJsBridge = new JsBridge();
+        mJs.setBridge(mJsBridge);
         mJsInterfaces = new JavascriptBridge();
         mMessages = new MessageBridge(mFanOut);
+        mJsInterfaces.setTransport(mJsBridge);
+        mMessages.setTransport(mJsBridge);
         mIntercept = new InterceptBridge(mFanOut);
         mRenderProcess = new RenderProcessBridge();
         mBridge.setExtraDelegates(mFanOut, mFanOut, mFanOut);
@@ -111,6 +117,22 @@ public final class GeckoWebViewProvider
         // harness (or future callers) fail fast instead of hanging on load.
         mBridge.session().open(GeckoRuntimeHolder.get(
                 webView.getContext().getApplicationContext()));
+        // Bind the JS extension transport (built-in WebExtension, public API;
+        // install is async — eval answers honest-null until ready).
+        try {
+            mJsBridge.bind(
+                    GeckoRuntimeHolder.get(
+                            webView.getContext().getApplicationContext()),
+                    mBridge.session());
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "JsBridge.bind threw", t);
+        }
+    }
+
+    // Test seam: JsBridge bound to this provider's session.
+    @NonNull
+    JsBridge jsBridge() {
+        return mJsBridge;
     }
 
     @NonNull

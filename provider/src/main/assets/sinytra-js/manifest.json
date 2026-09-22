@@ -1,0 +1,29 @@
+{
+  "manifest_version": 2,
+  "name": "sinytra-js",
+  "version": "1.1",
+  "description": "Sinytra WebView bridge: evaluateJavascript + addJavascriptInterface + WebMessage transport over native messaging.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "sinytra-js@bemly.moe"
+    }
+  },
+  "background": {
+    "scripts": ["bridge.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "match_about_blank": true,
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": ["page-shim.js"],
+  "permissions": [
+    "nativeMessaging",
+    "nativeMessagingFromContent",
+    "geckoViewAddons"
+  ]
+}
