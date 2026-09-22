@@ -239,13 +239,21 @@
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~等 mach build + 替换校准~~ ✅（§1g）。
-2. **firefox-patches/0001：response-body 拦截——设计定稿**
-   （`firefox-patches/0001-response-body-interception.md`）：v1 导航级
-   （NavigationDelegate 可选 `onLoadRequestResponse` 返回 WebResponse，
-   body 经 GeckoViewInputStream JNI 流 + 新 GeckoViewResponseChannel
-   呈现）；子资源网络级拦截 = 0002。树内勘察已做（决策链
-   LoadURIDelegate→OnLoadRequest、content:// 证明 JNI 流子进程可用、
-   WebResponse.body 即 InputStream）。下一步落 patch 文件。
+2. **firefox-patches/0001：response-body 拦截——设计修订 + Group 1 落地**
+   （设计文档 `firefox-patches/0001-response-body-interception.md`）：
+   - **架构修订（d3b6818）**：实测钉死子帧导航决策也在 parent 进程 →
+     docshell 层替身方案全部保不住 URL 身份 → v1 改走 **necko 层
+     nsIInterceptedChannel 路线**（天然覆盖子资源 + 保 URL 身份）。
+   - **Group 1 已进树（sinytra-pin @ a76774863e81，compileDebug 绿）**：
+     Java 侧原语——`WebRequestInfo`（v1: uri+isNavigation）+
+     `GeckoSession.ResponseDelegate`（可选 delegate，onRequestResponse
+     返回 WebResponse 或 null）+ `GeckoViewResponse` 模块处理器（应答
+     child 侧 `GeckoView:OnRequestResponse` 查询：排干 body→base64
+     （16MB 上限，超限拒绝+loud log），headers 拍平成 name:value 数组）。
+     无消费端时惰性。
+   - **待做**：Group 3 C++ necko 钩子（child 侧对齐 SW 拦截的
+     nsIInterceptedChannel 构造点 + uri filter 下发）；随后 Sinytra
+     glue 绑定 InterceptBridge → interceptBody 探针。
    framework 面 WebMessagePort 仍等 AOSP patch（决策点
    `ProviderAdapters.WebMessagePortFactory`）。
 3. **CTS 过渡第一轮已跑（2026-09-23 04:5x，Chromium 基线）**：
