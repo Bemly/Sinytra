@@ -5,8 +5,14 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+// -PsinytraLocalGecko (BOOTSTRAP §3②): Mozilla's substitute-local-geckoview
+// script adds a project-level maven repo, which FAIL_ON_PROJECT_REPOS
+// forbids — relax to PREFER_PROJECT only on that opt-in path.
+def sinytraLocalGecko = (hasProperty('sinytraLocalGecko') ? sinytraLocalGecko : 'false').toBoolean()
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositoriesMode.set(sinytraLocalGecko
+            ? RepositoriesMode.PREFER_PROJECT
+            : RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()

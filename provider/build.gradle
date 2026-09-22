@@ -10,9 +10,17 @@ plugins {
 // lives on the external volume; recorded in firefox-patches/README.md).
 def sinytraLocalGecko = (project.findProperty('sinytraLocalGecko') ?: 'false').toBoolean()
 if (sinytraLocalGecko) {
-    ext.topsrcdir = file('../firefox').absolutePath
-    ext.topobjdir = file('../firefox/objdir-opt').absolutePath
+    ext.topsrcdir = file("${rootProject.projectDir}/../firefox").absolutePath
+    ext.topobjdir = file("${ext.topsrcdir}/objdir-opt").absolutePath
     apply from: "${ext.topsrcdir}/substitute-local-geckoview.gradle"
+    // PREFER_PROJECT ignores the settings repositories once a project
+    // repo exists — the substituted AAR's transitive deps (kotlin-stdlib,
+    // androidx.*) would have nowhere to resolve. Mirror the settings
+    // repos at project level on this opt-in path.
+    repositories {
+        google()
+        mavenCentral()
+    }
 }
 
 android {
@@ -68,7 +76,12 @@ android {
 dependencies {
     // Pinned stable. GV 153: minCompileSdk=1, builds with compileSdk 36.
     // (GV 154+ needs compileSdk 37.1 — revisit when the SDK snapshot ships it.)
-    implementation("org.mozilla.geckoview:geckoview:153.0.20260810162159")
+    // Under -PsinytraLocalGecko the coordinate swaps to geckoview-nightly:
+    // Mozilla's substitute-local-geckoview.gradle only maps nightly/beta
+    // module names (the artifact itself is replaced by the local build,
+    // so the version string is irrelevant on that path).
+    def gvModule = sinytraLocalGecko ? 'geckoview-nightly' : 'geckoview'
+    implementation("org.mozilla.geckoview:${gvModule}:153.0.20260810162159")
     implementation("androidx.annotation:annotation:1.9.1")
     // androidx.webkit boundary interfaces ship inside webkit AAR classes.jar;
     // compileOnly: real androidx classes come from the app at runtime.
