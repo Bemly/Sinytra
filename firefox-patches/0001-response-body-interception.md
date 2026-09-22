@@ -40,7 +40,44 @@ DENY——body/status/headers 无处安放;子资源(图片/CSS/XHR)根本不进
   (`OpenContentStream`)+ `GeckoViewContentProtocolHandler`(content:// 注册)。
   `nsBaseChannel.OpenContentStream` 即"用现成流充当响应体"的官方模式。
 
-## 4. v1 设计(导航级替换,一个 patch 一件事)
+## 3a. 勘察修订(2026-09-23 晚,实测钉死,推翻 §4 原 docshell 方案)
+
+- **决策全在 parent 进程**:子帧导航的 allow/deny 也是 child docshell
+  同步跨进程问 parent chrome(我们的 deny 探针经 parent 侧
+  `GeckoSession.java:691` 处理器就是证据)。Java 回包(含 body 字节)
+  永远落在 parent;docshell/channel 在 child。
+- docshell 层的替身加载(loadURI 重定向 / error-page 机制 /
+  sinytra-response: scheme)**全部保不住 URL 身份**(location.href 变
+  data:/内部 scheme)——对 WebViewAssetLoader 类"页面 JS 读自己 origin"
+  的场景是致命语义缺口。
+- Gecko 中唯一保 URL 身份的 body 替换机制 = **nsIInterceptedChannel
+  (ServiceWorker 拦截那一族)**,位于 child 的 necko 层,顺带天然覆盖
+  子资源。
+- **结论:v1 直接按网络层架构实现**(原 §4 的 docshell 方案作废);
+  "导航级先行"不再有意义,因为网络层原语天然覆盖导航 + 子资源。
+
+## 4. v1 设计(修订:necko 层 nsIInterceptedChannel 路线)
+
+**Java 侧(Group 1,可独立构建,无消费端时惰性)**:
+- 新 `GeckoSession.ResponseDelegate`(default 无操作):会话级拦截应答口。
+  `onRequestResponse(session, WebRequestInfo)` 返回 `WebResponse` 或 null
+  (null = 不接管)。`WebRequestInfo` v1 仅 uri + isNavigation(method/
+  headers 进 0002)。
+- `GeckoSession.setResponseDelegate()`;parent 侧 EventDispatcher 注册
+  `"GeckoView:OnRequestResponse"` 查询处理:invoke delegate(后台线程,
+  body InputStream 排干为字节,上限 16MB 懒加载/v2 流式)→ 应答
+  `{handled:true, uri, statusCode, contentType, encoding, headers, bodyB64}`
+  或 `{handled:false}`。
+- body 走 base64 而非流引用:channel 在 child,Java 流对象跨不了 JVM;
+  v1 接受内存上限,0002 评估流式 IPC。
+
+**C++ 侧(Group 3)**:child necko 在 channel 创建处(对齐 SW 拦截的
+nsIInterceptedChannel 构造点)命中 uri filter 时经 EventDispatcher 查询
+parent Java,取回 body 后按 SW 拦截语义换体(URL 身份保持)。
+过滤条件由 Java 注册侧下发(uri 前缀集,避免每请求跨进程)。
+
+**JS 侧(Group 2)**:无(查询不经 JS actor——necko C++ 直接走
+EventDispatcher 的 C++ 接口)。
 
 **Java 侧**(geckoview):
 - `NavigationDelegate` 增可选方法(带 default null,零 ABI 破坏):
