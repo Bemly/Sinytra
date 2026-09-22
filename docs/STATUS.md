@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-23 00:22。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-23 01:12。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -135,6 +135,28 @@
   探针的 2 个 bookkeeping 端口也在册）。
 - 注意：`P0GlueActivity` 852 行，逼近 900 行拆分线，下次加探针前先拆。
 
+## 1e. unit 测试骨架落地（0eb8fa5，21 锁全绿，2026-09-23）
+
+- **位置与接线**：`tests/unit/java/`（AGENTS.md §1 布局）经
+  `provider/build.gradle` 的 test sourceSet `srcDirs` 接入，跑法
+  `./gradlew :provider:testDebugUnitTest`；`returnDefaultValues=true`
+  （Log/WebMessage ctor 等偶触 android.* 用桩）、testImplementation 带
+  **真 org.json**（mockable jar 把 JSONObject 桩死，路由类逻辑测不了）。
+- **首批锁**：MessageBridge 9（通道配对/close 语义/pendingOrigin/无
+  transport 本地回退扇出/postToMainFrame 首回调投递——页面 round-trip
+  仍由设备 boundaryPort 探针锁）；JavascriptBridge 7（只暴露
+  @JavascriptInterface、arity 重载键 + 简名别名、invoke 解析与
+  NoSuchMethodException、无 transport 簿记）；SupportedFeatures 5
+  （恰 18 项、harness 锁定的在册、未实现项零泄漏、防御性拷贝）。
+- **lintDebug 门首次全绿（4c369b6）**，并挖出真 bug：API 28/29 框架类
+  （ServiceWorkerController/TracingController/WebViewRenderProcess）在
+  factory/bridge 里 eager 实例化——API 26/27 宿主一加载类就
+  NoClassDefFoundError。全部改惰性 + `SDK_INT` 内联守卫 + honest
+  null/throw + loud log（老 framework 接口根本不会调这些方法）。
+  真机回归：金丝雀 + harness 29 PASS（01:12）。
+- JVM 测不了仍归设备 harness 的：onPortDeliver 路由（JsBridge 分发入口
+  private）、页面 round-trip 数据面、eval/iface-call 端到端。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. **P2 剩余 patch 项**（真需要 firefox-patch / AOSP-patch 的只剩这两个）：
@@ -143,9 +165,9 @@
    - framework 面 WebMessagePort：需 AOSP patch 放开 ctor 或 framework
      factory hook（决策点见 `ProviderAdapters.WebMessagePortFactory`）。
    Java 侧 bookkeeping 与 boundary 面已就绪，patch 一到只绑 transport。
-2. **unit 测试从 0 到 1**：`tests/unit` JUnit 覆盖各 bridge 映射逻辑
-   （StateBridge 转译、MessageBridge 端口簿记、CompatWebSettings 翻译等，
-   纯 JVM 可测部分先建骨架）；CTS 全量另行排在 unit 骨架之后。
+2. **unit 测试扩面（骨架已建，21 锁，见 §1e）**：逐个补 StateBridge 转译、
+   GeckoBackForwardList、CompatWebSettings/GeckoWebSettings 翻译锁；
+   全部就绪后再排 **CTS** 全量。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 
