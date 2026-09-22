@@ -5,16 +5,25 @@ import androidx.annotation.Nullable;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import org.mozilla.geckoview.GeckoSession;
-import org.mozilla.geckoview.WebExtension;
 
-// WebMessagePort/postWebMessage channel over Gecko WebExtension ports.
-// P2-3 spike result: GeckoSession has NO JS-eval primitive and NO message
-// channel primitive in GV153 public API — both need a firefox-patch
-// (ARCHITECTURE.md §6.4). Until that patch lands, this class owns the
-// channel bookkeeping (ports, pending messages, default target origin)
-// so the provider surface is stable and testable; actual transport binds
-// when the patch provides an eval/message primitive.
+// WebMessagePort/postWebMessage channel over the JsBridge transport.
+// P2-3 result: GV153 exposes NO message-channel primitive on GeckoSession
+// (AAR javap confirmed) — channel traffic rides the built-in WebExtension
+// (ARCHITECTURE.md section 6.4): postToPage delivers the payload into page
+// context, where the shim dispatches it as a window MessageEvent; page
+// replies arrive as JsBridge PageEvents named "port-deliver" and fan out
+// to the WebMessageCallback registered on the receiving port.
+//
+// Honest gaps (never silently wrong):
+// - MessagePorts are logical endpoints, not transferable: the ENTANGLED
+//   pair in createWebMessageChannel shares nothing until the P2 concrete
+//   WebMessagePort subclass lands; setCallback/postMessage on a port work
+//   end-to-end (page MessageEvent <-> callback), transfer between frames
+//   does not.
+// - postToMainFrame fans out to every open port with a callback (Chromium
+//   delivers to the page; without frame addressing this is the closest
+//   honest mapping). Target-origin filtering is recorded, not enforced —
+//   enforcement needs the P2 patch's frame addressing.
 public final class MessageBridge {
     public interface Host {
         void onMessage(@NonNull String portId, @NonNull String data,
@@ -24,8 +33,6 @@ public final class MessageBridge {
     public static final class Port {
         @NonNull
         public final String id;
-        @Nullable
-        public volatile WebExtension.Port geckoPort;
         @Nullable
         public volatile android.webkit.WebMessagePort.WebMessageCallback callback;
 
@@ -39,9 +46,24 @@ public final class MessageBridge {
     private final Map<String, String> mPending = new ConcurrentHashMap<>();
     @Nullable
     private final Host mHost;
+    @Nullable
+    private volatile JsBridge mTransport;
 
     public MessageBridge(@Nullable Host host) {
         mHost = host;
+    }
+
+    // Bind the WebExtension transport. Page replies ("port-deliver"
+    // events) fan out to port callbacks here.
+    public void setTransport(@Nullable JsBridge bridge) {
+        mTransport = bridge;
+        if (bridge != null) {
+            bridge.addPageEventListener(event -> {
+                if ("port-deliver".equals(event.optString("name", ""))) {
+                    onPortDeliver(event.optJSONObject("payload"));
+                }
+            });
+        }
     }
 
     @NonNull
@@ -63,24 +85,19 @@ public final class MessageBridge {
         if (targetOrigin != null) {
             mPending.put(port.id, targetOrigin);
         }
-        WebExtension.Port gecko = port.geckoPort;
-        if (gecko != null) {
-            try {
-                org.json.JSONObject message = new org.json.JSONObject();
-                message.put("data", data);
-                if (targetOrigin != null) {
-                    message.put("targetOrigin", targetOrigin);
-                }
-                gecko.postMessage(message);
-                return;
-            } catch (Throwable t) {
-                android.util.Log.w("Sinytra/message", "gecko postMessage threw", t);
-            }
+        JsBridge bridge = mTransport;
+        if (bridge != null && bridge.isReady()) {
+            bridge.postToPage(port.id, data, targetOrigin);
+            return;
         }
         deliverLocal(port, data, targetOrigin);
     }
 
     public void postToMainFrame(@NonNull String data, @Nullable String targetOrigin) {
+        JsBridge bridge = mTransport;
+        if (bridge != null && bridge.isReady()) {
+            bridge.postToPage("__main__", data, targetOrigin);
+        }
         for (Port port : mPorts.values()) {
             if (port.callback != null) {
                 deliverLocal(port, data, targetOrigin);
@@ -93,16 +110,7 @@ public final class MessageBridge {
     public void close(@NonNull Port port) {
         mPorts.remove(port.id);
         mPending.remove(port.id);
-        WebExtension.Port gecko = port.geckoPort;
-        port.geckoPort = null;
         port.callback = null;
-        if (gecko != null) {
-            try {
-                gecko.disconnect();
-            } catch (Throwable t) {
-                android.util.Log.w("Sinytra/message", "gecko disconnect threw", t);
-            }
-        }
     }
 
     @Nullable
@@ -112,6 +120,30 @@ public final class MessageBridge {
 
     public int portCount() {
         return mPorts.size();
+    }
+
+    // Page replied on a port (shim re-broadcast it as port-deliver):
+    // deliver to the matching port's callback + Host fan-out.
+    private void onPortDeliver(@Nullable org.json.JSONObject payload) {
+        if (payload == null) {
+            return;
+        }
+        String portId = payload.optString("port", null);
+        String data = payload.optString("data", null);
+        String origin = payload.optString("origin", null);
+        if (portId == null || data == null) {
+            return;
+        }
+        Port port = mPorts.get(portId);
+        if (port != null) {
+            deliverLocal(port, data, origin);
+        } else if (mHost != null) {
+            try {
+                mHost.onMessage(portId, data, origin);
+            } catch (Throwable t) {
+                android.util.Log.w("Sinytra/message", "host onMessage threw", t);
+            }
+        }
     }
 
     private void deliverLocal(@NonNull Port port, @NonNull String data,
@@ -127,9 +159,5 @@ public final class MessageBridge {
         } catch (Throwable t) {
             android.util.Log.w("Sinytra/message", "deliver threw", t);
         }
-    }
-
-    @SuppressWarnings("unused")
-    private void bindSession(@NonNull GeckoSession session) {
     }
 }
