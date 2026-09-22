@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-23 01:52。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-23 02:27。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -166,6 +166,18 @@
   harness 29 PASS（01:52）。**StateBridge 的 Bundle/Parcel 面明确不做
   JVM 测**（mockable jar 全桩，只有设备 harness 的 saveState/restoreState
   探针能诚实验证）。
+- **第三批 +10 锁（31e2e16，43 锁全绿）**：ErrorBridge 5（Gecko→WebView
+  错误码映射全表，断言用 WebViewClient 命名常量——生产数值全部对上真常量）
+  + InterceptBridge 5（allow 路径 null 结果、请求面 flag 透传、null-uri
+  短路、host 抛异常降级 allow 不崩 session）。**新增 JVM 不可测项记录**：
+  DENY 返回值——`GeckoResult` 类初始化要活 UI Looper
+  （`ThreadUtils.getUiHandler`），JVM 上一实例化就死，整个 deny 路径只能
+  设备锁；**当前 harness 也没有 deny 值探针（P2-4 的缺口，下轮补）**。
+  LoadRequest/JVM 构造走反射（protected ctor + final 字段）。
+- **harness 拆分（4242ba3）**：`P0GlueActivity` 854 行触近 900 铁律，P2
+  全段（saveState→visualState）抽到 `P2TransportProbes.run(...)`，440 +
+  448 两文件；同一契约（探针只 append PASS 或抛，编排层转 FAIL）。真机
+  回归 PASS 数与拆分前一致（02:27）。`.commandcode/` 已进 .gitignore。
 
 ## 2. 下一步（按顺序，一次做一件）
 
@@ -175,10 +187,12 @@
    - framework 面 WebMessagePort：需 AOSP patch 放开 ctor 或 framework
      factory hook（决策点见 `ProviderAdapters.WebMessagePortFactory`）。
    Java 侧 bookkeeping 与 boundary 面已就绪，patch 一到只绑 transport。
-2. **unit 测试扩面（33 锁，见 §1e）**：可 JVM 测的 bridge 已基本覆盖
+2. **unit 测试扩面（43 锁，见 §1e）**：可 JVM 测的 bridge 已基本覆盖
    （MessageBridge/JavascriptBridge/SupportedFeatures/GeckoBackForwardList/
-   GeckoWebSettings）；StateBridge Bundle 面、页面 round-trip 归设备
-   harness。接下来排 **CTS** 全量。
+   GeckoWebSettings/ErrorBridge/InterceptBridge）；StateBridge Bundle 面、
+   deny 值、页面 round-trip 归设备 harness。**harness 待补 deny 探针**
+   （P2-4 的 DENY GeckoResult 值目前两端都没验证）。接下来排 **CTS**
+   全量。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 
