@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-24 01:40（0001 定稿收尾 + 0002 开工）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-24 02:25（0001 定稿 + 0002 完成：全量 harness 31 PASS）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -337,10 +337,28 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
   尾斜杠锚定 host 边界——单测注释记死）+ `decide()` 让位短路
   （`responseSurfaceOwns` 命中即 allow，不咨询不 DENY）。46 JVM 锁全绿
   （+3），真机回归 29 PASS。
-- **下一步**：Group B（C++ method/headers 提取 + Java `WebRequestInfo`
-  v2 + SinytraResourceRequest 透传）→ 探针 `interceptSubresource`/
-  `interceptIframe`（验证 §拓扑推论 + 让位端到端）→ format-patch 落
-  `0002-*.patch`。
+- **下一步**：~~Group B~~ ~~探针~~ ~~format-patch~~ **0002 全部完成**
+  （2026-09-24 02:22）：
+  - **Group B 已落地**：C++ `ChannelIntercepted` 从 parent 侧真
+    nsHttpChannel 提取 method（`GetRequestMethod`）/请求头
+    （`nsIHttpHeaderVisitor` 拍平 "name:value"，全量透传 v1，敏感头
+    收窄是显式后续决策）/`isNavigation`（TYPE_DOCUMENT||SUBDOCUMENT）
+    + 新 `isTopLevel`（TYPE_DOCUMENT，WebView isForMainFrame 语义）；
+    `WebRequestInfo` v2（bundle 缺省 GET/empty/false 向后兼容）；Sinytra
+    `ResponseBridge.Host` 收完整 info、`queryApp` 6 参扩展、
+    `SinytraResourceRequest.getMethod/getRequestHeaders` 转真值
+    （首个冒号切分，坏对跳过）。Firefox @ `539b7ff6f329`，patch 文件
+    `0002-request-info-and-subframe-standdown.patch`。
+  - **拓扑推论真机实锤**：`PASS interceptSubresource body=sinytra-sub-0002`
+    ——page 内 XHR 拿到 app 替身（网络是 NXDOMAIN，标记只可能来自
+    app）＝ parent 侧 necko 拦截**天然覆盖子资源**；`PASS interceptIframe`
+    ＝ filter 命中的子帧让位 + 替身渲染。0003 无需 child hook。
+  - **探针卫生记死**：interceptIframe PASS 后必须移除注入的 frame——
+    deny 探针断言"所有 frame 停在 about:blank"，脏 frame 会把它打 FAIL
+    （首轮实测撞过，同 errClient 教训一类）。
+  - **全量 harness 31 PASS**（29 + 2），JVM 49 锁全绿（+3）。
+  - **0003 候选**（按 0002 设计文档 §4 边界）：POST body 透传、Range、
+    流式 body IPC（替代 base64 16MB 上限）、敏感请求头收窄。
 
 ## 2. 下一步（按顺序，一次做一件）
 

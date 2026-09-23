@@ -17,7 +17,7 @@
 | # | 文件 | 解决哪个 WebView API | 为什么 public API 不够 | 状态 |
 |---|---|---|---|---|
 | 0001 | response-body 拦截（导航级） | `shouldInterceptRequest` 返回自定义 body | GV153 `onLoadRequest` 只返回 AllowOrDeny；决策在 docshell 层，无 Java→Gecko 响应体通道（树内核实，详见 0001 设计文档） | **已定稿**：`0001-response-body-interception.patch`（7 commits，@ `59aa103b6d50`，日志已降 DEBUG），真机端到端打通（2026-09-24 全量 harness 29 PASS） |
-| 0002 | 请求信息保真 + 子帧 DENY 让位 | `shouldInterceptRequest` 的 method/headers 语义、filter 命中的子帧不被 P2-4 近似杀掉 | 0001 查询面只有 uri+isNavigation（C++ 硬编码 isNavigation=true）；LoadRequest DENY 与 necko 替身撞车（勘察详见 0002 设计文档） | 设计定稿，patch 未落 |
+| 0002 | 请求信息保真 + 子帧 DENY 让位 | `shouldInterceptRequest` 的 method/headers 语义、filter 命中的子帧不被 P2-4 近似杀掉 | 0001 查询面只有 uri+isNavigation（C++ 硬编码 isNavigation=true）；LoadRequest DENY 与 necko 替身撞车（勘察详见 0002 设计文档） | **已定稿**：`0002-request-info-and-subframe-standdown.patch`（@ `539b7ff6f329`）；Group A 在 Sinytra glue（`9244efb`/`812b220`）；真机 31 PASS（2026-09-24，含子资源/子帧探针） |
 
 设计文档：`0001-response-body-interception.md`（含树内勘察、地基选型、
 边界与测试计划）。

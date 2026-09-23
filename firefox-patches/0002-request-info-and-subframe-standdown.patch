@@ -1,0 +1,209 @@
+From 539b7ff6f329a3833dc881b94c7a8ed01b58f7f2 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Thu, 24 Sep 2026 02:23:51 +0800
+Subject: [PATCH] Sinytra patch 0002: request-info fidelity on the response
+ query
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+GeckoView:OnRequestResponse carried {uri, isNavigation-hardcoded-true}
+only; the app could not distinguish a navigation from an XHR and never
+saw the request surface. ChannelIntercepted now extracts from the real
+parent-side nsHttpChannel (HttpChannelParent builds one per e10s
+channel — see 0002 design doc §3):
+
+- method via nsIHttpChannel::GetRequestMethod (GET fallback on failure)
+- request headers via nsIHttpHeaderVisitor, flattened 'name:value'
+  (split on FIRST colon; full passthrough v1 — narrowing sensitive
+  headers is an explicit later decision)
+- isNavigation = TYPE_DOCUMENT || TYPE_SUBDOCUMENT (documented v1
+  semantic), new isTopLevel = TYPE_DOCUMENT (WebView isForMainFrame)
+
+WebRequestInfo v2: isTopLevel/method/requestHeaders with bundle
+defaults (GET/empty/false) so older C++ answers stay parseable.
+
+Device: interceptSubresource (XHR answered by the app through necko —
+ruling experiment for parent-side subresource cover) and
+interceptIframe both PASS; full harness 31 PASS.
+---
+ .../geckoview/GeckoViewResponseController.cpp | 83 ++++++++++++++++++-
+ .../org/mozilla/geckoview/WebRequestInfo.java | 37 +++++++--
+ 2 files changed, 114 insertions(+), 6 deletions(-)
+
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.cpp b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+index dad629d5e52c..ac00365f702d 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.cpp
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+@@ -13,6 +13,9 @@
+ #include "mozilla/StaticPtr.h"
+ #include "mozilla/dom/ScriptSettings.h"
+ #include "nsIGeckoViewBridge.h"
++#include "nsIHttpChannel.h"
++#include "nsIHttpHeaderVisitor.h"
++#include "nsILoadInfo.h"
+ #include "nsNetUtil.h"
+ #include "nsIObserverService.h"
+ #include "mozilla/dom/ServiceWorkerInterceptController.h"
+@@ -102,6 +105,31 @@ void EnsureFilterObserver() {
+   }
+ }
+ 
++// 0002: collects request headers as "name:value" pairs for the
++// GeckoView:OnRequestResponse query (same flattening convention as the
++// response headers in GeckoSession.responseToBundle).
++class RequestHeaderCollector final : public nsIHttpHeaderVisitor {
++ public:
++  NS_DECL_ISUPPORTS
++  NS_DECL_NSIHTTPHEADERVISITOR
++
++  RequestHeaderCollector() = default;
++
++  nsTArray<nsCString> mPairs;
++
++ private:
++  ~RequestHeaderCollector() = default;
++};
++
++NS_IMPL_ISUPPORTS(RequestHeaderCollector, nsIHttpHeaderVisitor)
++
++NS_IMETHODIMP
++RequestHeaderCollector::VisitHeader(const nsACString& aHeader,
++                                    const nsACString& aValue) {
++  mPairs.AppendElement(aHeader + ":"_ns + aValue);
++  return NS_OK;
++}
++
+ nsAutoCString ValueToAscii(JSContext* aCx, JS::Handle<JS::Value> aValue) {
+   nsAutoCString out;
+   JS::Rooted<JSString*> str(aCx, JS::ToString(aCx, aValue));
+@@ -380,7 +408,60 @@ GeckoViewResponseController::ChannelIntercepted(
+     return NS_OK;
+   }
+   JS_SetProperty(cx, data, "uri", uriValue);
+-  JS_SetProperty(cx, data, "isNavigation", JS::TrueHandleValue);
++
++  // 0002: request-info fidelity — method, request headers and the
++  // navigation distinction come from the real parent-side nsHttpChannel.
++  // Headers are passed through in full for v1 (including Cookie /
++  // Authorization, matching shouldInterceptRequest semantics); narrowing
++  // is an explicit later decision.
++  nsCOMPtr<nsIHttpChannel> httpChannel = do_QueryInterface(intercepted);
++  nsAutoCString method;
++  nsTArray<nsCString> headerPairs;
++  ExtContentPolicyType policyType = ExtContentPolicy::TYPE_INVALID;
++  if (intercepted) {
++    nsCOMPtr<nsILoadInfo> loadInfo = intercepted->LoadInfo();
++    if (loadInfo) {
++      policyType = loadInfo->GetExternalContentPolicyType();
++    }
++  }
++  if (httpChannel) {
++    if (NS_FAILED(httpChannel->GetRequestMethod(method))) {
++      method.AssignLiteral("GET");
++    }
++    RefPtr<RequestHeaderCollector> collector = new RequestHeaderCollector();
++    if (NS_SUCCEEDED(httpChannel->VisitRequestHeaders(collector))) {
++      headerPairs = std::move(collector->mPairs);
++    }
++  }
++  bool isNavigation = policyType == ExtContentPolicy::TYPE_DOCUMENT ||
++                      policyType == ExtContentPolicy::TYPE_SUBDOCUMENT;
++  bool isTopLevel = policyType == ExtContentPolicy::TYPE_DOCUMENT;
++
++  JS_SetProperty(cx, data, "isNavigation",
++                 isNavigation ? JS::TrueHandleValue
++                              : JS::FalseHandleValue);
++  JS_SetProperty(cx, data, "isTopLevel",
++                 isTopLevel ? JS::TrueHandleValue
++                            : JS::FalseHandleValue);
++  JS::Rooted<JS::Value> methodValue(
++      cx, JS::StringValue(JS_NewStringCopyN(cx, method.get(),
++                                            method.Length())));
++  if (methodValue.isString()) {
++    JS_SetProperty(cx, data, "method", methodValue);
++  }
++  JS::Rooted<JSObject*> headersArray(cx, JS::NewArrayObject(cx, 0));
++  if (headersArray) {
++    for (uint32_t i = 0; i < headerPairs.Length(); ++i) {
++      JS::Rooted<JS::Value> pairValue(
++          cx, JS::StringValue(JS_NewStringCopyN(
++                  cx, headerPairs[i].get(), headerPairs[i].Length())));
++      if (pairValue.isString()) {
++        JS_DefineElement(cx, headersArray, i, pairValue, JSPROP_ENUMERATE);
++      }
++    }
++    JS::Rooted<JS::Value> headersValue(cx, JS::ObjectValue(*headersArray));
++    JS_SetProperty(cx, data, "headers", headersValue);
++  }
+   JS::Rooted<JS::Value> dataValue(cx, JS::ObjectValue(*data));
+ 
+   JS::Rooted<JS::Value> eventValue(
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java
+index bbf6c3a7ec86..7396664c7979 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java
+@@ -1,5 +1,5 @@
+ /* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this file,
++ * License, v. 2.0. If a copy of this file was not distributed with this file,
+  * You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+ package org.mozilla.geckoview;
+@@ -10,8 +10,8 @@ import org.mozilla.gecko.util.GeckoBundle;
+ /**
+  * Describes a resource load presented to {@link GeckoSession.ResponseDelegate}.
+  *
+- * Sinytra firefox-patches/0001: v1 carries uri + isNavigation only; method
+- * and request headers arrive with 0002 (network-level info plumbing).
++ * Sinytra firefox-patches/0001: v1 carried uri + isNavigation. 0002 adds the
++ * request surface: method, request headers and the top-level distinction.
+  */
+ public final class WebRequestInfo {
+   /** The URI being loaded. */
+@@ -23,13 +23,40 @@ public final class WebRequestInfo {
+    */
+   public final boolean isNavigation;
+ 
+-  /* package */ WebRequestInfo(final @NonNull String uri, final boolean isNavigation) {
++  /**
++   * True when the load is the TOP-LEVEL document (WebView
++   * WebResourceRequest.isForMainFrame semantics); false for subframe
++   * navigations and subresources.
++   */
++  public final boolean isTopLevel;
++
++  /** The request method (GET, POST, ...). */
++  public final @NonNull String method;
++
++  /**
++   * Request headers flattened to "name:value" pairs (values may contain
++   * ':', split on the FIRST colon). Passed through in full for v2 —
++   * narrowing sensitive headers is an explicit later decision.
++   */
++  public final @NonNull String[] requestHeaders;
++
++  /* package */ WebRequestInfo(final @NonNull String uri,
++      final boolean isNavigation, final boolean isTopLevel,
++      final @NonNull String method, final @NonNull String[] requestHeaders) {
+     this.uri = uri;
+     this.isNavigation = isNavigation;
++    this.isTopLevel = isTopLevel;
++    this.method = method;
++    this.requestHeaders = requestHeaders;
+   }
+ 
+   /* package */ static WebRequestInfo fromBundle(final GeckoBundle message) {
++    final String[] headers = message.getStringArray("headers");
+     return new WebRequestInfo(
+-        message.getString("uri", ""), message.getBoolean("isNavigation", false));
++        message.getString("uri", ""),
++        message.getBoolean("isNavigation", false),
++        message.getBoolean("isTopLevel", false),
++        message.getString("method", "GET"),
++        headers != null ? headers : new String[0]);
+   }
+ }
+-- 
+2.55.0
+
