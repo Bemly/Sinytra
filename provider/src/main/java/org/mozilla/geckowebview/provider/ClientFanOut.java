@@ -501,9 +501,11 @@ final class ClientFanOut
             WebResourceResponse response = client.shouldInterceptRequest(
                     mOwner.webView(), request);
             if (response != null) {
-                android.util.Log.i(TAG, "intercept: app returned response for "
-                        + request.getUrl()
-                        + " (DENY until P2 patch substitutes body)");
+                // Consultation only: the caller decides (deny via
+                // onInterceptDeny, or body substitution via 0001
+                // ResponseBridge) — never assume deny here.
+                android.util.Log.d(TAG, "intercept: app returned response for "
+                        + request.getUrl());
             }
             return response;
         } catch (Throwable t) {
