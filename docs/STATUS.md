@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-23 08:30（0001 WIP 交接停点）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-24 00:40（0001 接线打通：全量 harness 29 PASS）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -236,57 +236,62 @@
   WebView 模块在 14_r7 已改名 **CtsWebkitTestCases**（无
   CtsWebViewTestCases）。arm 包已下载中；过渡第一轮跑 Chromium 基线。
 
-## 1h. 0001 接线 WIP 交接（2026-09-23 08:30 停点，未提交代码在两棵树）
+## 1h. 0001 response-body 拦截接线——已打通（2026-09-24 00:33，全量 harness 29 PASS）
 
 **目标**：`shouldInterceptRequest` 返回 body 的端到端（firefox-patches/0001）。
 设计定稿见 `firefox-patches/0001-response-body-interception.md`（necko 层
 nsINetworkInterceptController 路线）。
 
-**已提交**：
+**已提交（全部落盘，两树工作区干净）**：
 - Firefox 树（sinytra-pin）：`a76774863e81`（Group 1 Java 原语）、
-  `6ef2cc7dc4be`（Group 3 C++ 控制器 + docshell 包装）。
-- Sinytra（feat/p2-js-transport）：到 `042b38a` 为止全部已提交。
+  `6ef2cc7dc4be`（Group 3 C++ 控制器 + docshell 包装）、
+  `51c645e25be2`（进程级共享 FilterState + ParentChannelListener 包装，
+  修 per-instance observer SIGSEGV）、`1824f2745432`（filter 下发链
+  Java→JS→C++）、`2a3ae2df8752`（**修复①：filter 推送 subject 改原生
+  dispatcher**）、`98b57f6662ab`（**修复②：应答 bundle 补 handled +
+  content-type 大小写无关**）。
+- Sinytra（feat/p2-js-transport）：`0af97ca`（InterceptBridge.queryApp
+  抽取）、`9d8205f`（ResponseBridge + provider 接线）、`2453d28`
+  （interceptBody 探针）、`a1a310a`（queryApp 路径误导日志修正）。
+  注意：Sinytra 这批依赖 0001 patch 的 GeckoView 类型
+  （`WebRequestInfo`/`ResponseDelegate`），**默认 Maven AAR 构建会红**
+  （7 个编译错误属预期），必须 `-PsinytraLocalGecko=true` 构建/测试
+  （43 单元锁在该配置下全绿）；0001 patch 发布前主分支默认构建回到
+  `186d3b6` 为止是绿的。
 
-**未提交 WIP（新 agent 第一件事：审查后按逻辑单元提交）**：
-- Firefox 树：① `ParentChannelListener.cpp`——构造处同样用
-  GeckoViewResponseController 包装 SW controller（parent 侧每 channel，
-  覆盖顶级+子资源）；② `GeckoViewResponseController.{h,cpp}` 大改——
-  **架构从 per-instance observer 改为进程级共享 FilterState**
-  （StaticAutoPtr + 单例 FilterPushObserver 主线程一次注册），
-  原因：per-instance 弱引用 observer 在 ParentChannelListener 释放路径
-  **SIGSEGV**（tombstone_25 符号化 = controller 悬空）；③
-  `GeckoSession.java`——ResponseDelegate 增 `getUriFilters()`，
-  setResponseDelegate 时 dispatch `GeckoView:ResponseFilters`；④
-  `GeckoViewNavigation.sys.mjs`——监听该事件 →
-  `Services.obs.notifyObservers(eventDispatcher, "sinytra-response-filters",
-  filters.join("\n"))`。注意 C++ 里留有 `__android_log_print` 调试日志
-  （tag Sinytra/response），定稿前降级/删除。
-- Sinytra 树：① `session/ResponseBridge.java`（新，public）——
-  ResponseDelegate 实现（drain app body→WebResponse，16MB 上限）；
-  ② `InterceptBridge` 抽出 `queryApp()`（无 DENY 记账的裸查询）；
-  ③ `GeckoWebViewProvider`——ctor 里 `setResponseDelegate` + 公开
-  `setInterceptFilters()`（重推 filters）；④ debug 探针
-  `interceptBody`（P2TransportProbes 末尾：load body.example/probe.html，
-  断言 body 文本 + URL 身份）+ TestClient 对 body.example 返回真 body。
+**两个根因（真机 logcat 定位，2026-09-24）**：
 
-**当前卡点（harness 实测）**：interceptBody 探针不过。现象链：
-- 第一版（per-instance observer）：`ShouldPrepare HIT` 都没出现 →
-  发现 GetSingleton 注册的 observer 与被咨询实例脱节 → 改 per-instance
-  → **SIGSEGV**（见上）→ 改共享 FilterState。
-- 现版本：logcat 见 `filter observer registered`（C++ 主线程注册成功）
-  **但没有 `FilterPushObserver topic=...`**——即 Java dispatch 的
-  `GeckoView:ResponseFilters` 没走到 JS 监听 → observer 没收到。
-  harness 停在 interceptBody 轮询（12×2.5s 后会 FAIL，需等 ~8 分钟收尾）。
-- **下一步排查建议（按怀疑度）**：① provider ctor 里
-  `setResponseDelegate` 在 `session.open()` **之前**调用——dispatch 可能
-  被 drop（探针里的 setInterceptFilters 是 open 后调的，但也无效，
-  需确认 mResponseHandler.setDelegate 与未 attach session 的交互）；
-  ② GeckoViewNavigation 的 onEvent 是否真收到该事件（JS 侧加 debug`）；
-  ③ JS eventDispatcher 作为 observer subject 传给 C++ 后
-  `do_QueryInterface(nsIGeckoViewEventDispatcher)` 是否成功（在
-  FilterPushObserver::Observe 里对 QI 失败也打日志）；④ 确认
-  GeckoSessionHandler("GeckoViewResponse") 的模块名/事件注册方式是否
-  影响 dispatch 路由。
+- **根因 ①（filter 推送断链）**：`GeckoViewNavigation.sys.mjs` 把
+  `this.eventDispatcher`（Messaging.sys.mjs 的 DispatcherDelegate，**纯
+  JS 包装、无 QueryInterface**）当 observer subject 传给 C++——
+  `FilterPushObserver::Observe` 连入口日志都没打过（不是 QI 失败，是
+  通知根本到不了 observer）。修复：subject 改传原生 dispatcher
+  `window.arguments[0].QueryInterface(Ci.nsIGeckoViewEventDispatcher)`
+  （= nsWindow::AndroidView，C++ NS_IMPL_ISUPPORTS 实现该接口，也正是
+  后续 `GeckoView:OnRequestResponse` 查询要用的 dispatcher）。修复后
+  链路全亮：`FilterPushObserver topic=` → `filters pushed: 1` →
+  `ShouldPrepare HIT` → `ChannelIntercepted` → `OnSuccess`。
+- **根因 ②（应答被丢）**：`GeckoSession.responseToBundle` 从不写
+  `handled` 键，而 C++ `ResponseCallback::OnSuccess` 第一步要求
+  `handled === true`，否则 `ResetInterception` → 回退网络 →
+  body.example NXDOMAIN → `GeckoView:OnLoadError`（PageStart 后 185ms）
+  → 页面从未存在 → JS transport 死 → eval 全超时（30s×12 个 timeout，
+  harness 卡 ~8 分钟是这么来的）。修复：bundle 补 `handled:true`；顺带
+  content-type 查询改大小写无关（embedder 写 "Content-Type"，原
+  `headers.get("content-type")` 拿空）。修复后 `onPageFinished` 185ms
+  返回、eval 读到 `sinytra-body-0001`、URL 身份断言过。
+- **记死**：① `ChannelIntercepted dispatcher=0x0` 打印的是**实例成员**
+  mDispatcher（ParentChannelListener 创建的实例无注入），实际分发走
+  `sFilterState->mDispatcher` 共享单例——不是缺陷；② deny 探针
+  （example.org）与 filter（body.example）不匹配，两套拦截面（P2-4
+  LoadRequest DENY 近似 vs 0001 necko 替身）实测无碰撞；③ provider
+  ctor 里 open 之前的 `setResponseDelegate` dispatch 确实无人接收
+  （JS 模块在 open 后才注册），无害但属死代码——探针路径靠
+  `setInterceptFilters` 的 open 后重发工作，生产接线可把
+  setResponseDelegate 挪到 open 之后。
+- **插桩日志随本轮进树**（C++ `parent=%d` 注册日志、JS dump、Java
+  dispatching log，tag `Sinytra/response`），**定稿前降级/删除**（收尾
+  清单第 1 条）。
 
 **构建/测试命令（环境变量缺一不可）**：
 ```bash
@@ -304,9 +309,12 @@ adb -s V885Q49L8TAMFEEE shell am force-stop org.mozilla.geckowebview.debug
 adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n org.mozilla.geckowebview.debug/org.mozilla.geckowebview.provider.P0GlueActivity
 ```
 
-**收尾清单（探针跑通后）**：C++ 调试日志降级 → 两树按单元提交 →
-`git format-patch` 落 `firefox-patches/0001-*.patch`（含 README stack 表
-更新）→ 全量 harness 回归（现在应为 30 PASS）→ STATUS 收尾。
+**收尾清单（接线已通、回归已绿，剩定稿动作）**：① C++/JS/Java 插桩
+调试日志降级或删除 → ② 两树全量单元测试 + harness 复跑（本轮 29 PASS
+= 28 基线 + interceptBody；§1h 旧文预估 30 系笔误）→ ③
+`git format-patch` 落 `firefox-patches/0001-*.patch`（含 README stack
+表更新：0001 状态改"已落地"）→ ④ STATUS 收尾 + 主分支合并评估
+（Sinytra 侧 0001 代码需等 patch 发布或默认构建策略定夺）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
@@ -336,13 +344,12 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
      xpidl 生成的 callback 是 `OnSuccess(数据, cx)`（cx 在尾）；
      moz.build 列表严格字母序；dom/serviceworkers 头要用
      `mozilla/dom/` 限定路径。
-   - **待做（接线 + 验证）**：① Java setResponseDelegate 时下发
-     filters + session dispatcher 到 C++（SetFilters 入口已备，hop 待
-     定：Java dispatchToGecko → parent JS → Cc service）；② Sinytra
-     glue 的 InterceptBridge 绑定 ResponseDelegate；③ harness
-     interceptBody 探针（iframe contentDocument 断言替身 body）。
-   framework 面 WebMessagePort 仍等 AOSP patch（决策点
-   `ProviderAdapters.WebMessagePortFactory`）。
+   - **待做（接线 + 验证）**：~~① 下发 filters~~ ~~② InterceptBridge
+     绑定 ResponseDelegate~~ ~~③ interceptBody 探针~~ **全部完成**
+     （2026-09-24，见 §1h：真机端到端 body 替身 + URL 身份，
+     全量 harness 29 PASS）。剩定稿动作见 §1h 收尾清单。
+     framework 面 WebMessagePort 仍等 AOSP patch（决策点
+     `ProviderAdapters.WebMessagePortFactory`）。
 3. **CTS 过渡第一轮已跑（2026-09-23 04:5x，Chromium 基线）**：
    `CtsWebkitTestCases`（14_r7 arm 包）直 `am instrument`，**285 用例
    4 失败（98.6%）**，用时 ~10.4 分钟。4 条 fail 全部在系统 Chromium 上
