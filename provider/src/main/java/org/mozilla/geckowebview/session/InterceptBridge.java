@@ -101,10 +101,27 @@ public final class InterceptBridge {
     @Nullable
     public WebResourceResponse queryApp(@NonNull String uri,
             boolean isRedirect, boolean hasUserGesture, boolean isMainFrame) {
+        // LoadRequest-shaped consult (deny path): GeckoView LoadRequest
+        // carries no method/headers, so the WebView-approximation surface
+        // keeps the GET/empty defaults.
+        return queryApp(uri, isRedirect, hasUserGesture, isMainFrame,
+                "GET", new String[0]);
+    }
+
+    /**
+     * Raw app consultation without the DENY bookkeeping, with the 0002
+     * request surface: {@code headerPairs} are "name:value" strings as
+     * shipped by the Gecko query (split on the FIRST colon — values may
+     * contain ':').
+     */
+    @Nullable
+    public WebResourceResponse queryApp(@NonNull String uri,
+            boolean isRedirect, boolean hasUserGesture, boolean isMainFrame,
+            @NonNull String method, @NonNull String[] headerPairs) {
         try {
             return mHost.shouldIntercept(
                     new SinytraResourceRequest(uri, isMainFrame, isRedirect,
-                            hasUserGesture));
+                            hasUserGesture, method, headerPairs));
         } catch (Throwable t) {
             android.util.Log.w("Sinytra/intercept",
                     "Host.shouldIntercept threw", t);
@@ -134,13 +151,25 @@ public final class InterceptBridge {
         private final boolean mMainFrame;
         private final boolean mRedirect;
         private final boolean mGesture;
+        // 0002: request surface from the Gecko query (method + flattened
+        // "name:value" header pairs). The LoadRequest-shaped deny path
+        // keeps the GET/empty defaults.
+        private final String mMethod;
+        private final String[] mHeaderPairs;
 
         SinytraResourceRequest(String uri, boolean mainFrame, boolean redirect,
                 boolean gesture) {
+            this(uri, mainFrame, redirect, gesture, "GET", new String[0]);
+        }
+
+        SinytraResourceRequest(String uri, boolean mainFrame, boolean redirect,
+                boolean gesture, String method, String[] headerPairs) {
             mUri = uri;
             mMainFrame = mainFrame;
             mRedirect = redirect;
             mGesture = gesture;
+            mMethod = method;
+            mHeaderPairs = headerPairs;
         }
 
         @Override
@@ -169,12 +198,27 @@ public final class InterceptBridge {
 
         @Override
         public String getMethod() {
-            return "GET";
+            return mMethod;
         }
 
         @Override
         public Map<String, String> getRequestHeaders() {
-            return Collections.emptyMap();
+            if (mHeaderPairs.length == 0) {
+                return Collections.emptyMap();
+            }
+            // Split on the FIRST colon: values may contain ':'.
+            Map<String, String> headers = new java.util.LinkedHashMap<>();
+            for (String pair : mHeaderPairs) {
+                if (pair == null) {
+                    continue;
+                }
+                int sep = pair.indexOf(':');
+                if (sep <= 0) {
+                    continue;
+                }
+                headers.put(pair.substring(0, sep), pair.substring(sep + 1));
+            }
+            return headers;
         }
     }
 }

@@ -25,8 +25,8 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
         String[] getFilters();
 
         @Nullable
-        WebResourceResponseHolder shouldIntercept(@NonNull String uri,
-                boolean isNavigation);
+        WebResourceResponseHolder shouldIntercept(
+                @NonNull WebRequestInfo info);
     }
 
     /** App answer carrier (mirrors android.webkit.WebResourceResponse). */
@@ -70,7 +70,7 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
             @NonNull GeckoSession session,
             @NonNull WebRequestInfo info) {
         final WebResourceResponseHolder app =
-                mHost.shouldIntercept(info.uri, info.isNavigation);
+                mHost.shouldIntercept(info);
         if (app == null || app.body == null) {
             // Not handled: the C++ controller resets the interception and
             // the load proceeds normally.

@@ -497,6 +497,114 @@ final class P2TransportProbes {
             out.append("PASS interceptBody url=").append(currentUrl)
                     .append(" body=").append(bodyText).append('\n');
 
+            // --- 0002 interceptSubresource: XHR inside the synthesized
+            // page. fetch('/sub-target') resolves against the page origin
+            // (body.example); the network answer is impossible (NXDOMAIN),
+            // so the marker can only come from the app through the necko
+            // interception — the ruling experiment for parent-side
+            // subresource cover.
+            final CountDownLatch subKick = new CountDownLatch(1);
+            activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                    "fetch('/sub-target').then(function(r){"
+                            + "return r.text()})"
+                            + ".then(function(t){window.__sub=t},"
+                            + "function(e){window.__sub='ERR:'+e});"
+                            + " 'kicked'",
+                    v -> subKick.countDown()));
+            subKick.await(45, TimeUnit.SECONDS);
+            String subText = null;
+            for (int attempt = 0; attempt < 12 && subText == null;
+                    attempt++) {
+                Thread.sleep(2500);
+                final CountDownLatch subPoll = new CountDownLatch(1);
+                final String[][] subResult = new String[1][];
+                activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                        "window.__sub === undefined ? null : window.__sub",
+                        v -> {
+                            subResult[0] = new String[] {v};
+                            subPoll.countDown();
+                        }));
+                subPoll.await(45, TimeUnit.SECONDS);
+                String value = subResult[0] != null ? subResult[0][0] : null;
+                if (value != null) {
+                    value = value.replace("\"", "");
+                    if (value.startsWith("ERR:")) {
+                        throw new IllegalStateException(
+                                "interceptSubresource fetch failed: "
+                                        + value);
+                    }
+                    if (value.contains("sinytra-sub-0002")) {
+                        subText = value;
+                    }
+                }
+            }
+            if (subText == null) {
+                throw new IllegalStateException(
+                        "interceptSubresource: app body never reached "
+                                + "the XHR");
+            }
+            out.append("PASS interceptSubresource body=").append(subText)
+                    .append('\n');
+
+            // --- 0002 interceptIframe: filter-matching iframe navigation.
+            // The P2-4 deny approximation must STAND DOWN for filter-owned
+            // URIs (0002 Group A) — without it the frame never leaves
+            // about:blank and the necko interception never gets the
+            // channel. The synthesized frame body is same-origin, so
+            // contentDocument is readable from the top page.
+            final CountDownLatch frameKick = new CountDownLatch(1);
+            activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                    "(function(){var f=document.createElement('iframe');"
+                            + "f.id='sinytra-frame';"
+                            + "f.src='https://body.example/frame.html';"
+                            + "document.body.appendChild(f);"
+                            + "return 'added';})()",
+                    v -> frameKick.countDown()));
+            frameKick.await(45, TimeUnit.SECONDS);
+            String frameText = null;
+            for (int attempt = 0; attempt < 12 && frameText == null;
+                    attempt++) {
+                Thread.sleep(2500);
+                final CountDownLatch framePoll = new CountDownLatch(1);
+                final String[][] frameResult = new String[1][];
+                activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                        "(function(){var f=document.getElementById"
+                                + "('sinytra-frame');"
+                                + "return (f&&f.contentDocument"
+                                + "&&f.contentDocument.body)"
+                                + "?f.contentDocument.body.textContent"
+                                + ":null;})()",
+                        v -> {
+                            frameResult[0] = new String[] {v};
+                            framePoll.countDown();
+                        }));
+                framePoll.await(45, TimeUnit.SECONDS);
+                String value = frameResult[0] != null
+                        ? frameResult[0][0] : null;
+                if (value != null) {
+                    value = value.replace("\"", "");
+                    if (value.contains("sinytra-body-0001")) {
+                        frameText = value;
+                    }
+                }
+            }
+            if (frameText == null) {
+                throw new IllegalStateException(
+                        "interceptIframe: frame body never rendered "
+                                + "(denied or not synthesized)");
+            }
+            // Probe hygiene (same lesson as the errClient restore): the
+            // deny probe after this one asserts ALL frames sit at
+            // about:blank — remove our synthesized frame before it runs.
+            final CountDownLatch frameCleanup = new CountDownLatch(1);
+            activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                    "var f=document.getElementById('sinytra-frame');"
+                            + "f&&f.parentNode.removeChild(f); 'removed'",
+                    v -> frameCleanup.countDown()));
+            frameCleanup.await(45, TimeUnit.SECONDS);
+            out.append("PASS interceptIframe body=").append(frameText)
+                    .append('\n');
+
             // --- P2-4 deny value: non-null shouldInterceptRequest ⇒
             // subframe DENY. The DENY GeckoResult was verified nowhere
             // (JVM: GeckoResult class-init needs a live UI Looper; device:

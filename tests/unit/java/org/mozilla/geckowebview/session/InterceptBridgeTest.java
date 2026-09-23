@@ -202,4 +202,45 @@ public final class InterceptBridgeTest {
         assertFalse(InterceptBridge.matchesFilterPrefix(
                 "https://body.example/", new String[] {null, ""}));
     }
+
+    // --- 0002 Group B: request-surface fidelity ---
+
+    @Test
+    public void queryApp_requestSurfacePassthrough() throws Exception {
+        RecordingHost host = new RecordingHost();
+        InterceptBridge bridge = new InterceptBridge(host);
+        bridge.queryApp("https://body.example/sub-target", false, false,
+                false, "POST",
+                new String[] {"Content-Type:application/json",
+                              "X-Custom:a:b"});
+        assertNotNull(host.lastRequest);
+        assertEquals("POST", host.lastRequest.getMethod());
+        assertEquals("application/json",
+                host.lastRequest.getRequestHeaders().get("Content-Type"));
+        assertEquals("values keep inner colons (split on FIRST colon)",
+                "a:b", host.lastRequest.getRequestHeaders().get("X-Custom"));
+    }
+
+    @Test
+    public void queryApp_defaultOverloadKeepsGetEmpty() throws Exception {
+        RecordingHost host = new RecordingHost();
+        InterceptBridge bridge = new InterceptBridge(host);
+        bridge.queryApp("https://example.org/", false, false, true);
+        assertNotNull(host.lastRequest);
+        assertEquals("LoadRequest-shaped consult stays GET/empty",
+                "GET", host.lastRequest.getMethod());
+        assertTrue(host.lastRequest.getRequestHeaders().isEmpty());
+    }
+
+    @Test
+    public void requestHeaders_malformedPairsSkipped() throws Exception {
+        RecordingHost host = new RecordingHost();
+        InterceptBridge bridge = new InterceptBridge(host);
+        bridge.queryApp("https://example.org/", false, false, false, "GET",
+                new String[] {"nocolon", ":emptyname", "OK:1"});
+        java.util.Map<String, String> headers =
+                host.lastRequest.getRequestHeaders();
+        assertEquals(1, headers.size());
+        assertEquals("1", headers.get("OK"));
+    }
 }

@@ -394,11 +394,17 @@ public final class P0GlueActivity extends Activity {
                             new java.io.ByteArrayInputStream(new byte[0]));
                 }
                 if (uri.contains("body.example")) {
-                    // 0001 interceptBody probe: substitute a real body.
+                    // 0001/0002 probes: substitute a real body. The
+                    // subresource target uses a distinct marker so the
+                    // fetch assertion proves the XHR answer came from
+                    // the app, never the network.
+                    String marker = uri.contains("sub-target")
+                            ? "sinytra-sub-0002" : "sinytra-body-0001";
                     return new android.webkit.WebResourceResponse(
                             "text/html", "utf-8",
                             new java.io.ByteArrayInputStream(
-                                    "<html><body><p>sinytra-body-0001</p>"
+                                    ("<html><body><p>" + marker
+                                            + "</p></body></html>")
                                             .getBytes()));
                 }
                 return null;

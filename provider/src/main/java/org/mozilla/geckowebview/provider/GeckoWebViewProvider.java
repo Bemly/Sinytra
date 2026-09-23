@@ -45,6 +45,7 @@ import java.util.List;
 import java.util.Map;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
+import org.mozilla.geckoview.WebRequestInfo;
 import org.mozilla.geckowebview.session.ContentBridge;
 import org.mozilla.geckowebview.session.ErrorBridge;
 import org.mozilla.geckowebview.session.FindBridge;
@@ -130,9 +131,13 @@ public final class GeckoWebViewProvider
             @Override
             @Nullable
             public ResponseBridge.WebResourceResponseHolder shouldIntercept(
-                    @NonNull String uri, boolean isNavigation) {
-                WebResourceResponse app = mIntercept.queryApp(uri, false,
-                        false, isNavigation);
+                    @NonNull WebRequestInfo info) {
+                // 0002: the necko query carries the request surface —
+                // isTopLevel maps to WebResourceRequest.isForMainFrame,
+                // method/headers pass through unchanged.
+                WebResourceResponse app = mIntercept.queryApp(info.uri,
+                        false, false, info.isTopLevel, info.method,
+                        info.requestHeaders);
                 if (app == null) {
                     return null;
                 }
