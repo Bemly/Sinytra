@@ -309,12 +309,15 @@ adb -s V885Q49L8TAMFEEE shell am force-stop org.mozilla.geckowebview.debug
 adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n org.mozilla.geckowebview.debug/org.mozilla.geckowebview.provider.P0GlueActivity
 ```
 
-**收尾清单（接线已通、回归已绿，剩定稿动作）**：① C++/JS/Java 插桩
-调试日志降级或删除 → ② 两树全量单元测试 + harness 复跑（本轮 29 PASS
-= 28 基线 + interceptBody；§1h 旧文预估 30 系笔误）→ ③
-`git format-patch` 落 `firefox-patches/0001-*.patch`（含 README stack
-表更新：0001 状态改"已落地"）→ ④ STATUS 收尾 + 主分支合并评估
-（Sinytra 侧 0001 代码需等 patch 发布或默认构建策略定夺）。
+**收尾清单（2026-09-24 01:30 全部完成）**：① ~~插桩日志降级~~
+（`59aa103b6d50`：C++ INFO→DEBUG、Java Log.i→Log.d、JS dump→debug``；
+`adb logcat -s Sinytra/response` 仍可观测，降级后回归 **29 PASS**）→
+② ~~复跑回归~~（29 PASS / P0 GLUE PASS）→ ③ ~~format-patch~~
+（`firefox-patches/0001-response-body-interception.patch`，7 commits，
+基线 f1b6c0f8）→ ④ ~~STATUS 收尾~~（本节）。**主分支合并评估（留给
+用户拍板）**：`feat/p2-js-transport` 建议暂不合入 master——0001 patch
+未发布到 Maven，合入会使 master 默认构建变红；待 0002 期间 patch
+稳定或定下"默认构建要求本地 GV"的策略后再合。
 
 ## 2. 下一步（按顺序，一次做一件）
 

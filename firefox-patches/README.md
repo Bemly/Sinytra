@@ -16,7 +16,7 @@
 
 | # | 文件 | 解决哪个 WebView API | 为什么 public API 不够 | 状态 |
 |---|---|---|---|---|
-| 0001 | response-body 拦截（导航级） | `shouldInterceptRequest` 返回自定义 body | GV153 `onLoadRequest` 只返回 AllowOrDeny；决策在 docshell 层，无 Java→Gecko 响应体通道（树内核实，详见 0001 设计文档） | 已进树并真机打通（sinytra-pin @ `98b57f6662ab`，2026-09-24 全量 harness 29 PASS；format-patch 待落，插桩日志待降级） |
+| 0001 | response-body 拦截（导航级） | `shouldInterceptRequest` 返回自定义 body | GV153 `onLoadRequest` 只返回 AllowOrDeny；决策在 docshell 层，无 Java→Gecko 响应体通道（树内核实，详见 0001 设计文档） | **已定稿**：`0001-response-body-interception.patch`（7 commits，@ `59aa103b6d50`，日志已降 DEBUG），真机端到端打通（2026-09-24 全量 harness 29 PASS） |
 
 设计文档：`0001-response-body-interception.md`（含树内勘察、地基选型、
 边界与测试计划）。

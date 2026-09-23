@@ -1,0 +1,1475 @@
+From a76774863e81df9c39fa1a6208d7f317d816db4f Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Wed, 23 Sep 2026 05:31:26 +0800
+Subject: [PATCH 1/7] Sinytra patch 0001 (1/3): GeckoView session
+ ResponseDelegate primitive
+
+Java side of the response-body interception primitive, Group 1
+(standalone-buildable, inert without a consumer):
+
+- WebRequestInfo: v1 carries uri + isNavigation (method/headers land
+  with the 0002 network-info plumbing).
+- GeckoSession.ResponseDelegate: optional session-level delegate;
+  onRequestResponse may answer a WebResponse (uri must match, body is
+  the substitute content) or null to let the load proceed.
+- GeckoViewResponse module handler answers the child-side
+  'GeckoView:OnRequestResponse' query: invokes the delegate, drains the
+  WebResponse body to base64 (Java stream objects cannot cross JVMs;
+  16MB v1 cap, loud log + refuse on overflow), flattens headers to
+  'name:value' pairs (GeckoBundle has no map primitive), and resolves
+  {uri, statusCode, redirected, contentType, headers, bodyB64}.
+
+No consumer yet: nothing sends the query until the C++ necko hook
+(Group 3). geckoview:compileDebugJavaWithJavac green.
+---
+ .../org/mozilla/geckoview/GeckoSession.java   | 154 ++++++++++++++++++
+ .../org/mozilla/geckoview/WebRequestInfo.java |  35 ++++
+ 2 files changed, 189 insertions(+)
+ create mode 100644 mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+index ef2510d5bce7..cefd7b2245aa 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+@@ -975,6 +975,55 @@ public class GeckoSession {
+         }
+       };
+ 
++  // Sinytra firefox-patches/0001: session-level response interception.
++  // The child necko layer queries "GeckoView:OnRequestResponse" for loads
++  // whose URI matches the registered filters; a non-null WebResponse here
++  // substitutes the channel body (nsIInterceptedChannel semantics, URL
++  // identity preserved). The body is drained to base64 because Java
++  // stream objects cannot cross the process boundary (v1 cap 16MB;
++  // streaming is 0002). Inert unless setResponseDelegate was called.
++  private final GeckoSessionHandler<ResponseDelegate> mResponseHandler =
++      new GeckoSessionHandler<ResponseDelegate>(
++          "GeckoViewResponse",
++          this,
++          new String[] {},
++          new String[] {"GeckoView:OnRequestResponse"}) {
++        @Override
++        public void handleDefaultMessage(
++            final String event, final GeckoBundle message, final EventCallback callback) {
++          callback.sendSuccess(null);
++        }
++
++        @Override
++        public void handleMessage(
++            final ResponseDelegate delegate,
++            final String event,
++            final GeckoBundle message,
++            final EventCallback callback) {
++          if (!"GeckoView:OnRequestResponse".equals(event)) {
++            super.handleDefaultMessage(event, message, callback);
++            return;
++          }
++
++          final WebRequestInfo info = WebRequestInfo.fromBundle(message);
++          final GeckoResult<WebResponse> result =
++              delegate.onRequestResponse(GeckoSession.this, info);
++          if (result == null) {
++            callback.sendSuccess(null);
++            return;
++          }
++
++          callback.resolveTo(
++              result.map(
++                  response -> {
++                    if (response == null) {
++                      return null;
++                    }
++                    return responseToBundle(response);
++                  }));
++        }
++      };
++
+   private final GeckoSessionHandler<ContentDelegate> mProcessHangHandler =
+       new GeckoSessionHandler<ContentDelegate>(
+           "GeckoViewProcessHangMonitor", this, new String[] {"GeckoView:HangReport"}) {
+@@ -1293,6 +1342,7 @@ public class GeckoSession {
+         mMediaHandler,
+         mNavigationHandler,
+         mPermissionHandler,
++        mResponseHandler,
+         mPrintHandler,
+         mProcessHangHandler,
+         mProgressHandler,
+@@ -3448,6 +3498,86 @@ public class GeckoSession {
+     return mProgressHandler.getDelegate();
+   }
+ 
++  /**
++   * Sinytra firefox-patches/0001: session-level response interception
++   * delegate. When set, loads whose URI matches a registered filter are
++   * offered to onRequestResponse; a non-null WebResponse substitutes the
++   * response body with URL identity preserved (nsIInterceptedChannel
++   * semantics). Everything is a no-op unless setResponseDelegate was
++   * called.
++   */
++  public interface ResponseDelegate {
++    /**
++     * A resource load is starting and may be answered by the app.
++     *
++     * @param session The GeckoSession that initiated the callback.
++     * @param info Describes the load (v1: uri + isNavigation).
++     * @return A GeckoResult resolving to a WebResponse whose uri matches
++     *     info.uri and whose body supplies the substitute content, or null
++     *     to let the load proceed normally. A resolving WebResponse whose
++     *     body exceeds the 16MB v1 cap is refused with a loud log (the
++     *     load proceeds untouched).
++     */
++    @Nullable
++    GeckoResult<WebResponse> onRequestResponse(
++        @NonNull GeckoSession session, @NonNull WebRequestInfo info);
++  }
++
++  // v1 body transport cap: stream objects cannot cross the process
++  // boundary, so the body is drained to bytes and shipped base64.
++  private static final int RESPONSE_BODY_MAX_BYTES = 16 * 1024 * 1024;
++
++  @Nullable
++  private static GeckoBundle responseToBundle(final @NonNull WebResponse response) {
++    final GeckoBundle bundle = new GeckoBundle();
++    bundle.putString("uri", response.uri);
++    bundle.putInt("statusCode", response.statusCode);
++    bundle.putBoolean("redirected", response.redirected);
++    bundle.putString("contentType", response.headers.get("content-type"));
++    // GeckoBundle has no map primitive: flatten headers to "name:value"
++    // pairs; the consumer (patch 0001 C++ side) parses them back.
++    final java.util.List<String> headerPairs = new java.util.ArrayList<>();
++    for (final Map.Entry<String, String> entry : response.headers.entrySet()) {
++      headerPairs.add(entry.getKey() + ":" + entry.getValue());
++    }
++    bundle.putStringArray("headers", headerPairs.toArray(new String[0]));
++
++    final java.io.InputStream body = response.body;
++    if (body == null) {
++      bundle.putString("bodyB64", "");
++      return bundle;
++    }
++
++    final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
++    final byte[] buffer = new byte[16384];
++    try {
++      int read;
++      while ((read = body.read(buffer)) != -1) {
++        out.write(buffer, 0, read);
++        if (out.size() > RESPONSE_BODY_MAX_BYTES) {
++          Log.w(LOGTAG, "Response body exceeds the v1 16MB cap; refusing");
++          try {
++            body.close();
++          } catch (final java.io.IOException ignored) {
++          }
++          return null;
++        }
++      }
++    } catch (final java.io.IOException e) {
++      Log.w(LOGTAG, "Failed to drain response body", e);
++      return null;
++    } finally {
++      try {
++        body.close();
++      } catch (final java.io.IOException ignored) {
++      }
++    }
++    bundle.putString(
++        "bodyB64",
++        android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP));
++    return bundle;
++  }
++
+   /**
+    * Set the navigation callback handler. This will replace the current handler.
+    *
+@@ -3470,6 +3600,30 @@ public class GeckoSession {
+     return mNavigationHandler.getDelegate();
+   }
+ 
++  /**
++   * Set the response interception callback handler (Sinytra
++   * firefox-patches/0001). This will replace the current handler.
++   *
++   * @param delegate An implementation of ResponseDelegate, or null to
++   *     disable interception for this session.
++   */
++  @UiThread
++  public void setResponseDelegate(final @Nullable ResponseDelegate delegate) {
++    ThreadUtils.assertOnUiThread();
++    mResponseHandler.setDelegate(delegate, this);
++  }
++
++  /**
++   * Get the response interception callback handler.
++   *
++   * @return The current response callback handler.
++   */
++  @UiThread
++  public @Nullable ResponseDelegate getResponseDelegate() {
++    ThreadUtils.assertOnUiThread();
++    return mResponseHandler.getDelegate();
++  }
++
+   /**
+    * Set the content scroll callback handler. This will replace the current handler.
+    *
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java
+new file mode 100644
+index 000000000000..bbf6c3a7ec86
+--- /dev/null
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java
+@@ -0,0 +1,35 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
++ * You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.geckoview;
++
++import androidx.annotation.NonNull;
++import org.mozilla.gecko.util.GeckoBundle;
++
++/**
++ * Describes a resource load presented to {@link GeckoSession.ResponseDelegate}.
++ *
++ * Sinytra firefox-patches/0001: v1 carries uri + isNavigation only; method
++ * and request headers arrive with 0002 (network-level info plumbing).
++ */
++public final class WebRequestInfo {
++  /** The URI being loaded. */
++  public final @NonNull String uri;
++
++  /**
++   * True when the load is a top-level or subframe navigation (docshell);
++   * false for subresource loads (images, CSS, fetch/XHR, ...).
++   */
++  public final boolean isNavigation;
++
++  /* package */ WebRequestInfo(final @NonNull String uri, final boolean isNavigation) {
++    this.uri = uri;
++    this.isNavigation = isNavigation;
++  }
++
++  /* package */ static WebRequestInfo fromBundle(final GeckoBundle message) {
++    return new WebRequestInfo(
++        message.getString("uri", ""), message.getBoolean("isNavigation", false));
++  }
++}
+-- 
+2.55.0
+
+
+From 6ef2cc7dc4bef81765c568a15a91678bb92178b5 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Wed, 23 Sep 2026 06:55:15 +0800
+Subject: [PATCH 2/7] Sinytra patch 0001 (3/3): GeckoViewResponseController +
+ docshell wrap
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+C++ interception controller (parent process, mobile/android/components/
+geckoview):
+- nsINetworkInterceptController over the public necko contract: URIs
+  matching a registered http(s) prefix filter claim the channel; the
+  intercepted channel is answered by dispatching GeckoView:OnRequestResponse
+  (C++-side, via the injected nsIGeckoViewEventDispatcher) to the app
+  delegate (Group 1) and synthesizing the response with
+  SynthesizeStatus/SynthesizeHeader/StartSynthesizedResponse — URL
+  identity preserved by the internal redirect.
+- App miss/error/body-cap refusals degrade honestly to ResetInterception
+  (network proceeds untouched); everything else forwards to the wrapped
+  ServiceWorkerInterceptController.
+- Static SetFilters entry point (prefixes + dispatcher); inert until a
+  caller registers filters.
+
+nsDocShell wraps its ServiceWorkerInterceptController with this controller
+on Android parent process. Build green end-to-end; device regression
+(canary + 29-probe harness) unchanged with no filters registered.
+---
+ docshell/base/nsDocShell.cpp                  |  12 +
+ .../geckoview/GeckoViewResponseController.cpp | 316 ++++++++++++++++++
+ .../geckoview/GeckoViewResponseController.h   |  62 ++++
+ .../components/geckoview/components.conf      |   7 +
+ mobile/android/components/geckoview/moz.build |   2 +
+ 5 files changed, 399 insertions(+)
+ create mode 100644 mobile/android/components/geckoview/GeckoViewResponseController.cpp
+ create mode 100644 mobile/android/components/geckoview/GeckoViewResponseController.h
+
+diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
+index 275d0ce1d33e..f367b2b860c3 100644
+--- a/docshell/base/nsDocShell.cpp
++++ b/docshell/base/nsDocShell.cpp
+@@ -77,6 +77,9 @@
+ #include "mozilla/dom/ScreenOrientation.h"
+ #include "mozilla/dom/ScriptSettings.h"
+ #include "mozilla/dom/ServiceWorkerInterceptController.h"
++#ifdef MOZ_WIDGET_ANDROID
++#  include "GeckoViewResponseController.h"
++#endif
+ #include "mozilla/dom/ServiceWorkerUtils.h"
+ #include "mozilla/dom/SessionHistoryEntry.h"
+ #include "mozilla/dom/SessionStorageManager.h"
+@@ -499,7 +502,16 @@ already_AddRefed<nsDocShell> nsDocShell::Create(
+   // Note: This check is duplicated in SharedWorkerInterfaceRequestor's
+   // constructor.
+   if (XRE_IsParentProcess()) {
++#ifdef MOZ_WIDGET_ANDROID
++    // Sinytra firefox-patches/0001: wrap the SW controller with the
++    // GeckoView response interception controller — URIs matching app
++    // registered filters are synthesized by the embedder (URL identity
++    // preserved); everything else falls through to the SW path.
++    ds->mInterceptController = MakeRefPtr<GeckoViewResponseController>(
++        MakeRefPtr<ServiceWorkerInterceptController>());
++#else
+     ds->mInterceptController = MakeRefPtr<ServiceWorkerInterceptController>();
++#endif
+   }
+ 
+   // We want to hold a strong ref to the loadgroup, so it better hold a weak
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.cpp b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+new file mode 100644
+index 000000000000..5662c8efd6cc
+--- /dev/null
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+@@ -0,0 +1,316 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
++ * You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++#include "GeckoViewResponseController.h"
++
++#include "js/CharacterEncoding.h"
++#include "js/Conversions.h"
++#include "js/ForOfIterator.h"
++#include "jsapi.h"
++#include "mozilla/Base64.h"
++#include "mozilla/StaticPtr.h"
++#include "mozilla/dom/ScriptSettings.h"
++#include "nsIGeckoViewBridge.h"
++#include "nsNetUtil.h"
++#include "mozilla/dom/ServiceWorkerInterceptController.h"
++#include "xpcpublic.h"
++
++using namespace mozilla;
++
++namespace {
++
++StaticRefPtr<GeckoViewResponseController> sController;
++
++nsAutoCString ValueToAscii(JSContext* aCx, JS::Handle<JS::Value> aValue) {
++  nsAutoCString out;
++  JS::Rooted<JSString*> str(aCx, JS::ToString(aCx, aValue));
++  if (!str) {
++    return out;
++  }
++  JS::UniqueChars utf8(JS_EncodeStringToUTF8(aCx, str));
++  if (utf8) {
++    out.Assign(utf8.get(), strlen(utf8.get()));
++  }
++  return out;
++}
++
++class BodyCompleteCallback final : public nsIInterceptedBodyCallback {
++ public:
++  NS_DECL_ISUPPORTS
++  NS_DECL_NSIINTERCEPTEDBODYCALLBACK
++
++  BodyCompleteCallback() = default;
++
++ private:
++  ~BodyCompleteCallback() = default;
++};
++
++NS_IMPL_ISUPPORTS(BodyCompleteCallback, nsIInterceptedBodyCallback)
++
++NS_IMETHODIMP
++BodyCompleteCallback::BodyComplete(nsresult aRv) { return NS_OK; }
++
++// Receives the "GeckoView:OnRequestResponse" reply from the app (a JS value
++// unboxed from the Java GeckoBundle) and synthesizes the response.
++class ResponseCallback final : public nsIGeckoViewEventCallback {
++ public:
++  NS_DECL_ISUPPORTS
++
++  explicit ResponseCallback(nsCOMPtr<nsIInterceptedChannel> aChannel)
++      : mChannel(std::move(aChannel)) {}
++
++  NS_IMETHOD
++  OnSuccess(JS::Handle<JS::Value> aData, JSContext* aCx_) override {
++    (void)aCx_;
++    nsAutoCString bodyB64, contentType;
++    uint32_t statusCode = 200;
++    nsTArray<nsCString> headerPairs;
++
++    dom::AutoJSAPI jsapi;
++    if (NS_WARN_IF(!jsapi.Init(xpc::PrivilegedJunkScope()))) {
++      mChannel->ResetInterception(false);
++      return NS_OK;
++    }
++    JSContext* cx = jsapi.cx();
++    JS::Rooted<JS::Value> data(cx, aData);
++
++    if (!data.isObject()) {
++      mChannel->ResetInterception(false);
++      return NS_OK;
++    }
++    JS::Rooted<JSObject*> obj(cx, &data.toObject());
++
++    JS::Rooted<JS::Value> value(cx);
++    bool handled = false;
++    if (!JS_GetProperty(cx, obj, "handled", &value) || !value.isBoolean() ||
++        !(handled = value.toBoolean()) || !handled) {
++      mChannel->ResetInterception(false);
++      return NS_OK;
++    }
++
++    if (!JS_GetProperty(cx, obj, "statusCode", &value) ||
++        !JS::ToUint32(cx, value, &statusCode)) {
++      mChannel->ResetInterception(false);
++      return NS_OK;
++    }
++
++    if (!JS_GetProperty(cx, obj, "bodyB64", &value)) {
++      mChannel->ResetInterception(false);
++      return NS_OK;
++    }
++    bodyB64 = ValueToAscii(cx, value);
++    if (bodyB64.IsEmpty()) {
++      mChannel->ResetInterception(false);
++      return NS_OK;
++    }
++
++    if (JS_GetProperty(cx, obj, "contentType", &value) &&
++        !value.isNullOrUndefined()) {
++      contentType = ValueToAscii(cx, value);
++    }
++
++    JS::Rooted<JS::Value> headers(cx);
++    if (JS_GetProperty(cx, obj, "headers", &headers) && headers.isObject()) {
++      JS::ForOfIterator it(cx);
++      if (it.init(headers,
++                  JS::ForOfIterator::NonIterableBehavior::ThrowOnNonIterable)) {
++        JS::Rooted<JS::Value> entry(cx);
++        bool done = false;
++        while (!done && it.next(&entry, &done)) {
++          nsAutoCString pair = ValueToAscii(cx, entry);
++          int32_t sep = pair.FindChar(':');
++          if (sep > 0) {
++            headerPairs.AppendElement(pair);
++          }
++        }
++      }
++    }
++
++    Synthesize(bodyB64, contentType, statusCode, headerPairs);
++    return NS_OK;
++  }
++
++  NS_IMETHOD
++  OnError(JS::Handle<JS::Value> aData, JSContext* aCx_) override {
++    (void)aCx_;
++    // App failure: fall through to the network untouched.
++    mChannel->ResetInterception(false);
++    return NS_OK;
++  }
++
++ private:
++  ~ResponseCallback() = default;
++
++  void Synthesize(const nsAutoCString& aBodyB64,
++                  const nsAutoCString& aContentType, uint32_t aStatusCode,
++                  const nsTArray<nsCString>& aHeaderPairs) {
++    nsAutoCString decoded;
++    if (NS_FAILED(Base64Decode(aBodyB64, decoded))) {
++      mChannel->ResetInterception(false);
++      return;
++    }
++
++    nsCOMPtr<nsIInputStream> body;
++    NS_NewCStringInputStream(getter_AddRefs(body), decoded);
++
++    if (!aContentType.IsEmpty()) {
++      mChannel->SynthesizeHeader("Content-Type"_ns, aContentType);
++    }
++    for (const nsCString& pair : aHeaderPairs) {
++      int32_t sep = pair.FindChar(':');
++      if (sep > 0) {
++        mChannel->SynthesizeHeader(Substring(pair, 0, sep),
++                                   Substring(pair, sep + 1));
++      }
++    }
++    mChannel->SynthesizeStatus((uint16_t)aStatusCode, "OK"_ns);
++
++    nsCOMPtr<nsIChannel> channel;
++    mChannel->GetChannel(getter_AddRefs(channel));
++    nsAutoCString spec;
++    if (channel) {
++      nsCOMPtr<nsIURI> uri;
++      channel->GetURI(getter_AddRefs(uri));
++      if (uri) {
++        uri->GetSpec(spec);
++      }
++    }
++
++    nsresult rv = mChannel->StartSynthesizedResponse(
++        body, new BodyCompleteCallback(), nullptr, spec, false);
++    if (NS_FAILED(rv)) {
++      mChannel->CancelInterception(NS_ERROR_INTERCEPTION_FAILED);
++      return;
++    }
++    mChannel->FinishSynthesizedResponse();
++  }
++
++  nsCOMPtr<nsIInterceptedChannel> mChannel;
++};
++
++NS_IMPL_ISUPPORTS(ResponseCallback, nsIGeckoViewEventCallback)
++
++}  // namespace
++
++GeckoViewResponseController::GeckoViewResponseController(
++    RefPtr<mozilla::dom::ServiceWorkerInterceptController> aSWController)
++    : mSWController(std::move(aSWController)) {}
++
++NS_IMPL_ISUPPORTS(GeckoViewResponseController, nsINetworkInterceptController)
++
++already_AddRefed<GeckoViewResponseController>
++GeckoViewResponseController::GetSingleton() {
++  if (!sController) {
++    sController = new GeckoViewResponseController();
++    ClearOnShutdown(&sController);
++  }
++  return do_AddRef(sController);
++}
++
++void GeckoViewResponseController::SetFilters(
++    const nsTArray<nsCString>& aPrefixes,
++    nsIGeckoViewEventDispatcher* aDispatcher) {
++  MOZ_ASSERT(NS_IsMainThread());
++  GetSingleton();
++  sController->mPrefixes = aPrefixes.Clone();
++  sController->mDispatcher = aDispatcher;
++}
++
++bool GeckoViewResponseController::MatchesFilter(nsIURI* aURI) {
++  if (mPrefixes.IsEmpty()) {
++    return false;
++  }
++  bool isHttp = false, isHttps = false;
++  if (NS_FAILED(aURI->SchemeIs("http", &isHttp)) ||
++      NS_FAILED(aURI->SchemeIs("https", &isHttps)) || (!isHttp && !isHttps)) {
++    return false;
++  }
++  nsAutoCString spec;
++  if (NS_FAILED(aURI->GetSpec(spec))) {
++    return false;
++  }
++  for (const nsCString& prefix : mPrefixes) {
++    if (StringBeginsWith(spec, prefix)) {
++      return true;
++    }
++  }
++  return false;
++}
++
++NS_IMETHODIMP
++GeckoViewResponseController::ShouldPrepareForIntercept(
++    nsIURI* aURI, nsIChannel* aChannel, bool* aShouldIntercept) {
++  MOZ_ASSERT(NS_IsMainThread());
++  *aShouldIntercept = false;
++
++  if (MatchesFilter(aURI)) {
++    *aShouldIntercept = true;
++    return NS_OK;
++  }
++
++  if (mSWController) {
++    return mSWController->ShouldPrepareForIntercept(aURI, aChannel,
++                                                    aShouldIntercept);
++  }
++  return NS_OK;
++}
++
++NS_IMETHODIMP
++GeckoViewResponseController::ChannelIntercepted(
++    nsIInterceptedChannel* aChannel) {
++  MOZ_ASSERT(NS_IsMainThread());
++
++  nsCOMPtr<nsIChannel> intercepted;
++  aChannel->GetChannel(getter_AddRefs(intercepted));
++  nsCOMPtr<nsIURI> uri;
++  if (intercepted) {
++    intercepted->GetURI(getter_AddRefs(uri));
++  }
++  if (!mDispatcher || !uri || !MatchesFilter(uri)) {
++    if (mSWController) {
++      return mSWController->ChannelIntercepted(aChannel);
++    }
++    aChannel->ResetInterception(false);
++    return NS_OK;
++  }
++
++  nsAutoCString spec;
++  uri->GetSpec(spec);
++
++  dom::AutoJSAPI jsapi;
++  if (NS_WARN_IF(!jsapi.Init(xpc::PrivilegedJunkScope()))) {
++    aChannel->ResetInterception(false);
++    return NS_OK;
++  }
++  JSContext* cx = jsapi.cx();
++  JS::Rooted<JSObject*> data(cx, JS_NewPlainObject(cx));
++  if (!data) {
++    aChannel->ResetInterception(false);
++    return NS_OK;
++  }
++  JS::Rooted<JS::Value> uriValue(
++      cx, JS::StringValue(JS_NewStringCopyZ(cx, spec.get())));
++  if (!uriValue.isString()) {
++    aChannel->ResetInterception(false);
++    return NS_OK;
++  }
++  JS_SetProperty(cx, data, "uri", uriValue);
++  JS_SetProperty(cx, data, "isNavigation", JS::TrueHandleValue);
++  JS::Rooted<JS::Value> dataValue(cx, JS::ObjectValue(*data));
++
++  JS::Rooted<JS::Value> eventValue(
++      cx, JS::StringValue(
++              JS_NewStringCopyZ(cx, "GeckoView:OnRequestResponse")));
++  if (!eventValue.isString()) {
++    aChannel->ResetInterception(false);
++    return NS_OK;
++  }
++  RefPtr<ResponseCallback> callback = new ResponseCallback(aChannel);
++  nsresult rv = mDispatcher->Dispatch(eventValue, dataValue, callback,
++                                      nullptr, cx);
++  if (NS_FAILED(rv)) {
++    aChannel->ResetInterception(false);
++  }
++  return NS_OK;
++}
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.h b/mobile/android/components/geckoview/GeckoViewResponseController.h
+new file mode 100644
+index 000000000000..84436ba16ef0
+--- /dev/null
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.h
+@@ -0,0 +1,62 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
++ * You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++#ifndef GeckoViewResponseController_h_
++#define GeckoViewResponseController_h_
++
++#include "nsCOMPtr.h"
++#include "nsINetworkInterceptController.h"
++#include "nsString.h"
++#include "nsTArray.h"
++
++class nsIGeckoViewEventDispatcher;
++
++namespace mozilla::dom {
++class ServiceWorkerInterceptController;
++}  // namespace mozilla::dom
++
++/**
++ * Sinytra firefox-patches/0001: response-body interception controller.
++ *
++ * Wraps the ServiceWorker intercept controller installed by nsDocShell
++ * (parent process): URIs matching a registered filter prefix are
++ * intercepted and answered from the app-provided WebResponse (via the
++ * session EventDispatcher, "GeckoView:OnRequestResponse" query); everything
++ * else is forwarded to the wrapped controller untouched. Synthesis keeps
++ * URL identity (internal redirect to InterceptedHttpChannel).
++ *
++ * v1: navigations only (the docshell installs this controller in the
++ * parent process); subresource coverage is 0002.
++ */
++class GeckoViewResponseController final : public nsINetworkInterceptController {
++  ~GeckoViewResponseController() = default;
++
++ public:
++  GeckoViewResponseController() = default;
++
++  explicit GeckoViewResponseController(
++      RefPtr<mozilla::dom::ServiceWorkerInterceptController> aSWController);
++
++  NS_DECL_ISUPPORTS
++  NS_DECL_NSINETWORKINTERCEPTCONTROLLER
++
++  static already_AddRefed<GeckoViewResponseController> GetSingleton();
++
++  /**
++   * Register the URI prefixes answerable by the app and the dispatcher the
++   * queries ride on. Called from the embedder side (per session, last one
++   * wins in v1). Pass an empty prefix list to disable interception.
++   */
++  static void SetFilters(const nsTArray<nsCString>& aPrefixes,
++                         nsIGeckoViewEventDispatcher* aDispatcher);
++
++ private:
++  bool MatchesFilter(nsIURI* aURI);
++
++  RefPtr<mozilla::dom::ServiceWorkerInterceptController> mSWController;
++  nsTArray<nsCString> mPrefixes;
++  nsCOMPtr<nsIGeckoViewEventDispatcher> mDispatcher;
++};
++
++#endif  // GeckoViewResponseController_h_
+diff --git a/mobile/android/components/geckoview/components.conf b/mobile/android/components/geckoview/components.conf
+index 165cad582a8a..79d0e5412b21 100644
+--- a/mobile/android/components/geckoview/components.conf
++++ b/mobile/android/components/geckoview/components.conf
+@@ -3,6 +3,13 @@
+ # file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ 
+ Classes = [
++    {
++        'cid': '{6b7e19b8-9c31-4a7f-9b2d-5f8e1d2c3a01}',
++        'contract_ids': ['@mozilla.org/geckoview/response-controller;1'],
++        'type': 'GeckoViewResponseController',
++        'headers': ['GeckoViewResponseController.h'],
++        'processes': ProcessSelector.ALLOW_IN_SOCKET_PROCESS,
++    },
+     {
+         'cid': '{91455c77-64a1-4c37-be00-f94eb9c7b8e1}',
+         'contract_ids': [
+diff --git a/mobile/android/components/geckoview/moz.build b/mobile/android/components/geckoview/moz.build
+index ea294ea3dd3b..c1ddecb83f1f 100644
+--- a/mobile/android/components/geckoview/moz.build
++++ b/mobile/android/components/geckoview/moz.build
+@@ -10,6 +10,7 @@ UNIFIED_SOURCES += [
+     "GeckoViewExternalAppService.cpp",
+     "GeckoViewInputStream.cpp",
+     "GeckoViewOutputStream.cpp",
++    "GeckoViewResponseController.cpp",
+     "GeckoViewStreamListener.cpp",
+ ]
+ 
+@@ -19,6 +20,7 @@ EXPORTS += [
+     "GeckoViewExternalAppService.h",
+     "GeckoViewInputStream.h",
+     "GeckoViewOutputStream.h",
++    "GeckoViewResponseController.h",
+     "GeckoViewStreamListener.h",
+ ]
+ 
+-- 
+2.55.0
+
+
+From 51c645e25be280e2bff2bd2d4095f328f98efda0 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Wed, 23 Sep 2026 23:53:34 +0800
+Subject: [PATCH 3/7] Sinytra patch 0001 (4/5): process-wide shared FilterState
+ + parent wrap
+
+Architecture fix for the per-instance design (6ef2cc7dc4be): a
+per-instance weak observer registered via GetSingleton got detached
+from the consulted instances, and the per-instance replacement
+SIGSEGV'd in the ParentChannelListener release path (tombstone_25:
+dangling controller). The controller is now process-level:
+
+- FilterState is a StaticAutoPtr singleton shared by every controller
+  instance; FilterPushObserver registers with the observer service once
+  on the main thread.
+- ParentChannelListener wraps the SW controller with
+  GeckoViewResponseController the same way docshell does, covering
+  top-level + subresource channels on the parent side.
+
+Note: __android_log_print debug logs (tag Sinytra/response) are still
+in; downgrade before finalizing (STATUS 1h wrap-up list).
+---
+ .../geckoview/GeckoViewResponseController.cpp | 130 ++++++++++++++----
+ .../geckoview/GeckoViewResponseController.h   |  13 +-
+ .../protocol/http/ParentChannelListener.cpp   |  11 ++
+ 3 files changed, 120 insertions(+), 34 deletions(-)
+
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.cpp b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+index 5662c8efd6cc..ce65bf4d92b6 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.cpp
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include "GeckoViewResponseController.h"
+ 
++#include <android/log.h>
+ #include "js/CharacterEncoding.h"
+ #include "js/Conversions.h"
+ #include "js/ForOfIterator.h"
+@@ -13,6 +14,7 @@
+ #include "mozilla/dom/ScriptSettings.h"
+ #include "nsIGeckoViewBridge.h"
+ #include "nsNetUtil.h"
++#include "nsIObserverService.h"
+ #include "mozilla/dom/ServiceWorkerInterceptController.h"
+ #include "xpcpublic.h"
+ 
+@@ -20,7 +22,83 @@ using namespace mozilla;
+ 
+ namespace {
+ 
+-StaticRefPtr<GeckoViewResponseController> sController;
++// Process-wide filter state: written by the filter-push observer (main
++// thread), read by every controller instance on the main thread. Kept in
++// one leaky singleton — controllers are per-docshell/per-load and must
++// not carry per-instance observer bookkeeping (threading + lifetime).
++struct FilterState {
++  nsTArray<nsCString> mPrefixes;
++  nsCOMPtr<nsIGeckoViewEventDispatcher> mDispatcher;
++};
++
++StaticAutoPtr<FilterState> sFilterState;
++
++class FilterPushObserver final : public nsIObserver {
++ public:
++  NS_DECL_ISUPPORTS
++  NS_DECL_NSIOBSERVER
++
++  FilterPushObserver() = default;
++
++ private:
++  ~FilterPushObserver() = default;
++};
++
++NS_IMPL_ISUPPORTS(FilterPushObserver, nsIObserver)
++
++NS_IMETHODIMP
++FilterPushObserver::Observe(nsISupports* aSubject, const char* aTopic,
++                            const char16_t* aData) {
++  __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++                      "FilterPushObserver topic=%s", aTopic);
++  if (strcmp(aTopic, "sinytra-response-filters") != 0) {
++    return NS_OK;
++  }
++  nsCOMPtr<nsIGeckoViewEventDispatcher> dispatcher =
++      do_QueryInterface(aSubject);
++  NS_ENSURE_TRUE(dispatcher, NS_OK);
++
++  nsTArray<nsCString> prefixes;
++  if (aData) {
++    nsAutoCString joined = NS_ConvertUTF16toUTF8(nsDependentString(aData));
++    uint32_t start = 0;
++    for (uint32_t i = 0; i <= joined.Length(); ++i) {
++      if (i == joined.Length() || joined[i] == '\n') {
++        if (i > start) {
++          prefixes.AppendElement(Substring(joined, start, i - start));
++        }
++        start = i + 1;
++      }
++    }
++  }
++
++  if (!sFilterState) {
++    sFilterState = new FilterState();
++  }
++  sFilterState->mPrefixes = std::move(prefixes);
++  sFilterState->mDispatcher = std::move(dispatcher);
++  __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++                      "filters pushed: %zu", (size_t)sFilterState->mPrefixes.Length());
++  return NS_OK;
++}
++
++// Registers the push observer; safe to call repeatedly, main thread only.
++void EnsureFilterObserver() {
++  MOZ_ASSERT(NS_IsMainThread());
++  static bool sRegistered = false;
++  if (sRegistered) {
++    return;
++  }
++  nsCOMPtr<nsIObserverService> obsService = services::GetObserverService();
++  if (obsService) {
++    obsService->AddObserver(new FilterPushObserver(),
++                            "sinytra-response-filters",
++                            /* ownsWeak */ false);
++    sRegistered = true;
++    __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++                        "filter observer registered");
++  }
++}
+ 
+ nsAutoCString ValueToAscii(JSContext* aCx, JS::Handle<JS::Value> aValue) {
+   nsAutoCString out;
+@@ -63,6 +141,8 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+   NS_IMETHOD
+   OnSuccess(JS::Handle<JS::Value> aData, JSContext* aCx_) override {
+     (void)aCx_;
++    __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++                        "OnSuccess");
+     nsAutoCString bodyB64, contentType;
+     uint32_t statusCode = 200;
+     nsTArray<nsCString> headerPairs;
+@@ -134,6 +214,7 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+   NS_IMETHOD
+   OnError(JS::Handle<JS::Value> aData, JSContext* aCx_) override {
+     (void)aCx_;
++    __android_log_print(ANDROID_LOG_INFO, "Sinytra/response", "OnError");
+     // App failure: fall through to the network untouched.
+     mChannel->ResetInterception(false);
+     return NS_OK;
+@@ -193,32 +274,22 @@ NS_IMPL_ISUPPORTS(ResponseCallback, nsIGeckoViewEventCallback)
+ 
+ }  // namespace
+ 
++GeckoViewResponseController::~GeckoViewResponseController() = default;
++
+ GeckoViewResponseController::GeckoViewResponseController(
+     RefPtr<mozilla::dom::ServiceWorkerInterceptController> aSWController)
+-    : mSWController(std::move(aSWController)) {}
+-
+-NS_IMPL_ISUPPORTS(GeckoViewResponseController, nsINetworkInterceptController)
+-
+-already_AddRefed<GeckoViewResponseController>
+-GeckoViewResponseController::GetSingleton() {
+-  if (!sController) {
+-    sController = new GeckoViewResponseController();
+-    ClearOnShutdown(&sController);
++    : mSWController(std::move(aSWController)) {
++  // Registration of the filter-push observer happens on the main thread
++  // (EnsureFilterObserver); the docshell wraps this controller on main.
++  if (NS_IsMainThread()) {
++    EnsureFilterObserver();
+   }
+-  return do_AddRef(sController);
+ }
+ 
+-void GeckoViewResponseController::SetFilters(
+-    const nsTArray<nsCString>& aPrefixes,
+-    nsIGeckoViewEventDispatcher* aDispatcher) {
+-  MOZ_ASSERT(NS_IsMainThread());
+-  GetSingleton();
+-  sController->mPrefixes = aPrefixes.Clone();
+-  sController->mDispatcher = aDispatcher;
+-}
++NS_IMPL_ISUPPORTS(GeckoViewResponseController, nsINetworkInterceptController)
+ 
+ bool GeckoViewResponseController::MatchesFilter(nsIURI* aURI) {
+-  if (mPrefixes.IsEmpty()) {
++  if (!sFilterState || sFilterState->mPrefixes.IsEmpty()) {
+     return false;
+   }
+   bool isHttp = false, isHttps = false;
+@@ -230,7 +301,7 @@ bool GeckoViewResponseController::MatchesFilter(nsIURI* aURI) {
+   if (NS_FAILED(aURI->GetSpec(spec))) {
+     return false;
+   }
+-  for (const nsCString& prefix : mPrefixes) {
++  for (const nsCString& prefix : sFilterState->mPrefixes) {
+     if (StringBeginsWith(spec, prefix)) {
+       return true;
+     }
+@@ -242,10 +313,15 @@ NS_IMETHODIMP
+ GeckoViewResponseController::ShouldPrepareForIntercept(
+     nsIURI* aURI, nsIChannel* aChannel, bool* aShouldIntercept) {
+   MOZ_ASSERT(NS_IsMainThread());
++  EnsureFilterObserver();
+   *aShouldIntercept = false;
+ 
+   if (MatchesFilter(aURI)) {
+     *aShouldIntercept = true;
++    nsAutoCString spec;
++    aURI->GetSpec(spec);
++    __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++                        "ShouldPrepare HIT %s", spec.get());
+     return NS_OK;
+   }
+ 
+@@ -260,6 +336,8 @@ NS_IMETHODIMP
+ GeckoViewResponseController::ChannelIntercepted(
+     nsIInterceptedChannel* aChannel) {
+   MOZ_ASSERT(NS_IsMainThread());
++  __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++                      "ChannelIntercepted dispatcher=%p", mDispatcher.get());
+ 
+   nsCOMPtr<nsIChannel> intercepted;
+   aChannel->GetChannel(getter_AddRefs(intercepted));
+@@ -267,7 +345,11 @@ GeckoViewResponseController::ChannelIntercepted(
+   if (intercepted) {
+     intercepted->GetURI(getter_AddRefs(uri));
+   }
+-  if (!mDispatcher || !uri || !MatchesFilter(uri)) {
++  nsCOMPtr<nsIGeckoViewEventDispatcher> dispatcher =
++      sFilterState ? nsCOMPtr<nsIGeckoViewEventDispatcher>(
++                           sFilterState->mDispatcher.get())
++                   : nullptr;
++  if (!dispatcher || !uri || !MatchesFilter(uri)) {
+     if (mSWController) {
+       return mSWController->ChannelIntercepted(aChannel);
+     }
+@@ -307,8 +389,8 @@ GeckoViewResponseController::ChannelIntercepted(
+     return NS_OK;
+   }
+   RefPtr<ResponseCallback> callback = new ResponseCallback(aChannel);
+-  nsresult rv = mDispatcher->Dispatch(eventValue, dataValue, callback,
+-                                      nullptr, cx);
++  nsresult rv = dispatcher->Dispatch(eventValue, dataValue, callback,
++                                     nullptr, cx);
+   if (NS_FAILED(rv)) {
+     aChannel->ResetInterception(false);
+   }
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.h b/mobile/android/components/geckoview/GeckoViewResponseController.h
+index 84436ba16ef0..1d554cca7475 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.h
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.h
+@@ -30,7 +30,7 @@ class ServiceWorkerInterceptController;
+  * parent process); subresource coverage is 0002.
+  */
+ class GeckoViewResponseController final : public nsINetworkInterceptController {
+-  ~GeckoViewResponseController() = default;
++
+ 
+  public:
+   GeckoViewResponseController() = default;
+@@ -41,17 +41,10 @@ class GeckoViewResponseController final : public nsINetworkInterceptController {
+   NS_DECL_ISUPPORTS
+   NS_DECL_NSINETWORKINTERCEPTCONTROLLER
+ 
+-  static already_AddRefed<GeckoViewResponseController> GetSingleton();
++ private:
++  ~GeckoViewResponseController();
+ 
+-  /**
+-   * Register the URI prefixes answerable by the app and the dispatcher the
+-   * queries ride on. Called from the embedder side (per session, last one
+-   * wins in v1). Pass an empty prefix list to disable interception.
+-   */
+-  static void SetFilters(const nsTArray<nsCString>& aPrefixes,
+-                         nsIGeckoViewEventDispatcher* aDispatcher);
+ 
+- private:
+   bool MatchesFilter(nsIURI* aURI);
+ 
+   RefPtr<mozilla::dom::ServiceWorkerInterceptController> mSWController;
+diff --git a/netwerk/protocol/http/ParentChannelListener.cpp b/netwerk/protocol/http/ParentChannelListener.cpp
+index 356e504f7831..5b8d5d4eb41f 100644
+--- a/netwerk/protocol/http/ParentChannelListener.cpp
++++ b/netwerk/protocol/http/ParentChannelListener.cpp
+@@ -6,6 +6,9 @@
+ #include "HttpLog.h"
+ 
+ #include "ParentChannelListener.h"
++#ifdef MOZ_WIDGET_ANDROID
++#  include "GeckoViewResponseController.h"
++#endif
+ #include "mozilla/dom/ContentParent.h"
+ #include "mozilla/dom/Document.h"
+ #include "mozilla/dom/ServiceWorkerInterceptController.h"
+@@ -41,7 +44,15 @@ ParentChannelListener::ParentChannelListener(
+   LOG(("ParentChannelListener::ParentChannelListener [this=%p, next=%p]", this,
+        aListener));
+ 
++#ifdef MOZ_WIDGET_ANDROID
++  // Sinytra firefox-patches/0001: wrap the SW controller so app-registered
++  // URI filters get answered by the embedder (parent-side synthesis, URL
++  // identity preserved); everything else falls through to SW interception.
++  mInterceptController = MakeRefPtr<GeckoViewResponseController>(
++      MakeRefPtr<mozilla::dom::ServiceWorkerInterceptController>());
++#else
+   mInterceptController = new ServiceWorkerInterceptController();
++#endif
+ }
+ 
+ ParentChannelListener::~ParentChannelListener() {
+-- 
+2.55.0
+
+
+From 1824f2745432927da042634325cf842c715610c7 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Wed, 23 Sep 2026 23:53:44 +0800
+Subject: [PATCH 4/7] Sinytra patch 0001 (5/5): response-filter dispatch chain
+ Java -> JS -> C++
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- GeckoSession.ResponseDelegate gains getUriFilters(); setResponseDelegate
+  dispatches 'GeckoView:ResponseFilters' so the session's filter prefixes
+  reach Gecko.
+- GeckoViewNavigation.sys.mjs listens for that event and forwards it to
+  the C++ FilterPushObserver via
+  Services.obs.notifyObservers(eventDispatcher, 'sinytra-response-filters',
+  filters.join('\n')).
+
+KNOWN GAP (STATUS 1h): the C++ observer logs 'filter observer registered'
+but never 'FilterPushObserver topic=...' — the dispatch does not arrive.
+Suspects: dispatch before session.open() dropped, JS onEvent not firing,
+nsIGeckoViewEventDispatcher QI failure, handler-module routing.
+---
+ .../java/org/mozilla/geckoview/GeckoSession.java | 16 ++++++++++++++++
+ .../geckoview/GeckoViewNavigation.sys.mjs        | 13 +++++++++++++
+ 2 files changed, 29 insertions(+)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+index cefd7b2245aa..6e94a7e7838d 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+@@ -3521,6 +3521,15 @@ public class GeckoSession {
+     @Nullable
+     GeckoResult<WebResponse> onRequestResponse(
+         @NonNull GeckoSession session, @NonNull WebRequestInfo info);
++
++    /**
++     * URI prefixes (http/https spec prefixes) the delegate can answer.
++     * Pushed to the Gecko-side interception controller when the delegate
++     * is set; loads matching none of them never cross the process
++     * boundary. Return an empty array to keep interception disabled.
++     */
++    @NonNull
++    String[] getUriFilters();
+   }
+ 
+   // v1 body transport cap: stream objects cannot cross the process
+@@ -3611,6 +3620,13 @@ public class GeckoSession {
+   public void setResponseDelegate(final @Nullable ResponseDelegate delegate) {
+     ThreadUtils.assertOnUiThread();
+     mResponseHandler.setDelegate(delegate, this);
++    if (delegate != null) {
++      // Sinytra 0001: push the filters to the Gecko-side interception
++      // controller (nsIObserver hop via the parent navigation module).
++      final GeckoBundle message = new GeckoBundle();
++      message.putStringArray("filters", delegate.getUriFilters());
++      getEventDispatcher().dispatch("GeckoView:ResponseFilters", message);
++    }
+   }
+ 
+   /**
+diff --git a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+index f13150bc961c..7add099a3791 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+@@ -122,6 +122,8 @@ export class GeckoViewNavigation extends GeckoViewModule {
+       "GeckoView:Stop",
+       "GeckoView:PurgeHistory",
+       "GeckoView:DotPrintFinish",
++      // Sinytra 0001: response interception filter push.
++      "GeckoView:ResponseFilters",
+     ]);
+ 
+     this._initialAboutBlank = true;
+@@ -158,6 +160,17 @@ export class GeckoViewNavigation extends GeckoViewModule {
+     debug`onEvent: event=${aEvent}, data=${aData}`;
+ 
+     switch (aEvent) {
++      case "GeckoView:ResponseFilters": {
++        // Sinytra 0001: hand the app's URI filters + this session's
++        // dispatcher to the interception controller (nsIObserver hop —
++        // the controller has no scriptable interface on purpose).
++        Services.obs.notifyObservers(
++          this.eventDispatcher,
++          "sinytra-response-filters",
++          (aData?.filters ?? []).join("\n")
++        );
++        break;
++      }
+       case "GeckoView:GoBack":
+         this.browser.goBack(aData.userInteraction);
+         break;
+-- 
+2.55.0
+
+
+From 2a3ae2df8752a0df842b19cbf03d07f294bc66ac Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Thu, 24 Sep 2026 00:37:56 +0800
+Subject: [PATCH 5/7] Sinytra patch 0001: push filters via the native
+ dispatcher subject
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The observer-service subject was this.eventDispatcher — the
+DispatcherDelegate JS wrapper (Messaging.sys.mjs), a pure JS object
+with no QueryInterface. The C++ FilterPushObserver never fired at all
+(no 'FilterPushObserver topic=' log — the notification could not be
+marshaled, so the QI question never even arose).
+
+Pass the NATIVE dispatcher instead: window.arguments[0] is
+nsWindow::AndroidView, NS_IMPL_ISUPPORTS(..., nsIGeckoViewEvent-
+Dispatcher, nsIGeckoViewView); QI it to nsIGeckoViewEventDispatcher.
+The controller's later Dispatch to 'GeckoView:OnRequestResponse' uses
+that same native dispatcher, which is what the design wanted.
+
+After the fix the full chain lights up on device: FilterPushObserver
+topic= -> filters pushed: 1 -> ShouldPrepare HIT -> ChannelIntercepted
+-> OnSuccess.
+
+Debug aids in this commit (downgrade before finalizing): dump() logs
+in the JS case, process-type in the C++ registration log.
+---
+ .../geckoview/GeckoViewResponseController.cpp |  4 +++-
+ .../geckoview/GeckoViewNavigation.sys.mjs     | 22 ++++++++++++++++++-
+ 2 files changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.cpp b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+index ce65bf4d92b6..4f5ddb239788 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.cpp
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+@@ -16,6 +16,7 @@
+ #include "nsNetUtil.h"
+ #include "nsIObserverService.h"
+ #include "mozilla/dom/ServiceWorkerInterceptController.h"
++#include "nsXULAppAPI.h"
+ #include "xpcpublic.h"
+ 
+ using namespace mozilla;
+@@ -96,7 +97,8 @@ void EnsureFilterObserver() {
+                             /* ownsWeak */ false);
+     sRegistered = true;
+     __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
+-                        "filter observer registered");
++                        "filter observer registered parent=%d",
++                        static_cast<int>(XRE_IsParentProcess()));
+   }
+ }
+ 
+diff --git a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+index 7add099a3791..3bd2ec6def83 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+@@ -164,11 +164,31 @@ export class GeckoViewNavigation extends GeckoViewModule {
+         // Sinytra 0001: hand the app's URI filters + this session's
+         // dispatcher to the interception controller (nsIObserver hop —
+         // the controller has no scriptable interface on purpose).
++        //
++        // The subject MUST be the NATIVE dispatcher: window.arguments[0]
++        // is nsWindow::AndroidView, which implements
++        // nsIGeckoViewEventDispatcher C++-side. this.eventDispatcher is
++        // the DispatcherDelegate JS wrapper (Messaging.sys.mjs) — a pure
++        // JS object with no QueryInterface, so the C++ observer's
++        // do_QueryInterface(nsIGeckoViewEventDispatcher) could never
++        // succeed with it as the subject.
++        const nativeView = this.window.arguments?.[0];
++        if (!nativeView) {
++          dump(
++            "Sinytra/response: no native view on window; filters dropped\n"
++          );
++          break;
++        }
+         Services.obs.notifyObservers(
+-          this.eventDispatcher,
++          nativeView.QueryInterface(Ci.nsIGeckoViewEventDispatcher),
+           "sinytra-response-filters",
+           (aData?.filters ?? []).join("\n")
+         );
++        dump(
++          "Sinytra/response: filters notified: " +
++            (aData?.filters ?? []).join(",") +
++            "\n"
++        );
+         break;
+       }
+       case "GeckoView:GoBack":
+-- 
+2.55.0
+
+
+From 98b57f6662abf9209bfaf3792b4fd0d3a9d1059e Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Thu, 24 Sep 2026 00:38:09 +0800
+Subject: [PATCH 6/7] Sinytra patch 0001: mark response bundle handled +
+ case-insensitive content-type
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Second blocker, found on device: ResponseCallback::OnSuccess gates on
+handled===true before reading statusCode/bodyB64, but responseToBundle
+never set the key — every synthesized answer was discarded with
+ResetInterception, the channel fell back to the network (body.example
+is NXDOMAIN) and died with GeckoView:OnLoadError 185ms after PageStart.
+The page never existed, so the JS transport never ran and the probe's
+evals all timed out.
+
+- responseToBundle: set handled=true (a bundle is only produced when
+  the delegate returned a WebResponse; the null/not-handled path
+  completes the callback with null, which OnSuccess already treats as
+  reset).
+- content-type: scan headers case-insensitively instead of
+  headers.get('content-type') — embedders set 'Content-Type'.
+
+After this: onPageFinished returns (185ms), the eval reads
+sinytra-body-0001, URL identity asserted; full harness 29 PASS.
+
+Debug aid (downgrade before finalizing): Log.i on the filter push
+dispatch.
+---
+ .../org/mozilla/geckoview/GeckoSession.java    | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+index 6e94a7e7838d..c5b5dc6db8f9 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+@@ -3539,10 +3539,23 @@ public class GeckoSession {
+   @Nullable
+   private static GeckoBundle responseToBundle(final @NonNull WebResponse response) {
+     final GeckoBundle bundle = new GeckoBundle();
++    // The C++ consumer (patch 0001 OnSuccess) gates on handled===true
++    // before reading statusCode/bodyB64; without it the answer is
++    // discarded and the channel falls back to the network.
++    bundle.putBoolean("handled", true);
+     bundle.putString("uri", response.uri);
+     bundle.putInt("statusCode", response.statusCode);
+     bundle.putBoolean("redirected", response.redirected);
+-    bundle.putString("contentType", response.headers.get("content-type"));
++    // Header names are not case-normalized end to end (embedders may set
++    // "Content-Type"), so scan instead of a case-sensitive map get.
++    String contentType = null;
++    for (final Map.Entry<String, String> entry : response.headers.entrySet()) {
++      if ("content-type".equalsIgnoreCase(entry.getKey())) {
++        contentType = entry.getValue();
++        break;
++      }
++    }
++    bundle.putString("contentType", contentType);
+     // GeckoBundle has no map primitive: flatten headers to "name:value"
+     // pairs; the consumer (patch 0001 C++ side) parses them back.
+     final java.util.List<String> headerPairs = new java.util.ArrayList<>();
+@@ -3625,6 +3638,9 @@ public class GeckoSession {
+       // controller (nsIObserver hop via the parent navigation module).
+       final GeckoBundle message = new GeckoBundle();
+       message.putStringArray("filters", delegate.getUriFilters());
++      Log.i("Sinytra/response",
++            "dispatching GeckoView:ResponseFilters filters="
++                + java.util.Arrays.toString(delegate.getUriFilters()));
+       getEventDispatcher().dispatch("GeckoView:ResponseFilters", message);
+     }
+   }
+-- 
+2.55.0
+
+
+From 59aa103b6d50d1796c1622f7d9f677ee51ae89a4 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Thu, 24 Sep 2026 01:26:52 +0800
+Subject: [PATCH 7/7] Sinytra patch 0001: downgrade debug logs to DEBUG/debug
+ levels
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Wrap-up step per STATUS 1h: the Sinytra/response instrumentation moves
+out of the default logcat noise — C++ __android_log_print INFO->DEBUG,
+GeckoSession Log.i->Log.d, GeckoViewNavigation dump()->debug tag (the
+module-standard gate). Keep the chain observable via
+'adb logcat -s Sinytra/response' for 0002 development.
+
+Device regression after downgrade: full harness 29 PASS / P0 GLUE PASS.
+---
+ .../geckoview/GeckoViewResponseController.cpp      | 14 +++++++-------
+ .../java/org/mozilla/geckoview/GeckoSession.java   |  2 +-
+ .../modules/geckoview/GeckoViewNavigation.sys.mjs  | 10 ++--------
+ 3 files changed, 10 insertions(+), 16 deletions(-)
+
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.cpp b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+index 4f5ddb239788..dad629d5e52c 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.cpp
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+@@ -50,7 +50,7 @@ NS_IMPL_ISUPPORTS(FilterPushObserver, nsIObserver)
+ NS_IMETHODIMP
+ FilterPushObserver::Observe(nsISupports* aSubject, const char* aTopic,
+                             const char16_t* aData) {
+-  __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++  __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
+                       "FilterPushObserver topic=%s", aTopic);
+   if (strcmp(aTopic, "sinytra-response-filters") != 0) {
+     return NS_OK;
+@@ -78,7 +78,7 @@ FilterPushObserver::Observe(nsISupports* aSubject, const char* aTopic,
+   }
+   sFilterState->mPrefixes = std::move(prefixes);
+   sFilterState->mDispatcher = std::move(dispatcher);
+-  __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++  __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
+                       "filters pushed: %zu", (size_t)sFilterState->mPrefixes.Length());
+   return NS_OK;
+ }
+@@ -96,7 +96,7 @@ void EnsureFilterObserver() {
+                             "sinytra-response-filters",
+                             /* ownsWeak */ false);
+     sRegistered = true;
+-    __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++    __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
+                         "filter observer registered parent=%d",
+                         static_cast<int>(XRE_IsParentProcess()));
+   }
+@@ -143,7 +143,7 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+   NS_IMETHOD
+   OnSuccess(JS::Handle<JS::Value> aData, JSContext* aCx_) override {
+     (void)aCx_;
+-    __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++    __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
+                         "OnSuccess");
+     nsAutoCString bodyB64, contentType;
+     uint32_t statusCode = 200;
+@@ -216,7 +216,7 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+   NS_IMETHOD
+   OnError(JS::Handle<JS::Value> aData, JSContext* aCx_) override {
+     (void)aCx_;
+-    __android_log_print(ANDROID_LOG_INFO, "Sinytra/response", "OnError");
++    __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response", "OnError");
+     // App failure: fall through to the network untouched.
+     mChannel->ResetInterception(false);
+     return NS_OK;
+@@ -322,7 +322,7 @@ GeckoViewResponseController::ShouldPrepareForIntercept(
+     *aShouldIntercept = true;
+     nsAutoCString spec;
+     aURI->GetSpec(spec);
+-    __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++    __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
+                         "ShouldPrepare HIT %s", spec.get());
+     return NS_OK;
+   }
+@@ -338,7 +338,7 @@ NS_IMETHODIMP
+ GeckoViewResponseController::ChannelIntercepted(
+     nsIInterceptedChannel* aChannel) {
+   MOZ_ASSERT(NS_IsMainThread());
+-  __android_log_print(ANDROID_LOG_INFO, "Sinytra/response",
++  __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
+                       "ChannelIntercepted dispatcher=%p", mDispatcher.get());
+ 
+   nsCOMPtr<nsIChannel> intercepted;
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+index c5b5dc6db8f9..ed872e714a34 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+@@ -3638,7 +3638,7 @@ public class GeckoSession {
+       // controller (nsIObserver hop via the parent navigation module).
+       final GeckoBundle message = new GeckoBundle();
+       message.putStringArray("filters", delegate.getUriFilters());
+-      Log.i("Sinytra/response",
++      Log.d("Sinytra/response",
+             "dispatching GeckoView:ResponseFilters filters="
+                 + java.util.Arrays.toString(delegate.getUriFilters()));
+       getEventDispatcher().dispatch("GeckoView:ResponseFilters", message);
+diff --git a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+index 3bd2ec6def83..49c3a9e53889 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+@@ -174,9 +174,7 @@ export class GeckoViewNavigation extends GeckoViewModule {
+         // succeed with it as the subject.
+         const nativeView = this.window.arguments?.[0];
+         if (!nativeView) {
+-          dump(
+-            "Sinytra/response: no native view on window; filters dropped\n"
+-          );
++          debug`Sinytra/response: no native view on window; filters dropped`;
+           break;
+         }
+         Services.obs.notifyObservers(
+@@ -184,11 +182,7 @@ export class GeckoViewNavigation extends GeckoViewModule {
+           "sinytra-response-filters",
+           (aData?.filters ?? []).join("\n")
+         );
+-        dump(
+-          "Sinytra/response: filters notified: " +
+-            (aData?.filters ?? []).join(",") +
+-            "\n"
+-        );
++        debug`Sinytra/response: filters notified: ${aData?.filters ?? []}`;
+         break;
+       }
+       case "GeckoView:GoBack":
+-- 
+2.55.0
+
