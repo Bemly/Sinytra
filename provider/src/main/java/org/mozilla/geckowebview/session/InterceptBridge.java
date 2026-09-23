@@ -58,15 +58,8 @@ public final class InterceptBridge {
         if (uri == null) {
             return null;
         }
-        WebResourceResponse appResponse = null;
-        try {
-            appResponse = mHost.shouldIntercept(
-                    new SinytraResourceRequest(uri, isMainFrame, isRedirect,
-                            hasUserGesture));
-        } catch (Throwable t) {
-            android.util.Log.w("Sinytra/intercept",
-                    "Host.shouldIntercept threw", t);
-        }
+        WebResourceResponse appResponse = queryApp(uri, isRedirect,
+                hasUserGesture, isMainFrame);
         if (appResponse != null) {
             // P2 patch will substitute this body; today only DENY is
             // expressible, so record + deny (loud, never silently wrong).
@@ -79,6 +72,26 @@ public final class InterceptBridge {
             return GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.DENY);
         }
         return null;
+    }
+
+    /**
+     * Raw app consultation without the DENY bookkeeping: used by
+     * ResponseBridge (patch 0001) so a non-null app answer can become a
+     * synthesized body instead of a deny. Returns the app's answer or null
+     * (allow / not handled / host threw).
+     */
+    @Nullable
+    public WebResourceResponse queryApp(@NonNull String uri,
+            boolean isRedirect, boolean hasUserGesture, boolean isMainFrame) {
+        try {
+            return mHost.shouldIntercept(
+                    new SinytraResourceRequest(uri, isMainFrame, isRedirect,
+                            hasUserGesture));
+        } catch (Throwable t) {
+            android.util.Log.w("Sinytra/intercept",
+                    "Host.shouldIntercept threw", t);
+            return null;
+        }
     }
 
     public static final class SinytraResourceRequest implements WebResourceRequest {
