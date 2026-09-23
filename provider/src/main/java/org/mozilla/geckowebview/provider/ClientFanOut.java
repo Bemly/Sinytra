@@ -58,6 +58,10 @@ final class ClientFanOut
 
         void fireVisualState();
 
+        /** Current 0001 response-surface filters (never null; may be empty). */
+        @NonNull
+        String[] interceptFilters();
+
         @NonNull
         org.mozilla.geckowebview.session.RenderProcessBridge renderProcess();
     }
@@ -519,6 +523,12 @@ final class ClientFanOut
             boolean hasUserGesture) {
         android.util.Log.i(TAG, "intercept: DENY " + uri + " redirect=" + isRedirect
                 + " gesture=" + hasUserGesture);
+    }
+
+    @Override
+    public boolean responseSurfaceOwns(@NonNull String uri) {
+        return org.mozilla.geckowebview.session.InterceptBridge
+                .matchesFilterPrefix(uri, mOwner.interceptFilters());
     }
 
     // --- FindBridge.Host ---

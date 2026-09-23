@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-24 00:40（0001 接线打通：全量 harness 29 PASS）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-24 01:40（0001 定稿收尾 + 0002 开工）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -318,6 +318,29 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
 用户拍板）**：`feat/p2-js-transport` 建议暂不合入 master——0001 patch
 未发布到 Maven，合入会使 master 默认构建变红；待 0002 期间 patch
 稳定或定下"默认构建要求本地 GV"的策略后再合。
+
+## 1i. 0002 开工（2026-09-24 01:40）
+
+- **设计定稿**：`firefox-patches/0002-request-info-and-subframe-standdown.md`。
+  范围：① 请求信息保真（`WebRequestInfo` v2 method/headers，C++ 侧
+  `isNavigation` 去硬编码）；② Sinytra 让位规则（filter 命中的子帧不再被
+  P2-4 DENY 近似杀掉）。流式 body IPC / POST body / Range 明确推 0003。
+- **拓扑记死（修正 0001 设计文档的进程假设）**：现代 Gecko 已无
+  `dom.serviceWorkers.parent_intercept` pref——`HttpChannelParent` 为
+  **每条** e10s 内容 channel 在 parent 进程建**真 nsHttpChannel**
+  （HttpChannelParent.cpp:586）+ `ParentChannelListener` 挂回调链，拦截
+  咨询全在 parent 侧（HttpBaseChannel.cpp:4493 `GetCallback` 链）；child
+  docshell 的 `mInterceptController` 为 null 且**无需 child hook**。
+  子资源/子帧是否已被 0001 天然覆盖 = 0002 探针的裁决性实验。
+- **Group A 已落地（Sinytra @ 本节提交）**：`InterceptBridge.
+  matchesFilterPrefix`（镜像 C++ `StringBeginsWith` 字面前缀；过滤器须带
+  尾斜杠锚定 host 边界——单测注释记死）+ `decide()` 让位短路
+  （`responseSurfaceOwns` 命中即 allow，不咨询不 DENY）。46 JVM 锁全绿
+  （+3），真机回归 29 PASS。
+- **下一步**：Group B（C++ method/headers 提取 + Java `WebRequestInfo`
+  v2 + SinytraResourceRequest 透传）→ 探针 `interceptSubresource`/
+  `interceptIframe`（验证 §拓扑推论 + 让位端到端）→ format-patch 落
+  `0002-*.patch`。
 
 ## 2. 下一步（按顺序，一次做一件）
 

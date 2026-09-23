@@ -27,6 +27,16 @@ public final class InterceptBridge {
 
         void onInterceptDeny(@NonNull String uri, boolean isRedirect,
                 boolean hasUserGesture);
+
+        /**
+         * True when the 0001 necko response surface owns this URI
+         * (filters registered + prefix hit): the LoadRequest-level DENY
+         * approximation must stand down — the interception controller
+         * answers the load with the app-provided body, and denying here
+         * would kill the load before the channel is ever claimed
+         * (firefox-patches/0002 design §4 Group A).
+         */
+        boolean responseSurfaceOwns(@NonNull String uri);
     }
 
     private final Host mHost;
@@ -56,6 +66,14 @@ public final class InterceptBridge {
             @Nullable String uri, boolean isRedirect, boolean hasUserGesture,
             boolean isMainFrame) {
         if (uri == null) {
+            return null;
+        }
+        if (mHost.responseSurfaceOwns(uri)) {
+            // 0001/0002: the necko controller answers this URI with the
+            // app body; the P2-4 deny approximation must not fire (it
+            // would cancel the load before the channel is claimed).
+            android.util.Log.d("Sinytra/intercept",
+                    "response surface owns " + uri + "; standing down");
             return null;
         }
         WebResourceResponse appResponse = queryApp(uri, isRedirect,
@@ -92,6 +110,23 @@ public final class InterceptBridge {
                     "Host.shouldIntercept threw", t);
             return null;
         }
+    }
+
+    /**
+     * True when {@code uri} starts with any registered prefix filter —
+     * the same prefix semantics as the C++ controller's filter table
+     * (firefox-patches/0001). Pure function: shared by the provider's
+     * Host impl and JVM tests.
+     */
+    public static boolean matchesFilterPrefix(@NonNull String uri,
+            @NonNull String[] filters) {
+        for (String filter : filters) {
+            if (filter != null && !filter.isEmpty()
+                    && uri.startsWith(filter)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static final class SinytraResourceRequest implements WebResourceRequest {

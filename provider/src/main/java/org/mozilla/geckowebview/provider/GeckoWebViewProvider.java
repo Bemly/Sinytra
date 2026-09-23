@@ -223,6 +223,12 @@ public final class GeckoWebViewProvider
 
     @Override
     @NonNull
+    public String[] interceptFilters() {
+        return mInterceptFilters;
+    }
+
+    @Override
+    @NonNull
     public RenderProcessBridge renderProcess() {
         return mRenderProcess;
     }

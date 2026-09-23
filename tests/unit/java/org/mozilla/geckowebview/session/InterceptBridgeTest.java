@@ -1,6 +1,7 @@
 package org.mozilla.geckowebview.session;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -58,6 +59,7 @@ public final class InterceptBridgeTest {
     private static final class RecordingHost implements InterceptBridge.Host {
         InterceptBridge.SinytraResourceRequest lastRequest;
         final List<String> denies = new ArrayList<>();
+        boolean owns;
 
         @Override
         public WebResourceResponse shouldIntercept(
@@ -70,6 +72,11 @@ public final class InterceptBridgeTest {
         public void onInterceptDeny(String uri, boolean isRedirect,
                 boolean hasUserGesture) {
             denies.add(uri + "|" + isRedirect + "|" + hasUserGesture);
+        }
+
+        @Override
+        public boolean responseSurfaceOwns(String uri) {
+            return owns;
         }
     }
 
@@ -110,6 +117,11 @@ public final class InterceptBridgeTest {
                     public void onInterceptDeny(String uri, boolean isRedirect,
                             boolean hasUserGesture) {
                     }
+
+                    @Override
+                    public boolean responseSurfaceOwns(String uri) {
+                        return false;
+                    }
                 });
         assertNull("a throwing host must degrade to allow, never crash",
                 bridge.onLoadRequest(null,
@@ -134,5 +146,60 @@ public final class InterceptBridgeTest {
         assertNotNull(host.lastRequest);
         assertEquals("GET", host.lastRequest.getMethod());
         assertTrue(host.lastRequest.getRequestHeaders().isEmpty());
+    }
+
+    // --- 0002 Group A: response-surface stand-down ---
+
+    @Test
+    public void responseSurfaceOwns_standsDownBeforeConsult()
+            throws Exception {
+        RecordingHost host = new RecordingHost();
+        host.owns = true;
+        InterceptBridge bridge = new InterceptBridge(host);
+        assertNull("a filter-owned URI must stand down to allow",
+                bridge.onSubframeLoadRequest(null,
+                        loadRequest("https://body.example/pixel.png", false,
+                                false)));
+        assertNull("the app must not be consulted for owned URIs",
+                host.lastRequest);
+        assertTrue("no deny bookkeeping for owned URIs",
+                host.denies.isEmpty());
+    }
+
+    @Test
+    public void responseSurfaceNotOwning_consultsAppNormally()
+            throws Exception {
+        RecordingHost host = new RecordingHost();
+        host.owns = false;
+        InterceptBridge bridge = new InterceptBridge(host);
+        bridge.onSubframeLoadRequest(null,
+                loadRequest("https://example.org/next", false, false));
+        assertNotNull("a non-owned URI keeps the P2-4 consult path",
+                host.lastRequest);
+    }
+
+    @Test
+    public void filterPrefixMatching_mirrorsCppTable() {
+        String[] filters = {"https://body.example/", "https://cdn.other/x"};
+        assertTrue(InterceptBridge.matchesFilterPrefix(
+                "https://body.example/pixel.png", filters));
+        assertTrue(InterceptBridge.matchesFilterPrefix(
+                "https://body.example/", filters));
+        // Literal spec prefix, exactly like the C++ StringBeginsWith.
+        // The trailing "/" in a filter anchors the host boundary:
+        // "body.example.evil.com" does NOT start with "body.example/".
+        // Filters registered WITHOUT the trailing slash would leak to
+        // sibling hosts — the provider contract requires them; Java and
+        // C++ must change semantics in the same commit if ever tightened.
+        assertFalse(InterceptBridge.matchesFilterPrefix(
+                "https://body.example.evil.com/", filters));
+        assertFalse(InterceptBridge.matchesFilterPrefix(
+                "https://evil.body.example/", filters));
+        assertFalse(InterceptBridge.matchesFilterPrefix(
+                "https://example.org/", filters));
+        assertFalse(InterceptBridge.matchesFilterPrefix(
+                "https://body.example/", new String[0]));
+        assertFalse(InterceptBridge.matchesFilterPrefix(
+                "https://body.example/", new String[] {null, ""}));
     }
 }
