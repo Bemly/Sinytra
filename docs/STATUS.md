@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-23 06:55。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-23 08:30（0001 WIP 交接停点）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -235,6 +235,78 @@
   真机用 arm 包（x86 包里 CtsWebkitTestCases 仅 x86_64 APK，实测）；
   WebView 模块在 14_r7 已改名 **CtsWebkitTestCases**（无
   CtsWebViewTestCases）。arm 包已下载中；过渡第一轮跑 Chromium 基线。
+
+## 1h. 0001 接线 WIP 交接（2026-09-23 08:30 停点，未提交代码在两棵树）
+
+**目标**：`shouldInterceptRequest` 返回 body 的端到端（firefox-patches/0001）。
+设计定稿见 `firefox-patches/0001-response-body-interception.md`（necko 层
+nsINetworkInterceptController 路线）。
+
+**已提交**：
+- Firefox 树（sinytra-pin）：`a76774863e81`（Group 1 Java 原语）、
+  `6ef2cc7dc4be`（Group 3 C++ 控制器 + docshell 包装）。
+- Sinytra（feat/p2-js-transport）：到 `042b38a` 为止全部已提交。
+
+**未提交 WIP（新 agent 第一件事：审查后按逻辑单元提交）**：
+- Firefox 树：① `ParentChannelListener.cpp`——构造处同样用
+  GeckoViewResponseController 包装 SW controller（parent 侧每 channel，
+  覆盖顶级+子资源）；② `GeckoViewResponseController.{h,cpp}` 大改——
+  **架构从 per-instance observer 改为进程级共享 FilterState**
+  （StaticAutoPtr + 单例 FilterPushObserver 主线程一次注册），
+  原因：per-instance 弱引用 observer 在 ParentChannelListener 释放路径
+  **SIGSEGV**（tombstone_25 符号化 = controller 悬空）；③
+  `GeckoSession.java`——ResponseDelegate 增 `getUriFilters()`，
+  setResponseDelegate 时 dispatch `GeckoView:ResponseFilters`；④
+  `GeckoViewNavigation.sys.mjs`——监听该事件 →
+  `Services.obs.notifyObservers(eventDispatcher, "sinytra-response-filters",
+  filters.join("\n"))`。注意 C++ 里留有 `__android_log_print` 调试日志
+  （tag Sinytra/response），定稿前降级/删除。
+- Sinytra 树：① `session/ResponseBridge.java`（新，public）——
+  ResponseDelegate 实现（drain app body→WebResponse，16MB 上限）；
+  ② `InterceptBridge` 抽出 `queryApp()`（无 DENY 记账的裸查询）；
+  ③ `GeckoWebViewProvider`——ctor 里 `setResponseDelegate` + 公开
+  `setInterceptFilters()`（重推 filters）；④ debug 探针
+  `interceptBody`（P2TransportProbes 末尾：load body.example/probe.html，
+  断言 body 文本 + URL 身份）+ TestClient 对 body.example 返回真 body。
+
+**当前卡点（harness 实测）**：interceptBody 探针不过。现象链：
+- 第一版（per-instance observer）：`ShouldPrepare HIT` 都没出现 →
+  发现 GetSingleton 注册的 observer 与被咨询实例脱节 → 改 per-instance
+  → **SIGSEGV**（见上）→ 改共享 FilterState。
+- 现版本：logcat 见 `filter observer registered`（C++ 主线程注册成功）
+  **但没有 `FilterPushObserver topic=...`**——即 Java dispatch 的
+  `GeckoView:ResponseFilters` 没走到 JS 监听 → observer 没收到。
+  harness 停在 interceptBody 轮询（12×2.5s 后会 FAIL，需等 ~8 分钟收尾）。
+- **下一步排查建议（按怀疑度）**：① provider ctor 里
+  `setResponseDelegate` 在 `session.open()` **之前**调用——dispatch 可能
+  被 drop（探针里的 setInterceptFilters 是 open 后调的，但也无效，
+  需确认 mResponseHandler.setDelegate 与未 attach session 的交互）；
+  ② GeckoViewNavigation 的 onEvent 是否真收到该事件（JS 侧加 debug`）；
+  ③ JS eventDispatcher 作为 observer subject 传给 C++ 后
+  `do_QueryInterface(nsIGeckoViewEventDispatcher)` 是否成功（在
+  FilterPushObserver::Observe 里对 QI 失败也打日志）；④ 确认
+  GeckoSessionHandler("GeckoViewResponse") 的模块名/事件注册方式是否
+  影响 dispatch 路由。
+
+**构建/测试命令（环境变量缺一不可）**：
+```bash
+# Firefox 树
+cd /Volumes//Projects/firefox
+MOZBUILD_STATE_PATH=/Volumes//Projects/mozbuild PATH="$HOME/.cargo/bin:$PATH" ./mach build binaries
+MOZBUILD_STATE_PATH=/Volumes//Projects/mozbuild PATH="$HOME/.cargo/bin:$PATH" ./mach gradle geckoview:publishDebugPublicationToMavenRepository
+# Sinytra
+JAVA_HOME=/opt/homebrew/opt/openjdk@17 ANDROID_HOME=/opt/homebrew/share/android-commandlinetools \
+MOZBUILD_STATE_PATH=/Volumes//Projects/mozbuild PATH="$HOME/.cargo/bin:$PATH" \
+./gradlew :provider:assembleDebug -PsinytraLocalGecko=true
+# 真机（先 force-stop 再起，否则 am start 不重启）
+adb -s V885Q49L8TAMFEEE install -r provider/build/outputs/apk/debug/provider-debug.apk
+adb -s V885Q49L8TAMFEEE shell am force-stop org.mozilla.geckowebview.debug
+adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n org.mozilla.geckowebview.debug/org.mozilla.geckowebview.provider.P0GlueActivity
+```
+
+**收尾清单（探针跑通后）**：C++ 调试日志降级 → 两树按单元提交 →
+`git format-patch` 落 `firefox-patches/0001-*.patch`（含 README stack 表
+更新）→ 全量 harness 回归（现在应为 30 PASS）→ STATUS 收尾。
 
 ## 2. 下一步（按顺序，一次做一件）
 
