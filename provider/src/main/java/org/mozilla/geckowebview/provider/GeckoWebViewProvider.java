@@ -58,6 +58,7 @@ import org.mozilla.geckowebview.session.JavascriptBridge;
 import org.mozilla.geckowebview.session.JsBridge;
 import org.mozilla.geckowebview.session.JsEvaluator;
 import org.mozilla.geckowebview.session.MessageBridge;
+import org.mozilla.geckowebview.session.ResponseBridge;
 import org.mozilla.geckowebview.session.RenderProcessBridge;
 import org.mozilla.geckowebview.settings.GeckoWebSettings;
 
@@ -83,6 +84,10 @@ public final class GeckoWebViewProvider
     private final MessageBridge mMessages;
     private final InterceptBridge mIntercept;
     private final RenderProcessBridge mRenderProcess;
+    // Sinytra 0001: response interception surface (see ResponseBridge).
+    private final ResponseBridge mResponseBridge;
+    @NonNull
+    private volatile String[] mInterceptFilters = new String[0];
     private final java.util.Map<Long, WebView.VisualStateCallback> mPendingVisualState =
             new java.util.concurrent.ConcurrentHashMap<>();
     private WebViewClient mWebViewClient;
@@ -115,6 +120,28 @@ public final class GeckoWebViewProvider
         // Session must be opened on the UI thread (GeckoView @UiThread contract).
         // Real framework calls create() on the UI thread; assert here so the
         // harness (or future callers) fail fast instead of hanging on load.
+        mResponseBridge = new ResponseBridge(new ResponseBridge.Host() {
+            @Override
+            @NonNull
+            public String[] getFilters() {
+                return mInterceptFilters;
+            }
+
+            @Override
+            @Nullable
+            public ResponseBridge.WebResourceResponseHolder shouldIntercept(
+                    @NonNull String uri, boolean isNavigation) {
+                WebResourceResponse app = mIntercept.queryApp(uri, false,
+                        false, isNavigation);
+                if (app == null) {
+                    return null;
+                }
+                return new ResponseBridge.WebResourceResponseHolder(
+                        app.getMimeType(), app.getEncoding(),
+                        app.getStatusCode(), app.getData());
+            }
+        });
+        mBridge.session().setResponseDelegate(mResponseBridge);
         mBridge.session().open(GeckoRuntimeHolder.get(
                 webView.getContext().getApplicationContext()));
         // Bind the JS extension transport (built-in WebExtension, public API;
@@ -294,6 +321,20 @@ public final class GeckoWebViewProvider
     @NonNull
     public MessageBridge messageBridge() {
         return mMessages;
+    }
+
+    /**
+     * Sinytra 0001: URI prefixes the app's shouldInterceptRequest can
+     * answer; matching loads are synthesized from the app-provided body.
+     * Re-settable at any time (re-pushes the filter list to Gecko).
+     */
+    public void setInterceptFilters(@NonNull String[] filters) {
+        mInterceptFilters = filters.clone();
+        // Re-dispatch the delegate: setResponseDelegate re-pushes filters
+        // to the Gecko interception controller.
+        if (!mDestroyed) {
+            mBridge.session().setResponseDelegate(mResponseBridge);
+        }
     }
 
     public int jsInterfaceCount() {
