@@ -393,6 +393,14 @@ public final class P0GlueActivity extends Activity {
                             "text/plain", "utf-8",
                             new java.io.ByteArrayInputStream(new byte[0]));
                 }
+                if (uri.contains("body.example")) {
+                    // 0001 interceptBody probe: substitute a real body.
+                    return new android.webkit.WebResourceResponse(
+                            "text/html", "utf-8",
+                            new java.io.ByteArrayInputStream(
+                                    "<html><body><p>sinytra-body-0001</p>"
+                                            .getBytes()));
+                }
                 return null;
             }
 

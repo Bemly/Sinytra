@@ -440,6 +440,63 @@ final class P2TransportProbes {
             }
             out.append("PASS visualState\n");
 
+            // --- 0001 interceptBody: app-provided body, URL identity ---
+            // Registers a filter prefix, loads a non-resolvable marker
+            // host, and asserts the page content IS the app body (the
+            // network answer for a NXDOMAIN host would be an error page,
+            // never our marker). Identity is asserted via getUrl().
+            activity.runOnUiThread(() -> provider.setInterceptFilters(
+                    new String[] {"https://body.example/"}));
+            final CountDownLatch bodyLoaded = new CountDownLatch(1);
+            activity.runOnUiThread(() -> provider.loadUrl(
+                    "https://body.example/probe.html"));
+            final String[] bodyUrlBox = new String[1];
+            String bodyText = null;
+            for (int attempt = 0; attempt < 12 && bodyText == null;
+                    attempt++) {
+                Thread.sleep(2500);
+                final CountDownLatch bodyEval = new CountDownLatch(1);
+                final String[][] bodyResult = new String[1][];
+                activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                        "document.body ? document.body.textContent"
+                                + " : null",
+                        v -> {
+                            bodyResult[0] = new String[] {v};
+                            bodyEval.countDown();
+                        }));
+                bodyEval.await(45, TimeUnit.SECONDS);
+                String value = bodyResult[0] != null ? bodyResult[0][0]
+                                                     : null;
+                if (value != null) {
+                    value = value.replace("\"", "");
+                    if (value.contains("sinytra-body-0001")) {
+                        bodyText = value;
+                    }
+                }
+            }
+            if (bodyText == null) {
+                throw new IllegalStateException(
+                        "interceptBody: substituted body never rendered");
+            }
+            String currentUrl = null;
+            final CountDownLatch urlDone = new CountDownLatch(1);
+            activity.runOnUiThread(() -> {
+                try {
+                    bodyUrlBox[0] = provider.getUrl();
+                } finally {
+                    urlDone.countDown();
+                }
+            });
+            urlDone.await(10, TimeUnit.SECONDS);
+            currentUrl = bodyUrlBox[0];
+            if (currentUrl == null
+                    || !currentUrl.contains("body.example/probe.html")) {
+                throw new IllegalStateException("interceptBody identity: "
+                        + currentUrl);
+            }
+            out.append("PASS interceptBody url=").append(currentUrl)
+                    .append(" body=").append(bodyText).append('\n');
+
             // --- P2-4 deny value: non-null shouldInterceptRequest ⇒
             // subframe DENY. The DENY GeckoResult was verified nowhere
             // (JVM: GeckoResult class-init needs a live UI Looper; device:
