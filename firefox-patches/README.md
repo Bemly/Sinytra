@@ -18,6 +18,7 @@
 |---|---|---|---|---|
 | 0001 | response-body 拦截（导航级） | `shouldInterceptRequest` 返回自定义 body | GV153 `onLoadRequest` 只返回 AllowOrDeny；决策在 docshell 层，无 Java→Gecko 响应体通道（树内核实，详见 0001 设计文档） | **已定稿**：`0001-response-body-interception.patch`（7 commits，@ `59aa103b6d50`，日志已降 DEBUG），真机端到端打通（2026-09-24 全量 harness 29 PASS） |
 | 0002 | 请求信息保真 + 子帧 DENY 让位 | `shouldInterceptRequest` 的 method/headers 语义、filter 命中的子帧不被 P2-4 近似杀掉 | 0001 查询面只有 uri+isNavigation（C++ 硬编码 isNavigation=true）；LoadRequest DENY 与 necko 替身撞车（勘察详见 0002 设计文档） | **已定稿**：`0002-request-info-and-subframe-standdown.patch`（@ `539b7ff6f329`）；Group A 在 Sinytra glue（`9244efb`/`812b220`）；真机 31 PASS（2026-09-24，含子资源/子帧探针） |
+| 0003 | 流式响应体 | 替身体按 Chromium 语义流式读取，无 16MB 上限 | 0001 的 base64+cap 基于"流跨不了 JVM"的过时假设——0002 钉死查询全程在 app 进程，是 JNI 边界不是进程边界（详见 0003 设计文档） | **已定稿**：`0003-response-body-streaming.patch`（@ `62b7b46e280e`）；真机 32 PASS（2026-09-25，interceptLargeBody 17MB 裁决实验过） |
 
 设计文档：`0001-response-body-interception.md`（含树内勘察、地基选型、
 边界与测试计划）。

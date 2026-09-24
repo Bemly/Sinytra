@@ -1,0 +1,348 @@
+From 62b7b46e280e366280da3a4f5e50e11ccf8ae397 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Fri, 25 Sep 2026 00:29:14 +0800
+Subject: [PATCH] Sinytra patch 0003: stream the response body (no base64, no
+ 16MB cap)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+0001's base64+cap rested on 'the channel is in the child, Java streams
+cannot cross the JVM' — 0002's topology finding invalidated that: the
+interception query runs entirely in the app process (parent-side real
+nsHttpChannel), so the body crosses a JNI boundary, not a process one.
+
+- GeckoViewResponseStreams (new, @WrapForJNI): process-level registry;
+  the query handler registers a GeckoViewInputStream wrapping the app's
+  InputStream and ships the id in the bundle; native takes it by id.
+- responseToBundle: drain/base64/RESPONSE_BODY_MAX_BYTES removed —
+  bodyStreamId only (absent = empty body).
+- OnSuccess/Synthesize: id -> GeckoViewResponseStreams::Take ->
+  ResponseBodyStream (subclass exposing the protected JNI-ref ctor) ->
+  StartSynthesizedResponse; incremental reads over JNI, no cap —
+  Chromium streams shouldInterceptRequest bodies the same way.
+- widget/android/moz.build: register the new class in
+  classes_with_WrapForJNI (alphabetical).
+- GeckoViewResponseController.h: include the full
+  ServiceWorkerInterceptController definition — StaticComponents.cpp
+  instantiates the inline ctor/dtor (RefPtr member) and a forward
+  declaration only worked through fragile unified-bundle include luck;
+  registering the new class shifted the bundles and it broke.
+
+Build-order note: new GeneratedJNI headers need 'mach build export'
+before 'mach build binaries' (binaries skips the export tier).
+---
+ .../geckoview/GeckoViewResponseController.cpp | 56 ++++++++++------
+ .../geckoview/GeckoViewResponseController.h   |  9 +--
+ .../org/mozilla/geckoview/GeckoSession.java   | 64 ++++++-------------
+ .../geckoview/GeckoViewResponseStreams.java   | 49 ++++++++++++++
+ widget/android/moz.build                      |  1 +
+ 5 files changed, 112 insertions(+), 67 deletions(-)
+ create mode 100644 mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoViewResponseStreams.java
+
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.cpp b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+index ac00365f702d..b0e4b3efc34a 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.cpp
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+@@ -9,9 +9,10 @@
+ #include "js/Conversions.h"
+ #include "js/ForOfIterator.h"
+ #include "jsapi.h"
+-#include "mozilla/Base64.h"
+ #include "mozilla/StaticPtr.h"
+ #include "mozilla/dom/ScriptSettings.h"
++#include "GeckoViewInputStream.h"
++#include "mozilla/java/GeckoViewResponseStreamsWrappers.h"
+ #include "nsIGeckoViewBridge.h"
+ #include "nsIHttpChannel.h"
+ #include "nsIHttpHeaderVisitor.h"
+@@ -130,6 +131,15 @@ RequestHeaderCollector::VisitHeader(const nsACString& aHeader,
+   return NS_OK;
+ }
+ 
++// 0003: exposes GeckoViewInputStream's protected JNI-ref constructor so
++// the response controller can wrap app streams taken from the registry.
++class ResponseBodyStream final : public GeckoViewInputStream {
++ public:
++  explicit ResponseBodyStream(
++      mozilla::java::GeckoViewInputStream::LocalRef aInstance)
++      : GeckoViewInputStream(aInstance) {}
++};
++
+ nsAutoCString ValueToAscii(JSContext* aCx, JS::Handle<JS::Value> aValue) {
+   nsAutoCString out;
+   JS::Rooted<JSString*> str(aCx, JS::ToString(aCx, aValue));
+@@ -173,7 +183,7 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+     (void)aCx_;
+     __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
+                         "OnSuccess");
+-    nsAutoCString bodyB64, contentType;
++    nsAutoCString contentType;
+     uint32_t statusCode = 200;
+     nsTArray<nsCString> headerPairs;
+ 
+@@ -205,14 +215,16 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+       return NS_OK;
+     }
+ 
+-    if (!JS_GetProperty(cx, obj, "bodyB64", &value)) {
+-      mChannel->ResetInterception(false);
+-      return NS_OK;
+-    }
+-    bodyB64 = ValueToAscii(cx, value);
+-    if (bodyB64.IsEmpty()) {
+-      mChannel->ResetInterception(false);
+-      return NS_OK;
++    // 0003: the body arrives as a registry id — the Java handler wrapped
++    // the app's InputStream in a GeckoViewInputStream (the query runs in
++    // the app process, so this is a JNI hop, not a process hop). No id
++    // (null/0/absent) synthesizes an empty body.
++    int64_t bodyStreamId = 0;
++    if (JS_GetProperty(cx, obj, "bodyStreamId", &value) &&
++        !value.isNullOrUndefined()) {
++      if (!JS::ToInt64(cx, value, &bodyStreamId)) {
++        bodyStreamId = 0;
++      }
+     }
+ 
+     if (JS_GetProperty(cx, obj, "contentType", &value) &&
+@@ -237,7 +249,7 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+       }
+     }
+ 
+-    Synthesize(bodyB64, contentType, statusCode, headerPairs);
++    Synthesize(bodyStreamId, contentType, statusCode, headerPairs);
+     return NS_OK;
+   }
+ 
+@@ -253,17 +265,23 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+  private:
+   ~ResponseCallback() = default;
+ 
+-  void Synthesize(const nsAutoCString& aBodyB64,
++  void Synthesize(const int64_t aBodyStreamId,
+                   const nsAutoCString& aContentType, uint32_t aStatusCode,
+                   const nsTArray<nsCString>& aHeaderPairs) {
+-    nsAutoCString decoded;
+-    if (NS_FAILED(Base64Decode(aBodyB64, decoded))) {
+-      mChannel->ResetInterception(false);
+-      return;
+-    }
+-
++    // 0003: the id resolves to a GeckoViewInputStream wrapping the app's
++    // Java stream — Gecko reads it incrementally over JNI (no base64, no
++    // size cap). Unknown/absent id synthesizes an empty body.
+     nsCOMPtr<nsIInputStream> body;
+-    NS_NewCStringInputStream(getter_AddRefs(body), decoded);
++    if (aBodyStreamId != 0) {
++      mozilla::java::GeckoViewInputStream::LocalRef stream =
++          mozilla::java::GeckoViewResponseStreams::Take(aBodyStreamId);
++      if (stream) {
++        body = MakeRefPtr<ResponseBodyStream>(stream);
++      }
++    }
++    if (!body) {
++      NS_NewCStringInputStream(getter_AddRefs(body), ""_ns);
++    }
+ 
+     if (!aContentType.IsEmpty()) {
+       mChannel->SynthesizeHeader("Content-Type"_ns, aContentType);
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.h b/mobile/android/components/geckoview/GeckoViewResponseController.h
+index 1d554cca7475..4b6c95ea6df8 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.h
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.h
+@@ -9,13 +9,14 @@
+ #include "nsINetworkInterceptController.h"
+ #include "nsString.h"
+ #include "nsTArray.h"
++// Full definition required here: StaticComponents.cpp instantiates this
++// class's default ctor/dtor (RefPtr member) from the generated component
++// registration, so a forward declaration makes the build depend on
++// fragile unified-bundle include luck (0003: bit us exactly that way).
++#include "mozilla/dom/ServiceWorkerInterceptController.h"
+ 
+ class nsIGeckoViewEventDispatcher;
+ 
+-namespace mozilla::dom {
+-class ServiceWorkerInterceptController;
+-}  // namespace mozilla::dom
+-
+ /**
+  * Sinytra firefox-patches/0001: response-body interception controller.
+  *
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+index ed872e714a34..87437ca3aa76 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+@@ -976,12 +976,13 @@ public class GeckoSession {
+       };
+ 
+   // Sinytra firefox-patches/0001: session-level response interception.
+-  // The child necko layer queries "GeckoView:OnRequestResponse" for loads
+-  // whose URI matches the registered filters; a non-null WebResponse here
+-  // substitutes the channel body (nsIInterceptedChannel semantics, URL
+-  // identity preserved). The body is drained to base64 because Java
+-  // stream objects cannot cross the process boundary (v1 cap 16MB;
+-  // streaming is 0002). Inert unless setResponseDelegate was called.
++  // The parent-side necko layer queries "GeckoView:OnRequestResponse" for
++  // loads whose URI matches the registered filters; a non-null WebResponse
++  // here substitutes the channel body (nsIInterceptedChannel semantics,
++  // URL identity preserved). Since 0002 we know the query runs in the app
++  // process; since 0003 the body crosses as a registered JNI stream
++  // (GeckoViewResponseStreams) — no base64, no size cap. Inert unless
++  // setResponseDelegate was called.
+   private final GeckoSessionHandler<ResponseDelegate> mResponseHandler =
+       new GeckoSessionHandler<ResponseDelegate>(
+           "GeckoViewResponse",
+@@ -3511,12 +3512,13 @@ public class GeckoSession {
+      * A resource load is starting and may be answered by the app.
+      *
+      * @param session The GeckoSession that initiated the callback.
+-     * @param info Describes the load (v1: uri + isNavigation).
++     * @param info Describes the load (uri, isNavigation, and since 0002
++     *     the request surface: isTopLevel/method/requestHeaders).
+      * @return A GeckoResult resolving to a WebResponse whose uri matches
+      *     info.uri and whose body supplies the substitute content, or null
+-     *     to let the load proceed normally. A resolving WebResponse whose
+-     *     body exceeds the 16MB v1 cap is refused with a loud log (the
+-     *     load proceeds untouched).
++     *     to let the load proceed normally. The body stream is consumed
++     *     incrementally by Gecko (0003) — no size cap, matching Chromium's
++     *     shouldInterceptRequest streaming semantics.
+      */
+     @Nullable
+     GeckoResult<WebResponse> onRequestResponse(
+@@ -3532,15 +3534,11 @@ public class GeckoSession {
+     String[] getUriFilters();
+   }
+ 
+-  // v1 body transport cap: stream objects cannot cross the process
+-  // boundary, so the body is drained to bytes and shipped base64.
+-  private static final int RESPONSE_BODY_MAX_BYTES = 16 * 1024 * 1024;
+-
+   @Nullable
+   private static GeckoBundle responseToBundle(final @NonNull WebResponse response) {
+     final GeckoBundle bundle = new GeckoBundle();
+     // The C++ consumer (patch 0001 OnSuccess) gates on handled===true
+-    // before reading statusCode/bodyB64; without it the answer is
++    // before reading the body; without it the answer is
+     // discarded and the channel falls back to the network.
+     bundle.putBoolean("handled", true);
+     bundle.putString("uri", response.uri);
+@@ -3564,39 +3562,17 @@ public class GeckoSession {
+     }
+     bundle.putStringArray("headers", headerPairs.toArray(new String[0]));
+ 
++    // 0003: the query runs in the app process, so the body crosses a JNI
++    // boundary — wrap the app stream and hand native the registry id.
++    // No size cap: native reads the stream incrementally (Chromium streams
++    // from the app's InputStream with no limit either).
+     final java.io.InputStream body = response.body;
+     if (body == null) {
+-      bundle.putString("bodyB64", "");
+       return bundle;
+     }
+-
+-    final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+-    final byte[] buffer = new byte[16384];
+-    try {
+-      int read;
+-      while ((read = body.read(buffer)) != -1) {
+-        out.write(buffer, 0, read);
+-        if (out.size() > RESPONSE_BODY_MAX_BYTES) {
+-          Log.w(LOGTAG, "Response body exceeds the v1 16MB cap; refusing");
+-          try {
+-            body.close();
+-          } catch (final java.io.IOException ignored) {
+-          }
+-          return null;
+-        }
+-      }
+-    } catch (final java.io.IOException e) {
+-      Log.w(LOGTAG, "Failed to drain response body", e);
+-      return null;
+-    } finally {
+-      try {
+-        body.close();
+-      } catch (final java.io.IOException ignored) {
+-      }
+-    }
+-    bundle.putString(
+-        "bodyB64",
+-        android.util.Base64.encodeToString(out.toByteArray(), android.util.Base64.NO_WRAP));
++    final GeckoViewInputStream stream = new GeckoViewInputStream();
++    stream.setInputStream(body);
++    bundle.putLong("bodyStreamId", GeckoViewResponseStreams.register(stream));
+     return bundle;
+   }
+ 
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoViewResponseStreams.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoViewResponseStreams.java
+new file mode 100644
+index 000000000000..c9fbdab75c1a
+--- /dev/null
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoViewResponseStreams.java
+@@ -0,0 +1,49 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of this file was not distributed with this file,
++ * You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.geckoview;
++
++import androidx.annotation.AnyThread;
++import androidx.annotation.NonNull;
++import java.util.Map;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.concurrent.atomic.AtomicLong;
++import org.mozilla.gecko.annotation.WrapForJNI;
++
++/**
++ * Process-level registry handing app-provided response streams to native
++ * code (Sinytra firefox-patches/0003).
++ *
++ * <p>The interception query runs entirely in the app process (the parent-side
++ * real nsHttpChannel — 0002 design doc §3), so the body crosses a JNI
++ * boundary, not a process one: the Java query handler wraps the app
++ * InputStream in a {@link GeckoViewInputStream}, registers it here and ships
++ * the id in the response bundle; native takes it back by id and reads
++ * incrementally — no base64, no size cap.
++ */
++@WrapForJNI
++@AnyThread
++/* package */ final class GeckoViewResponseStreams {
++  private static final Map<Long, GeckoViewInputStream> sStreams =
++      new ConcurrentHashMap<>();
++  private static final AtomicLong sNextId = new AtomicLong(1);
++
++  private GeckoViewResponseStreams() {}
++
++  /* package */ static long register(final @NonNull GeckoViewInputStream stream) {
++    final long id = sNextId.getAndIncrement();
++    sStreams.put(id, stream);
++    return id;
++  }
++
++  /**
++   * Called by native code to take (and unregister) the stream for a response
++   * body id. Returns null when the id is unknown (e.g. the delegate produced
++   * no body, or the query was answered twice).
++   */
++  @WrapForJNI
++  /* package */ static GeckoViewInputStream take(final long id) {
++    return sStreams.remove(id);
++  }
++}
+diff --git a/widget/android/moz.build b/widget/android/moz.build
+index 25b6911135d0..5b3c219f0a18 100644
+--- a/widget/android/moz.build
++++ b/widget/android/moz.build
+@@ -57,6 +57,7 @@ classes_with_WrapForJNI = [
+     "GeckoSystemStateListener",
+     "GeckoThread",
+     "GeckoViewInputStream",
++    "GeckoViewResponseStreams",
+     "GeckoVRManager",
+     "GeckoVideoInfo",
+     "GeckoWebExecutor",
+-- 
+2.55.0
+

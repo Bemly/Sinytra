@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-24 02:25（0001 定稿 + 0002 完成：全量 harness 31 PASS）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-25 00:35（0001/0002/0003 全部定稿：全量 harness 32 PASS）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -359,6 +359,38 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
   - **全量 harness 31 PASS**（29 + 2），JVM 49 锁全绿（+3）。
   - **0003 候选**（按 0002 设计文档 §4 边界）：POST body 透传、Range、
     流式 body IPC（替代 base64 16MB 上限）、敏感请求头收窄。
+
+## 1j. 0003 完成（2026-09-25 00:33，全量 harness 32 PASS）
+
+- **设计定稿 + 落地**：`firefox-patches/0003-response-body-streaming.md`。
+  核心修正：0002 拓扑结论（查询全程在 app 进程）推翻了 0001 "流跨不了
+  JVM 必须排干 base64" 的前提——**是 JNI 边界不是进程边界**，16MB 上限
+  在解不存在的问题。复用上游现成原语（AGENTS §4）：
+  `GeckoViewInputStream`（Java，@WrapForJNI 包装任意 InputStream）+
+  C++ `GeckoViewInputStream : nsIAndroidContentInputStream`。
+- **实现**：Java `GeckoViewResponseStreams` 注册表（register→id /
+  `@WrapForJNI take(id)`）+ `responseToBundle` 直发 `bodyStreamId`
+  （排干/base64/`RESPONSE_BODY_MAX_BYTES` 全删）+ C++ `Take(id)` →
+  `ResponseBodyStream` 子类（暴露 protected ctor）→
+  `StartSynthesizedResponse`；Sinytra `ResponseBridge` 删除 16MB drain，
+  app 流原样 `builder.body()`。Firefox @ `62b7b46e280e`，patch 文件
+  `0003-response-body-streaming.patch`。
+- **裁决性实验**：`PASS interceptLargeBody verdict=17000014:PREFIX:
+  0123456789:0123456789:SUFFIX`——17MB 替身（大于废除的 16MB 上限，
+  网络侧 NXDOMAIN 不可达）精确渲染。旧路径必拒、流路径通过。
+- **树内踩坑记录（build 系统）**：① `mach build binaries` 不含 export
+  层——新增 GeneratedJNI 头必须 `mach build export` 后再 binaries，且
+  wrapper 由 Gradle 注解处理器生成（publish 顺带产出）；② 新类必须进
+  `widget/android/moz.build` 的 `classes_with_WrapForJNI`（字母序）；
+  ③ `GeckoViewResponseController.h` 内联 `= default` 构造使
+  StaticComponents.cpp 实例化 RefPtr 析构——头里必须给
+  `ServiceWorkerInterceptController` 完整定义，前向声明靠 unified
+  bundle 传递 include 侥幸，边界一动即炸（实测撞过）。
+- **回归**：全量 harness **32 PASS**（31 + interceptLargeBody），JVM
+  49 锁。拦截线（0001/0002/0003）至此完整：filter 下发 → 请求面保真
+  → 子帧让位 → 子资源/子帧替身 → 无上限流式。
+- **剩余候选**：敏感请求头收窄（Cookie/Authorization 目前全量透传，
+  显式决策点）；master 合并评估仍挂起（等用户拍板）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
