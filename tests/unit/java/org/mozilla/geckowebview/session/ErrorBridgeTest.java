@@ -98,4 +98,24 @@ public final class ErrorBridgeTest {
         assertFalse(ErrorBridge.isSslError(WebRequestError.ERROR_UNKNOWN_HOST));
         assertFalse(ErrorBridge.isSslError(9999));
     }
+
+    // P1 SSL: every Gecko SSL code surfaces onReceivedSslError with the
+    // closest SslError primary (trust failure — Gecko gives no cert
+    // details); non-SSL codes carry -1 so the fan-out keeps the plain
+    // onReceivedError path.
+    @Test
+    public void sslPrimary_mapsTrustFailureAndGuardsNonSsl() {
+        assertEquals(android.net.http.SslError.SSL_UNTRUSTED,
+                ErrorBridge.toSslPrimaryError(
+                        WebRequestError.ERROR_SECURITY_SSL));
+        assertEquals(android.net.http.SslError.SSL_UNTRUSTED,
+                ErrorBridge.toSslPrimaryError(
+                        WebRequestError.ERROR_SECURITY_BAD_CERT));
+        assertEquals(android.net.http.SslError.SSL_UNTRUSTED,
+                ErrorBridge.toSslPrimaryError(
+                        WebRequestError.ERROR_BAD_HSTS_CERT));
+        assertEquals(-1, ErrorBridge.toSslPrimaryError(
+                WebRequestError.ERROR_NET_TIMEOUT));
+        assertEquals(-1, ErrorBridge.toSslPrimaryError(9999));
+    }
 }

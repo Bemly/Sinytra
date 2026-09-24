@@ -58,4 +58,23 @@ final class FrameworkTokens {
             return null;
         }
     }
+
+    // android.webkit.SslErrorHandler token for onReceivedSslError. The load
+    // is already terminal on the Gecko side by the time the app sees the
+    // callback: cancel() is the effective default (matches Chromium when
+    // the handler is untouched). proceed() would require a Gecko cert-
+    // override primitive (nsICertOverrideService) — P2 patch candidate;
+    // until then proceed() is best-effort like the auth-handler token.
+    @Nullable
+    static android.webkit.SslErrorHandler newSslErrorHandler() {
+        try {
+            java.lang.reflect.Constructor<android.webkit.SslErrorHandler> ctor =
+                    android.webkit.SslErrorHandler.class.getDeclaredConstructor();
+            ctor.setAccessible(true);
+            return ctor.newInstance();
+        } catch (Throwable t) {
+            Log.w(TAG, "SslErrorHandler reflection failed", t);
+            return null;
+        }
+    }
 }

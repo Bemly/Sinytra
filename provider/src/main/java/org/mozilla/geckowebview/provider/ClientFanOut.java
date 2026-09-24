@@ -169,11 +169,33 @@ final class ClientFanOut
     }
 
     @Override
-    public void onLoadError(int errorCode, @NonNull String description,
-            @Nullable String failingUrl) {
+    public void onLoadError(int errorCode, int sslPrimaryError,
+            @NonNull String description, @Nullable String failingUrl) {
         WebViewClient client = mOwner.webViewClient();
         if (client == null || failingUrl == null) {
             return;
+        }
+        // P1 SSL: cert failures go to onReceivedSslError (Chromium order:
+        // onReceivedSslError INSTEAD of onReceivedError for these). The
+        // SslError carries no certificate (Gecko onLoadError has none) and
+        // the handler is a token — cancel is already the effective
+        // outcome, proceed() needs a Gecko cert-override primitive (P2).
+        if (sslPrimaryError >= 0) {
+            android.webkit.SslErrorHandler handler =
+                    FrameworkTokens.newSslErrorHandler();
+            if (handler != null) {
+                try {
+                    client.onReceivedSslError(mOwner.webView(),
+                            handler,
+                            new android.net.http.SslError(sslPrimaryError,
+                                    (android.net.http.SslCertificate) null,
+                                    failingUrl));
+                    return;
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG,
+                            "WebViewClient.onReceivedSslError threw", t);
+                }
+            }
         }
         try {
             client.onReceivedError(mOwner.webView(), errorCode, description,

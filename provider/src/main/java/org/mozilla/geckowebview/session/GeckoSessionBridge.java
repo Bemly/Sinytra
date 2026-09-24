@@ -24,7 +24,7 @@ public final class GeckoSessionBridge
         void onPageFinished(boolean success);
         void onProgressChanged(int progress);
         void onTitleChanged(@Nullable String title);
-        void onLoadError(int errorCode, @NonNull String description,
+        void onLoadError(int errorCode, int sslPrimaryError, @NonNull String description,
                 @Nullable String failingUrl);
     }
 
@@ -207,9 +207,9 @@ public final class GeckoSessionBridge
     }
 
     @Override
-    public void onLoadError(int errorCode, @NonNull String description,
-            @Nullable String failingUrl) {
-        mClient.onLoadError(errorCode, description, failingUrl);
+    public void onLoadError(int errorCode, int sslPrimaryError,
+            @NonNull String description, @Nullable String failingUrl) {
+        mClient.onLoadError(errorCode, sslPrimaryError, description, failingUrl);
     }
 
     // --- ProgressBridge.Host ---

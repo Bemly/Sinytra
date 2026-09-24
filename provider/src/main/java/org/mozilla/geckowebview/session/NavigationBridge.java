@@ -17,7 +17,9 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
         void onCanGoForwardChanged(boolean canGoForward);
         // Maps to WebViewClient.shouldOverrideUrlLoading: true = host handles it, DENY the load.
         boolean shouldOverrideUrlLoading(@NonNull String url);
-        void onLoadError(int errorCode, @NonNull String description,
+        // sslPrimaryError: SslError primary constant when the failure was an
+        // SSL cert error (drives onReceivedSslError), -1 otherwise.
+        void onLoadError(int errorCode, int sslPrimaryError, @NonNull String description,
                 @Nullable String failingUrl);
     }
 
@@ -62,6 +64,7 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
             @NonNull String uri, @NonNull WebRequestError error) {
         try {
             mHost.onLoadError(ErrorBridge.toWebViewErrorCode(error.code),
+                    ErrorBridge.toSslPrimaryError(error.code),
                     ErrorBridge.describe(error.code), uri);
         } catch (Throwable t) {
             android.util.Log.w("Sinytra/navigation", "Host.onLoadError threw", t);

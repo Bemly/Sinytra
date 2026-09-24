@@ -51,6 +51,21 @@ public final class ErrorBridge {
                 || geckoCode == WebRequestError.ERROR_BAD_HSTS_CERT;
     }
 
+    // Maps a Gecko SSL error onto the closest SslError primary error for
+    // WebViewClient.onReceivedSslError. -1 when the gecko error is not an
+    // SSL failure. Constants are compile-time ints, so locks can reference
+    // them on the JVM. Gecko's onLoadError carries no certificate (P1):
+    // the SslError is built with a null certificate — getCertificate()
+    // honestly returns null instead of a fabricated chain. All three Gecko
+    // SSL codes map to SSL_UNTRUSTED: without cert details the trust
+    // failure is the only defensible primary.
+    public static int toSslPrimaryError(int geckoCode) {
+        if (!isSslError(geckoCode)) {
+            return -1;
+        }
+        return android.net.http.SslError.SSL_UNTRUSTED;
+    }
+
     @NonNull
     public static String describe(int geckoCode) {
         return "Gecko error " + geckoCode;
