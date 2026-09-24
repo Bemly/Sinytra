@@ -1,0 +1,170 @@
+From b43672422aa108e3387dee72ac9074b888c0be5f Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Fri, 25 Sep 2026 05:08:37 +0800
+Subject: [PATCH] Sinytra patch 0005: debug-only instrumentation via
+ sinytra.log.enabled pref
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Per the logging discipline (firefox-patches/README.md): debug builds log
+liberally for troubleshooting, release emits nothing.
+
+- C++: all Sinytra logs go through SINYTRA_LOG, runtime-gated on the
+  sinytra.log.enabled pref (default false, cached on first call). A
+  compile-time Gradle-variant gate is impossible — the AAR debug/release
+  variants share one libxul.
+- Java: the ResponseFilters dispatch log is gated on BuildConfig.DEBUG.
+
+Debug provider builds enable the pref via their packaged
+geckoview-config.yaml (provider-side wiring).
+---
+ .../geckoview/GeckoViewResponseController.cpp | 47 +++++++++++++++----
+ .../org/mozilla/geckoview/GeckoSession.java   | 10 ++--
+ 2 files changed, 44 insertions(+), 13 deletions(-)
+
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.cpp b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+index 7c53d197a1df..d02b2cce1bed 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.cpp
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+@@ -9,6 +9,7 @@
+ #include "js/Conversions.h"
+ #include "js/ForOfIterator.h"
+ #include "jsapi.h"
++#include "mozilla/Preferences.h"
+ #include "mozilla/StaticPtr.h"
+ #include "mozilla/dom/ScriptSettings.h"
+ #include "GeckoViewInputStream.h"
+@@ -25,6 +26,29 @@
+ 
+ using namespace mozilla;
+ 
++// 0005: debug-build instrumentation gate (firefox-patches/README.md
++// "日志纪律"). All Sinytra logs are runtime-gated on the
++// "sinytra.log.enabled" pref (default false): debug provider builds turn
++// it on via their packaged geckoview-config.yaml; release builds never
++// set it, so no Sinytra output is emitted. A Gradle-variant compile-time
++// gate is impossible here (the AAR debug/release variants share one
++// libxul), hence the pref. Cached on first call — every call site fires
++// after runtime create, when config prefs are already loaded; toggling
++// requires a process restart.
++static bool SinytraLogEnabled() {
++  static const bool sEnabled =
++      Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++
++#define SINYTRA_LOG(...)                                          \
++  do {                                                            \
++    if (SinytraLogEnabled()) {                                    \
++      __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",  \
++                          __VA_ARGS__);                           \
++    }                                                             \
++  } while (0)
++
+ namespace {
+ 
+ // Process-wide filter state: written by the filter-push observer (main
+@@ -54,7 +78,7 @@ NS_IMPL_ISUPPORTS(FilterPushObserver, nsIObserver)
+ NS_IMETHODIMP
+ FilterPushObserver::Observe(nsISupports* aSubject, const char* aTopic,
+                             const char16_t* aData) {
+-  __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++  SINYTRA_LOG(
+                       "FilterPushObserver topic=%s", aTopic);
+   if (strcmp(aTopic, "sinytra-response-filters") != 0) {
+     return NS_OK;
+@@ -82,7 +106,7 @@ FilterPushObserver::Observe(nsISupports* aSubject, const char* aTopic,
+   }
+   sFilterState->mPrefixes = std::move(prefixes);
+   sFilterState->mDispatcher = std::move(dispatcher);
+-  __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++  SINYTRA_LOG(
+                       "filters pushed: %zu", (size_t)sFilterState->mPrefixes.Length());
+   return NS_OK;
+ }
+@@ -100,7 +124,7 @@ void EnsureFilterObserver() {
+                             "sinytra-response-filters",
+                             /* ownsWeak */ false);
+     sRegistered = true;
+-    __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++    SINYTRA_LOG(
+                         "filter observer registered parent=%d",
+                         static_cast<int>(XRE_IsParentProcess()));
+   }
+@@ -181,7 +205,7 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+   NS_IMETHOD
+   OnSuccess(JS::Handle<JS::Value> aData, JSContext* aCx_) override {
+     (void)aCx_;
+-    __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++    SINYTRA_LOG(
+                         "OnSuccess");
+     nsAutoCString contentType;
+     uint32_t statusCode = 200;
+@@ -256,7 +280,7 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+   NS_IMETHOD
+   OnError(JS::Handle<JS::Value> aData, JSContext* aCx_) override {
+     (void)aCx_;
+-    __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response", "OnError");
++    SINYTRA_LOG( "OnError");
+     // App failure: fall through to the network untouched.
+     mChannel->ResetInterception(false);
+     return NS_OK;
+@@ -291,9 +315,12 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+     // checks reject. Mark tainting like the service-worker synthesized
+     // path does — only on the real synthesis path; reset / fallback keeps
+     // network semantics untouched.
+-    if (channel && channel->LoadInfo()) {
+-      channel->LoadInfo()->SynthesizeServiceWorkerTainting(
+-          mozilla::LoadTainting::Basic);
++    if (channel) {
++      nsCOMPtr<nsILoadInfo> loadInfo = channel->LoadInfo();
++      if (loadInfo) {
++        loadInfo->SynthesizeServiceWorkerTainting(
++            mozilla::LoadTainting::Basic);
++      }
+     }
+ 
+     if (!aContentType.IsEmpty()) {
+@@ -379,7 +406,7 @@ GeckoViewResponseController::ShouldPrepareForIntercept(
+     *aShouldIntercept = true;
+     nsAutoCString spec;
+     aURI->GetSpec(spec);
+-    __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++    SINYTRA_LOG(
+                         "ShouldPrepare HIT %s", spec.get());
+     return NS_OK;
+   }
+@@ -395,7 +422,7 @@ NS_IMETHODIMP
+ GeckoViewResponseController::ChannelIntercepted(
+     nsIInterceptedChannel* aChannel) {
+   MOZ_ASSERT(NS_IsMainThread());
+-  __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++  SINYTRA_LOG(
+                       "ChannelIntercepted dispatcher=%p", mDispatcher.get());
+ 
+   nsCOMPtr<nsIChannel> intercepted;
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+index 7375669655ea..14407204ad8c 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
+@@ -3725,9 +3725,13 @@ public class GeckoSession {
+       // controller (nsIObserver hop via the parent navigation module).
+       final GeckoBundle message = new GeckoBundle();
+       message.putStringArray("filters", delegate.getUriFilters());
+-      Log.d("Sinytra/response",
+-            "dispatching GeckoView:ResponseFilters filters="
+-                + java.util.Arrays.toString(delegate.getUriFilters()));
++      // Sinytra 0005: debug-variant only (AAR release stays silent; the
++      // C++ counterpart is gated on the sinytra.log.enabled pref).
++      if (BuildConfig.DEBUG) {
++        Log.d("Sinytra/response",
++              "dispatching GeckoView:ResponseFilters filters="
++                  + java.util.Arrays.toString(delegate.getUriFilters()));
++      }
+       getEventDispatcher().dispatch("GeckoView:ResponseFilters", message);
+     }
+   }
+-- 
+2.55.0
+

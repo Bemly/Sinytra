@@ -1,0 +1,52 @@
+From bc58ea7cf4df2f2c5ba25cc6940a016c7c56618e Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Fri, 25 Sep 2026 04:12:19 +0800
+Subject: [PATCH] Sinytra patch 0004: synthesize SW tainting on intercepted
+ responses
+
+A synthesized top-level navigation carries no loading principal; ORB /
+cross-origin response checks reject such responses. Mark the loadInfo
+with SynthesizeServiceWorkerTainting(LoadTainting::Basic) right before
+synthesis, mirroring the service-worker path (borrowed from the
+wszgrcy/capacitor-geckoview line; cross-checked in
+docs/RELATED-PROJECTS.md). Reset/fallback paths stay untouched.
+---
+ .../geckoview/GeckoViewResponseController.cpp     | 15 +++++++++++++--
+ 1 file changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.cpp b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+index b0e4b3efc34a..7c53d197a1df 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.cpp
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+@@ -283,6 +283,19 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+       NS_NewCStringInputStream(getter_AddRefs(body), ""_ns);
+     }
+ 
++    nsCOMPtr<nsIChannel> channel;
++    mChannel->GetChannel(getter_AddRefs(channel));
++    // 0004 (borrowed from the wszgrcy/capacitor-geckoview line, see
++    // docs/RELATED-PROJECTS.md §2.1): a synthesized top-level navigation
++    // carries no loading principal, which ORB / cross-origin response
++    // checks reject. Mark tainting like the service-worker synthesized
++    // path does — only on the real synthesis path; reset / fallback keeps
++    // network semantics untouched.
++    if (channel && channel->LoadInfo()) {
++      channel->LoadInfo()->SynthesizeServiceWorkerTainting(
++          mozilla::LoadTainting::Basic);
++    }
++
+     if (!aContentType.IsEmpty()) {
+       mChannel->SynthesizeHeader("Content-Type"_ns, aContentType);
+     }
+@@ -295,8 +308,6 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+     }
+     mChannel->SynthesizeStatus((uint16_t)aStatusCode, "OK"_ns);
+ 
+-    nsCOMPtr<nsIChannel> channel;
+-    mChannel->GetChannel(getter_AddRefs(channel));
+     nsAutoCString spec;
+     if (channel) {
+       nsCOMPtr<nsIURI> uri;
+-- 
+2.55.0
+

@@ -5,44 +5,63 @@
 
 ## Pin
 
-- 基线 tag：`FIREFOX_153_0_RELEASE`（commit `f1b6c0f86b96b7e0688c26f65803576f27cdaf88`）
-- 对齐 Maven AAR：`org.mozilla.geckoview:geckoview:153.0.20260810162159`（stable，
-  buildid 20260810162159 应即该 release 构建产物；本地首次构建后用
-  `GeckoSession.getDefaultUserAgent()`/版本号与 AAR 对照复核）
-- sibling checkout 位置（本机实况，偏离 BOOTSTRAP §4 推荐的 ~/src——内置盘仅 7GB）：
-  `/Volumes//Projects/firefox`
+- 基线：**mozilla-central 158.0a1 最后一刻**
+  `34ed69f161676c3ac7ca5f201fade6d081e5bcd2`（2026-09-25 定稿；158.0 正式
+  tag 未发布，出来后再评估切 release；`browser/config/version.txt`=158.0a1
+  已核，下一个 version bump commit 即翻 159.0a1）
+- 对齐 AAR：`org.mozilla.geckoview:geckoview-nightly:158.0.20260924093433`
+  （daily 走 maven.mozilla.org）。注意 158 树本地 publish 产物的
+  artifactId 是 **geckoview-default**（computeArtifactId 新规则），且
+  `substitute-local-geckoview.gradle` 把 nightly 坐标换成本地
+  geckoview-default——已验证咬合
+- sibling checkout 位置：`/Volumes/（U+F8FF 卷）/Projects/firefox`。
+  **卷名含 U+F8FF 字面路径经 Bash 传递编码不稳定（实测反复踩）**，一律走
+  `~/sinytra-vol` 符号链接或 python 探测；磁盘以该卷为准（非系统盘）
+- 分支：`sinytra-pin-158`（158 线，活跃）；`sinytra-pin`（153 线冻结，
+  0001-0003 的 153 版 patch 历史，objdir-opt 保留可回退）
+- 构建：`mozconfig-158`（独立 `objdir-158`，内容同 mozconfig 仅 objdir 不同；
+  每线一个 mozconfig/objdir，互不覆盖）
 
 ## Stack（自下而上，编号即应用顺序）
 
 | # | 文件 | 解决哪个 WebView API | 为什么 public API 不够 | 状态 |
 |---|---|---|---|---|
-| 0001 | response-body 拦截（导航级） | `shouldInterceptRequest` 返回自定义 body | GV153 `onLoadRequest` 只返回 AllowOrDeny；决策在 docshell 层，无 Java→Gecko 响应体通道（树内核实，详见 0001 设计文档） | **已定稿**：`0001-response-body-interception.patch`（7 commits，@ `59aa103b6d50`，日志已降 DEBUG），真机端到端打通（2026-09-24 全量 harness 29 PASS） |
-| 0002 | 请求信息保真 + 子帧 DENY 让位 | `shouldInterceptRequest` 的 method/headers 语义、filter 命中的子帧不被 P2-4 近似杀掉 | 0001 查询面只有 uri+isNavigation（C++ 硬编码 isNavigation=true）；LoadRequest DENY 与 necko 替身撞车（勘察详见 0002 设计文档） | **已定稿**：`0002-request-info-and-subframe-standdown.patch`（@ `539b7ff6f329`）；Group A 在 Sinytra glue（`9244efb`/`812b220`）；真机 31 PASS（2026-09-24，含子资源/子帧探针） |
-| 0003 | 流式响应体 | 替身体按 Chromium 语义流式读取，无 16MB 上限 | 0001 的 base64+cap 基于"流跨不了 JVM"的过时假设——0002 钉死查询全程在 app 进程，是 JNI 边界不是进程边界（详见 0003 设计文档） | **已定稿**：`0003-response-body-streaming.patch`（@ `62b7b46e280e`）；真机 32 PASS（2026-09-25，interceptLargeBody 17MB 裁决实验过） |
+| 0001 | response-body 拦截（导航级） | `shouldInterceptRequest` 返回自定义 body | GV 无 Java→Gecko 响应体通道（详见 0001 设计文档） | **已定稿**：`0001-response-body-interception.patch`（7 commits）；153 线真机打通（2026-09-24 29 PASS），**158 重放 @ `e79d4c7e1362`** |
+| 0002 | 请求信息保真 + 子帧 DENY 让位 | `shouldInterceptRequest` 的 method/headers 语义、filter 命中子帧不被近似杀掉 | 0001 查询面 v1 只有 uri（详见 0002 设计文档） | **已定稿**：`0002-request-info-and-subframe-standdown.patch`；**158 重放 @ `2985d67b9eaa`** |
+| 0003 | 流式响应体 | 替身体流式读取，无 16MB 上限 | base64+cap 基于过时假设（详见 0003 设计文档） | **已定稿**：`0003-response-body-streaming.patch`；**158 重放 @ `8efda7b417c0`** |
+| 0004 | 合成响应 SW tainting（ORB 加固） | 顶层导航合成响应无 loading principal，ORB/跨源检查会拒 | `InterceptedHttpChannel` 的 SW 路径会 SynthesizeServiceWorkerTainting，自研路径不会——借鉴 wszgrcy 线（RELATED-PROJECTS §2.1） | **已定稿**：`0004-synthesized-sw-tainting.patch`（@ `bc58ea7cf4df`）；153 上不需要（真机已通），158 起防御性补上 |
+| 0005 | 插桩日志 debug 门 | debug 构建多打、release 零输出（README「日志纪律」） | AAR debug/release 变体共用一个 libxul，编译期门做不到按变体区分 → 运行时 pref `sinytra.log.enabled`（默认 false） | **已定稿**：`0005-debug-only-instrumentation.patch`（@ `b43672422aa1`）；provider debug 构建经 `src/debug/assets/geckoview-config.yaml` 打开 |
 
-设计文档：`0001-response-body-interception.md`（含树内勘察、地基选型、
-边界与测试计划）。
+设计文档：`0001/0002/0003-*.md`（树内勘察、地基选型、边界、测试计划）。
 
 ## 工作流
 
 ```bash
-cd /Volumes//Projects/firefox
-git checkout sinytra-pin                  # FIREFOX_153_0_RELEASE 的分支
+cd ~/sinytra-vol/Projects/firefox        # U+F8FF 卷名，见 Pin 节
+git checkout sinytra-pin-158             # 158 线（153 线在 sinytra-pin）
+export MOZCONFIG="$HOME/sinytra-vol/Projects/firefox/mozconfig-158"
+export MOZBUILD_STATE_PATH="$HOME/sinytra-vol/Projects/mozbuild"
+export PATH="$HOME/.cargo/bin:$PATH"
 #（逐个应用/修改 patch 后）
-MOZBUILD_STATE_PATH=/Volumes//Projects/mozbuild PATH="$HOME/.cargo/bin:$PATH" \
-  ./mach build binaries                   # 增量
-MOZBUILD_STATE_PATH=/Volumes//Projects/mozbuild PATH="$HOME/.cargo/bin:$PATH" \
-  ./mach gradle geckoview:publishDebugPublicationToMavenRepository
-# 153 树的任务名：publishWithGeckoBinaries* 不存在（脚本文档过时）
-cd /Volumes//Projects/Sinytra
-./gradlew :provider:assembleDebug -PsinytraLocalGecko=true   # 替换构建
-# 真机回归：P0RenderActivity 金丝雀 + P0GlueActivity 29 探针
+./mach build binaries                    # 增量；新增 GeneratedJNI 头先 build export
+./mach gradle geckoview:publishDebugPublicationToMavenRepository
+# 本地产物 artifactId=geckoview-default；substitute 脚本换 nightly 坐标
+cd ~/sinytra-vol/Projects/Sinytra
+JAVA_HOME=/opt/homebrew/opt/openjdk@17 ANDROID_HOME=/opt/homebrew/share/android-commandlinetools \
+  ./gradlew :provider:assembleDebug -PsinytraLocalGecko=true
+# 真机回归：P0RenderActivity 金丝雀 + P0GlueActivity 32 探针
 ```
 
 环境备忘：rust 用 rustup 工具链（homebrew rustc 缺 android target 的
 std；`~/.cargo/bin` 已放 rustc/cargo/rustdoc shim，构建 PATH 需前置）。
+后台跑 mach 时**不要给命令设短超时**（libxul 链接 >10min，超时会静默
+杀掉链接且管道吞退出码——2026-09-25 踩过）；管道后必须显式 `echo $?`
+核对 mach 退出码。
 
 升级 Firefox 版本时：逐个 rebase，冲突不解决不许升级（AGENTS.md §5）。
+2026-09-25 153→158 重放实录：9 commits 仅 1 冲突
+（`ParentChannelListener.cpp` include 区重排），`GeckoSession.java`/
+`components.conf`/`widget moz.build`/JS 两处全部自动合并。
 
 ## 日志纪律（2026-09-25 定）
 

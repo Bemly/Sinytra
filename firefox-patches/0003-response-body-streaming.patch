@@ -1,4 +1,4 @@
-From 62b7b46e280e366280da3a4f5e50e11ccf8ae397 Mon Sep 17 00:00:00 2001
+From 8efda7b417c0c477e00de65811107a09bc3dc5dd Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Fri, 25 Sep 2026 00:29:14 +0800
 Subject: [PATCH] Sinytra patch 0003: stream the response body (no base64, no
@@ -171,10 +171,10 @@ index 1d554cca7475..4b6c95ea6df8 100644
   * Sinytra firefox-patches/0001: response-body interception controller.
   *
 diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-index ed872e714a34..87437ca3aa76 100644
+index f1f14fc1238f..7375669655ea 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-@@ -976,12 +976,13 @@ public class GeckoSession {
+@@ -993,12 +993,13 @@ public class GeckoSession {
        };
  
    // Sinytra firefox-patches/0001: session-level response interception.
@@ -194,7 +194,7 @@ index ed872e714a34..87437ca3aa76 100644
    private final GeckoSessionHandler<ResponseDelegate> mResponseHandler =
        new GeckoSessionHandler<ResponseDelegate>(
            "GeckoViewResponse",
-@@ -3511,12 +3512,13 @@ public class GeckoSession {
+@@ -3622,12 +3623,13 @@ public class GeckoSession {
       * A resource load is starting and may be answered by the app.
       *
       * @param session The GeckoSession that initiated the callback.
@@ -212,7 +212,7 @@ index ed872e714a34..87437ca3aa76 100644
       */
      @Nullable
      GeckoResult<WebResponse> onRequestResponse(
-@@ -3532,15 +3534,11 @@ public class GeckoSession {
+@@ -3643,15 +3645,11 @@ public class GeckoSession {
      String[] getUriFilters();
    }
  
@@ -229,7 +229,7 @@ index ed872e714a34..87437ca3aa76 100644
      // discarded and the channel falls back to the network.
      bundle.putBoolean("handled", true);
      bundle.putString("uri", response.uri);
-@@ -3564,39 +3562,17 @@ public class GeckoSession {
+@@ -3675,39 +3673,17 @@ public class GeckoSession {
      }
      bundle.putStringArray("headers", headerPairs.toArray(new String[0]));
  
@@ -332,10 +332,10 @@ index 000000000000..c9fbdab75c1a
 +  }
 +}
 diff --git a/widget/android/moz.build b/widget/android/moz.build
-index 25b6911135d0..5b3c219f0a18 100644
+index b73765e65471..c1fe68712c04 100644
 --- a/widget/android/moz.build
 +++ b/widget/android/moz.build
-@@ -57,6 +57,7 @@ classes_with_WrapForJNI = [
+@@ -58,6 +58,7 @@ classes_with_WrapForJNI = [
      "GeckoSystemStateListener",
      "GeckoThread",
      "GeckoViewInputStream",

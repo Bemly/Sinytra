@@ -1,4 +1,4 @@
-From a76774863e81df9c39fa1a6208d7f317d816db4f Mon Sep 17 00:00:00 2001
+From faaee661957d294a8303c410aa52a2d705b005e7 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Wed, 23 Sep 2026 05:31:26 +0800
 Subject: [PATCH 1/7] Sinytra patch 0001 (1/3): GeckoView session
@@ -28,10 +28,10 @@ No consumer yet: nothing sends the query until the C++ necko hook
  create mode 100644 mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java
 
 diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-index ef2510d5bce7..cefd7b2245aa 100644
+index e98a897205f1..65c4232c8f96 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-@@ -975,6 +975,55 @@ public class GeckoSession {
+@@ -992,6 +992,55 @@ public class GeckoSession {
          }
        };
  
@@ -87,7 +87,7 @@ index ef2510d5bce7..cefd7b2245aa 100644
    private final GeckoSessionHandler<ContentDelegate> mProcessHangHandler =
        new GeckoSessionHandler<ContentDelegate>(
            "GeckoViewProcessHangMonitor", this, new String[] {"GeckoView:HangReport"}) {
-@@ -1293,6 +1342,7 @@ public class GeckoSession {
+@@ -1310,6 +1359,7 @@ public class GeckoSession {
          mMediaHandler,
          mNavigationHandler,
          mPermissionHandler,
@@ -95,7 +95,7 @@ index ef2510d5bce7..cefd7b2245aa 100644
          mPrintHandler,
          mProcessHangHandler,
          mProgressHandler,
-@@ -3448,6 +3498,86 @@ public class GeckoSession {
+@@ -3559,6 +3609,86 @@ public class GeckoSession {
      return mProgressHandler.getDelegate();
    }
  
@@ -182,7 +182,7 @@ index ef2510d5bce7..cefd7b2245aa 100644
    /**
     * Set the navigation callback handler. This will replace the current handler.
     *
-@@ -3470,6 +3600,30 @@ public class GeckoSession {
+@@ -3581,6 +3711,30 @@ public class GeckoSession {
      return mNavigationHandler.getDelegate();
    }
  
@@ -258,7 +258,7 @@ index 000000000000..bbf6c3a7ec86
 2.55.0
 
 
-From 6ef2cc7dc4bef81765c568a15a91678bb92178b5 Mon Sep 17 00:00:00 2001
+From 71028253736ff298832a13dc081bb4eadc2a103e Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Wed, 23 Sep 2026 06:55:15 +0800
 Subject: [PATCH 2/7] Sinytra patch 0001 (3/3): GeckoViewResponseController +
@@ -296,7 +296,7 @@ on Android parent process. Build green end-to-end; device regression
  create mode 100644 mobile/android/components/geckoview/GeckoViewResponseController.h
 
 diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
-index 275d0ce1d33e..f367b2b860c3 100644
+index 5be2ef463856..e9dbce4ccc46 100644
 --- a/docshell/base/nsDocShell.cpp
 +++ b/docshell/base/nsDocShell.cpp
 @@ -77,6 +77,9 @@
@@ -309,7 +309,7 @@ index 275d0ce1d33e..f367b2b860c3 100644
  #include "mozilla/dom/ServiceWorkerUtils.h"
  #include "mozilla/dom/SessionHistoryEntry.h"
  #include "mozilla/dom/SessionStorageManager.h"
-@@ -499,7 +502,16 @@ already_AddRefed<nsDocShell> nsDocShell::Create(
+@@ -498,7 +501,16 @@ already_AddRefed<nsDocShell> nsDocShell::Create(
    // Note: This check is duplicated in SharedWorkerInterfaceRequestor's
    // constructor.
    if (XRE_IsParentProcess()) {
@@ -758,7 +758,7 @@ index ea294ea3dd3b..c1ddecb83f1f 100644
 2.55.0
 
 
-From 51c645e25be280e2bff2bd2d4095f328f98efda0 Mon Sep 17 00:00:00 2001
+From a4378916bdb27d82d1844045c40676a20af09abc Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Wed, 23 Sep 2026 23:53:34 +0800
 Subject: [PATCH 3/7] Sinytra patch 0001 (4/5): process-wide shared FilterState
@@ -1041,19 +1041,19 @@ index 84436ba16ef0..1d554cca7475 100644
  
    RefPtr<mozilla::dom::ServiceWorkerInterceptController> mSWController;
 diff --git a/netwerk/protocol/http/ParentChannelListener.cpp b/netwerk/protocol/http/ParentChannelListener.cpp
-index 356e504f7831..5b8d5d4eb41f 100644
+index decb1a7d6c47..02e27b81028e 100644
 --- a/netwerk/protocol/http/ParentChannelListener.cpp
 +++ b/netwerk/protocol/http/ParentChannelListener.cpp
-@@ -6,6 +6,9 @@
- #include "HttpLog.h"
- 
- #include "ParentChannelListener.h"
+@@ -10,6 +10,9 @@
+ #include "mozilla/Components.h"
+ #include "mozilla/SchedulerGroup.h"
+ #include "mozilla/dom/CanonicalBrowsingContext.h"
 +#ifdef MOZ_WIDGET_ANDROID
 +#  include "GeckoViewResponseController.h"
 +#endif
  #include "mozilla/dom/ContentParent.h"
  #include "mozilla/dom/Document.h"
- #include "mozilla/dom/ServiceWorkerInterceptController.h"
+ #include "mozilla/dom/LoadURIOptionsBinding.h"
 @@ -41,7 +44,15 @@ ParentChannelListener::ParentChannelListener(
    LOG(("ParentChannelListener::ParentChannelListener [this=%p, next=%p]", this,
         aListener));
@@ -1074,7 +1074,7 @@ index 356e504f7831..5b8d5d4eb41f 100644
 2.55.0
 
 
-From 1824f2745432927da042634325cf842c715610c7 Mon Sep 17 00:00:00 2001
+From c11fadef1aaea0b46559bf9376233e606b810be0 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Wed, 23 Sep 2026 23:53:44 +0800
 Subject: [PATCH 4/7] Sinytra patch 0001 (5/5): response-filter dispatch chain
@@ -1101,10 +1101,10 @@ nsIGeckoViewEventDispatcher QI failure, handler-module routing.
  2 files changed, 29 insertions(+)
 
 diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-index cefd7b2245aa..6e94a7e7838d 100644
+index 65c4232c8f96..2141bf83fbd2 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-@@ -3521,6 +3521,15 @@ public class GeckoSession {
+@@ -3632,6 +3632,15 @@ public class GeckoSession {
      @Nullable
      GeckoResult<WebResponse> onRequestResponse(
          @NonNull GeckoSession session, @NonNull WebRequestInfo info);
@@ -1120,7 +1120,7 @@ index cefd7b2245aa..6e94a7e7838d 100644
    }
  
    // v1 body transport cap: stream objects cannot cross the process
-@@ -3611,6 +3620,13 @@ public class GeckoSession {
+@@ -3722,6 +3731,13 @@ public class GeckoSession {
    public void setResponseDelegate(final @Nullable ResponseDelegate delegate) {
      ThreadUtils.assertOnUiThread();
      mResponseHandler.setDelegate(delegate, this);
@@ -1169,7 +1169,7 @@ index f13150bc961c..7add099a3791 100644
 2.55.0
 
 
-From 2a3ae2df8752a0df842b19cbf03d07f294bc66ac Mon Sep 17 00:00:00 2001
+From 58a7c4be55f6cd413a42991cfbd72d487d0472c3 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Thu, 24 Sep 2026 00:37:56 +0800
 Subject: [PATCH 5/7] Sinytra patch 0001: push filters via the native
@@ -1264,7 +1264,7 @@ index 7add099a3791..3bd2ec6def83 100644
 2.55.0
 
 
-From 98b57f6662abf9209bfaf3792b4fd0d3a9d1059e Mon Sep 17 00:00:00 2001
+From 49e23b4bcc0549072820ea254973443162b1e033 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Thu, 24 Sep 2026 00:38:09 +0800
 Subject: [PATCH 6/7] Sinytra patch 0001: mark response bundle handled +
@@ -1298,10 +1298,10 @@ dispatch.
  1 file changed, 17 insertions(+), 1 deletion(-)
 
 diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-index 6e94a7e7838d..c5b5dc6db8f9 100644
+index 2141bf83fbd2..83ff36615724 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-@@ -3539,10 +3539,23 @@ public class GeckoSession {
+@@ -3650,10 +3650,23 @@ public class GeckoSession {
    @Nullable
    private static GeckoBundle responseToBundle(final @NonNull WebResponse response) {
      final GeckoBundle bundle = new GeckoBundle();
@@ -1326,7 +1326,7 @@ index 6e94a7e7838d..c5b5dc6db8f9 100644
      // GeckoBundle has no map primitive: flatten headers to "name:value"
      // pairs; the consumer (patch 0001 C++ side) parses them back.
      final java.util.List<String> headerPairs = new java.util.ArrayList<>();
-@@ -3625,6 +3638,9 @@ public class GeckoSession {
+@@ -3736,6 +3749,9 @@ public class GeckoSession {
        // controller (nsIObserver hop via the parent navigation module).
        final GeckoBundle message = new GeckoBundle();
        message.putStringArray("filters", delegate.getUriFilters());
@@ -1340,7 +1340,7 @@ index 6e94a7e7838d..c5b5dc6db8f9 100644
 2.55.0
 
 
-From 59aa103b6d50d1796c1622f7d9f677ee51ae89a4 Mon Sep 17 00:00:00 2001
+From e79d4c7e13625c6fdc454dc2eb6bf9e17f5264d4 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Thu, 24 Sep 2026 01:26:52 +0800
 Subject: [PATCH 7/7] Sinytra patch 0001: downgrade debug logs to DEBUG/debug
@@ -1430,10 +1430,10 @@ index 4f5ddb239788..dad629d5e52c 100644
  
    nsCOMPtr<nsIChannel> intercepted;
 diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-index c5b5dc6db8f9..ed872e714a34 100644
+index 83ff36615724..f1f14fc1238f 100644
 --- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
 +++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSession.java
-@@ -3638,7 +3638,7 @@ public class GeckoSession {
+@@ -3749,7 +3749,7 @@ public class GeckoSession {
        // controller (nsIObserver hop via the parent navigation module).
        final GeckoBundle message = new GeckoBundle();
        message.putStringArray("filters", delegate.getUriFilters());

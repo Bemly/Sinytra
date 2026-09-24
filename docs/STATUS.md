@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-25 00:35（0001/0002/0003 全部定稿：全量 harness 32 PASS）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-25 05:2x（Gecko pin 升级 158.0a1 完成 + 0004/0005 落地：全量 harness 32 PASS ×2、JVM 49 锁）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -392,41 +392,47 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
 - **剩余候选**：敏感请求头收窄（Cookie/Authorization 目前全量透传，
   显式决策点）；master 合并评估仍挂起（等用户拍板）。
 
-## 1k. Gecko pin 升级 153.0 → 158.0a1（2026-09-25 进行中，用户拍板）
+## 1k. Gecko pin 升级 153.0 → 158.0a1（2026-09-25 完成，用户拍板）
 
 - **定性**：158.0 正式 tag 未发布（预计 2026-11），"提高到 158" 的唯一
   现行形态 = **mozilla-central 158.0a1 最后一刻** `34ed69f161676c3ac7ca5f
   201fade6d081e5bcd2`（version.txt=158.0a1 已核；下一个 version bump
-  commit `4c5c29cee1f9` → 159.0a1）。AAR 对齐改 `geckoview-nightly:
-  158.0.20260924093433`（maven.mozilla.org）。届时 158.0 stable 出来后
-  再评估切 release tag。
-- **rebase 完成**：`sinytra-pin-158` 分支 = 34ed69f16167 + 0001-0003 共
-  9 commits 逐个 cherry-pick。唯一冲突 `ParentChannelListener.cpp`
-  include 区（158 重排了 include 列表），已解；其余全部干净/自动合并
-  （含 `widget/android/moz.build` classes_with_WrapForJNI、
-  `components.conf`、`GeckoSession.java`、`GeckoViewNavigation.sys.mjs`
-  两处 0001 关键改动——已逐一 grep 复核落位）。
-- **provider 接线已提交（`d2cafc0`）**：compileSdk 36→**37.2**
-  （158 的 `android-components/.config.yml`：major 37/minor 2；
-  `android-37.2` 平台已 sdkmanager 补装——STATUS 旧记录"本地无 37.1"
-  已过时，37.1/37.2 均在）；依赖坐标换 nightly；本地替换
-  `topobjdir` → **objdir-158**（mozconfig-158 独立线，153 的 objdir-opt
-  保留可回退）。
-- **构建中**：`/tmp/build-158.sh` 后台流水线（mach build → export →
-  binaries → publish，独立 objdir-158 + 新 clang 工具链下载），日志
-  `/tmp/build-158.log`。
-- **构建完成后待做（顺序）**：① 0004 commit：`Synthesize()` 开头加
-  `loadInfo->SynthesizeServiceWorkerTainting(LoadTainting::Basic)`
-  （借鉴 wszgrcy 线，见 RELATED-PROJECTS §2.1；只放真实合成路径，
-  Reset/fallback 路径不动）→ 增量 binaries+publish；② provider
-  `-PsinytraLocalGecko` 编译（158 API churn 修复）+ JVM 49 锁；③
-  真机金丝雀 + 全量 harness（32 探针预期不变）；④ format-patch 重出
-  `firefox-patches/0001..0003-*.patch`（基线改 34ed69f16167）；
-  ⑤ README Pin/Stack、AGENTS.md pin 块、RELATED-PROJECTS §5 借鉴项
-  状态同步；⑥ 日志纪律落地 0005（既有插桩 `#ifdef DEBUG` /
-  `BuildConfig.DEBUG` 门，policy 见 README「日志纪律」）。
-- **路径坑记死**：U+F8FF 卷名字面路径经 Bash 传递编码不稳定（同一写法
-  时好时坏），一律走 `~/sinytra-vol` 符号链接（`/Volumes/<U+F8FF>`）。
+  commit `4c5c29cee1f9` → 159.0a1）。AAR 对齐 `geckoview-nightly:
+  158.0.20260924093433`。158.0 stable 出来后再评估切 release tag。
+- **rebase**：`sinytra-pin-158` = 34ed69f16167 + 0001-0003 共 9 commits
+  逐个 cherry-pick，唯一冲突 `ParentChannelListener.cpp` include 区
+  （158 重排了 include 列表），其余全部干净/自动合并（注册点逐一复核）。
+- **全量构建 55 分钟全绿**（新 clang 自动拉取，独立 `objdir-158` +
+  `mozconfig-158`；153 线 objdir-opt 保留可回退）。**158 publish 产物
+  artifactId 变为 `geckoview-default`**，`substitute-local-geckoview.gradle`
+  把 nightly 坐标换成本地 geckoview-default——已验证咬合。
+- **provider 接线**（`d2cafc0`）：compileSdk 36→**37.2**（158 的
+  `android-components/.config.yml`；android-37.2 平台已 sdkmanager 补装——
+  旧记录"本地无 37.1"过时）、坐标换 nightly、objdir 指向 objdir-158。
+- **可借鉴项落地**：**0004**（@ `bc58ea7cf4df`）——`Synthesize()` 开头
+  `SynthesizeServiceWorkerTainting(LoadTainting::Basic)`（ORB 加固，
+  借鉴 wszgrcy 线；153 上不需要，158 起防御性补上；注意 `LoadInfo()`
+  返回 `already_AddRefed` 不能直接判 bool，nsCOMPtr 接收）。**0005**
+  （@ `b43672422aa1`）——日志纪律落地：C++ `SINYTRA_LOG` 宏 +
+  运行时 pref `sinytra.log.enabled` 门（默认 false；AAR 双变体共用
+  libxul，编译期门做不到——这是设计结论不是偷懒），Java
+  ~~BuildConfig~~ `FLAG_DEBUGGABLE` 门（AGP 9 不再生成 BuildConfig，
+  且 FLAG_DEBUGGABLE 才是"调试模式"本义）；provider debug 构建
+  `src/debug/assets/geckoview-config.yaml` + `configFilePath`
+  （assets 先拷 filesDir，wszgrcy 线同款做法）。
+- **验证闭环（2026-09-25 05:1x）**：JVM **49 锁全绿** ×2；真机金丝雀
+  渲染正常；全量 harness **32 PASS + P0 GLUE PASS** ×2（0004 后、
+  0005 后各一轮）；日志门双向验证（pref on → `Sinytra/response`
+  全程可见）。拦截线（0001-0005）在 158 上与 153 行为一致。
+- **patch 重出**：`firefox-patches/0001..0005-*.patch` 五件，基线
+  34ed69f16167（0001=7 commits、0002/0003/0004/0005 各 1）。
+- **踩坑记死**：① U+F8FF 卷名字面路径经 Bash 传参编码不稳定（时好时坏），
+  一律 `~/sinytra-vol` 符号链接或 python 探测；② 后台 mach 别设短超时
+  （libxul 链接 >10min，超时静默杀链接），管道吞退出码，必须显式
+  `echo $?` 核对——`| tail` 后 mach 失败会伪装成功；③ 158 树的
+  `shared-settings.gradle` 从 `mobile/android/android-components/.config.yml`
+  读 compileSdk 37.2；④ sed 批量替换会把宏定义体一起换掉（自递归），
+  批量替换后必查定义行。
 
 ## 2. 下一步（按顺序，一次做一件）
 
