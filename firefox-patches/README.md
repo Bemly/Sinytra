@@ -43,3 +43,17 @@ cd /Volumes//Projects/Sinytra
 std；`~/.cargo/bin` 已放 rustc/cargo/rustdoc shim，构建 PATH 需前置）。
 
 升级 Firefox 版本时：逐个 rebase，冲突不解决不许升级（AGENTS.md §5）。
+
+## 日志纪律（2026-09-25 定）
+
+插桩日志的目标是**排查**：debug 构建要多打（入口/出口/关键分支），release
+构建不启用。机制按层：
+
+- C++：`__android_log_print` 包 `#ifdef DEBUG`（moz debug 构建定义 DEBUG，
+  release 编译期剔除）；
+- 树内 Java（geckoview 模块）：`BuildConfig.DEBUG` 门；
+- provider Java：`src/debug` sourceSet / `BuildConfig.DEBUG`（既有做法）；
+- JS：debug flag。
+
+tag 一律 `Sinytra/<模块>`；上游共享文件里的插桩必须在定稿时收敛到
+`ifdef DEBUG` 门内或删除，不许裸奔进 release。

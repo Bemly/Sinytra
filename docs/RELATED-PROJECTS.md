@@ -106,9 +106,12 @@ PWA 场景驱动）：为「app 拦截器伺服导航页 + SW 管 subresource �
 
 - 同步 JNI 查询（主线程阻塞 + 与 Chromium「回调在后台线程」语义相悖）；
 - 无过滤的全局观察者（每请求成本 + 未注册也白跑）；
-- 往上游 5 个文件（ServiceWorker*×4 + InterceptedHttpChannel）无条件打
-  `__android_log_print`——污染面大，违反我们「日志限独立文件 + tag
-  `Sinytra/*` + 定稿降级」纪律；
+- ~~往上游 5 个文件打日志~~ **按用户决策修正（2026-09-25）**：调试构建里
+  多打日志是对的（不打没法排查），他们的真问题不是"打了"而是**不分构建、
+  无开关**——正解：debug 构建保留/加密插桩（tag `Sinytra/*`），release
+  构建编译期剔除（C++ `#ifdef DEBUG` / Java `BuildConfig.DEBUG` /
+  provider `src/debug` sourceSet，三套机制都在）。落入 patch stack 纪律，
+  见 firefox-patches/README.md「日志纪律」；
 - 进程级静态 `setRequestInterceptor`——WebView 多实例语义下 per-session
   delegate + provider 扇出才是正解。
 
@@ -208,6 +211,8 @@ curl -sL "https://github.com/ionic-team/capacitor-plugins/compare/main...wszgrcy
 cd /Volumes//Projects/firefox && git apply --check --verbose /tmp/wz-cut.diff
 ```
 
-本次取证中间产物在 `/tmp/sinytra-wszgrcy/`（易失，重启即清）；全量 clone
-其 firefox fork 非必需（diff 已覆盖全部改动，且本机磁盘紧张，见
-firefox-patches/README.md 侧注）。
+本次取证中间产物在 `/tmp/sinytra-wszgrcy/`（易失，重启即清）。全量 clone
+非必需（diff 已覆盖全部改动）；如需 clone 放 `/Volumes/（项目卷）/Projects/`
+即可——该卷与仓库同卷、空间充足，**不要**放系统盘（`/`）。注意卷名含
+U+F8FF 特殊字符：shell 字面路径经 Bash 传递时编码不稳定（实测踩过），
+用 `~/sinytra-vol` 符号链接或 python 探测访问。
