@@ -30,6 +30,14 @@ geolocation、页内查找、打印。
 （history 转译见 `ARCHITECTURE.md` §4：`SessionState/HistoryList ↔ WebBackForwardList`，
 `HistoryDelegate` 只做 visited 记录 + history 变更通知。）
 
+> **验收记录（2026-09-25）**：P1 完成。设备 harness 37 PASS
+> （含 P1 新探针 cookiePolicy/print/permissionPrompt/geolocationPrompt）
+> + JVM 53 锁。已落地：SSL onReceivedSslError、permission 决策回流、
+> PrintBridge fd 写入；cookie/HTTP Auth/WebStorage/geolocation/查找均
+> 有实装+探针。已登记遗留：download 的 onExternalResponse 在 opt 构建
+> 未分派（0006 排查候选）；SSL proceed 语义（同查）；fileChooser e2e
+> 归 CTS/手测（无手势无法自动化）。
+
 ## 4. P2 — 啃硬骨头（逐项建任务跟踪）
 
 1. **`evaluateJavascript`**：WebView 要求任意 JS 在当前页面执行并异步回传 JSON 结果；

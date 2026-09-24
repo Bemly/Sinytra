@@ -2,7 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-25 05:2x（Gecko pin 升级 158.0a1 完成 + 0004/0005 落地：全量 harness 32 PASS ×2、JVM 49 锁）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-25 07:4x（P1 收尾完成：SSL/permission/print 三接线修复 + 四探针，全量 harness 37 PASS、JVM 53 锁）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -446,6 +446,47 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
   master 上一切构建/测试必须 `-PsinytraLocalGecko=true`（本地 objdir-158
   已就位，工作流见 firefox-patches/README.md）。若未来要默认绿：
   发布自建 AAR 到可达 Maven 或 mavenLocal，均为显式决策点，暂不做。
+
+## 1l. P1 收尾（2026-09-25，全量 harness 37 PASS / JVM 53 锁）
+
+- **盘点**：P1 十项（CookieManager/权限/文件选择/下载/SSL/HTTP Auth/
+  WebStorage/geolocation/查找/打印）中六项早已实装（history 族/
+  singletons/httpAuth store/find/loadError 均有探针），三个接线断裂 +
+  探针缺口是本次内容：
+- **SSL 回调接线（e686481）**：`onReceivedSslError` 此前完全缺失。
+  ErrorBridge.toSslPrimaryError（三个 Gecko SSL 码 → SSL_UNTRUSTED，
+  非 SSL → -1）→ NavigationBridge.Host/GeckoSessionBridge.Client 加
+  sslPrimaryError 参数 → ClientFanOut 分支：SSL 错误改走
+  onReceivedSslError（Chromium 顺序：不再 also onReceivedError）。
+  SslError 无证书（Gecko onLoadError 无证书信息，getCertificate()
+  诚实 null）；SslErrorHandler 反射 token（cancel 即事实结果；proceed
+  需 cert-override 原语 → P2 patch 候选，auth-handler 同先例）。
+- **permission 决策回流（6843154）**：旧实现三处断裂
+  （grant/deny 空壳×2 + onContentPermissionRequest 返回 null → 页面
+  权限 promise 永久挂起）。重设计 Decision 契约（Host 恰好完成一次
+  allow/deny，扇出全回退路径兜底 deny）+ autoDecision 表
+  （storage/autoplay/EME 静默放行；notifications/XR/tracking 等
+  静默拒绝——均无 WebView 面，不伪造 prompt；仅 geolocation 走 app）。
+  媒体路径接真：getUserMedia → onPermissionRequest(VIDEO/AUDIO_
+  CAPTURE) → grant/deny 路由回 MediaCallback。
+- **PrintBridge 重写（d0c2b7e）**：旧实现从不写 destination fd（打印
+  出空文件还报成功）。新核心 writeTo：saveAsPdf → PDF 流 → worker
+  拷贝进 fd。不复用上游 GeckoViewPrintDocumentAdapter（急切 ctor 不合
+  异步形态）。打印页内 PageStart→PageStop→PDF 22KB 验证。
+- **探针（d99754b）**：cookiePolicy（我方 impl 标志往返）/
+  print（%PDF 头 + 尺寸）/permissionPrompt（getUserMedia→prompt→deny
+  →页面 rejected 双侧观测）/geolocationPrompt（deny 路径，摆脱设备
+  定位依赖）。全量 harness **37 PASS + P0 GLUE PASS**，JVM **53 锁**。
+- **download 事件：Java 接线正确但 Gecko 未分派 → 0006 候选**：
+  blob+download 请求到达我方 onLoadRequest（blob: URL 可见）后
+  Gecko 侧 helper-app（GeckoViewExternalAppService）分派未发生；
+  上游 download 测试自身 debug-gated（assumeThat(isDebugBuild)），
+  bug 1543355 仅环境超时缓解非根因。排查点：DocumentLoadListener →
+  helper-app 分派链在 opt/lite 构建的差异。
+- **fileChooser**：接线完整（params→intent→confirm/dismiss）但无法
+  无手势触发（Gecko 激活检查），无设备探针——CTS/手测覆盖，非缺口。
+- **P1 状态：完成**。遗留决策点：SSL proceed 语义（0006 一并查）；
+  download 分派（0006）；fileChooser e2e 归 CTS。
 
 ## 2. 下一步（按顺序，一次做一件）
 
