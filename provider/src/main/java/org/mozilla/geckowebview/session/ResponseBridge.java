@@ -2,7 +2,6 @@ package org.mozilla.geckowebview.session;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import java.io.ByteArrayOutputStream;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.WebRequestInfo;
@@ -12,8 +11,10 @@ import org.mozilla.geckoview.WebResponse;
 // GeckoView ResponseDelegate (Sinytra firefox-patches/0001) so a non-null
 // app response becomes a synthesized body with URL identity preserved —
 // instead of the P2-4 deny fallback. Runs on whatever thread the Gecko
-// query resolves on; the app's InputStream is drained eagerly (the C++
-// side caps at 16MB and refuses larger bodies).
+// query resolves on; since 0003 the app's InputStream passes through
+// unchanged — Gecko reads it incrementally over JNI (the query runs in
+// the app process, so the stream crosses a JNI boundary, not a process
+// one; the retired 16MB base64 cap was solving a non-problem).
 //
 // The filter list is dynamic: the provider re-calls
 // GeckoSession.setResponseDelegate whenever the app-visible filter set
@@ -49,8 +50,6 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
         }
     }
 
-    private static final int DRAIN_LIMIT = 16 * 1024 * 1024;
-
     @NonNull
     private final Host mHost;
 
@@ -77,32 +76,11 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
             return null;
         }
 
-        final ByteArrayOutputStream out = new ByteArrayOutputStream();
-        final byte[] buffer = new byte[16384];
-        try {
-            int read;
-            while ((read = app.body.read(buffer)) != -1) {
-                out.write(buffer, 0, read);
-                if (out.size() > DRAIN_LIMIT) {
-                    android.util.Log.w("Sinytra/response",
-                            "App response body exceeds 16MB cap; refusing");
-                    try {
-                        app.body.close();
-                    } catch (Throwable ignored) {
-                    }
-                    return null;
-                }
-            }
-        } catch (Throwable t) {
-            android.util.Log.w("Sinytra/response", "Body drain failed", t);
-            return null;
-        } finally {
-            try {
-                app.body.close();
-            } catch (Throwable ignored) {
-            }
-        }
-
+        // 0003: stream the app body through unchanged — Gecko reads it
+        // incrementally over JNI (GeckoViewInputStream via the
+        // GeckoViewResponseStreams registry), so no drain and no size cap
+        // (Chromium streams shouldInterceptRequest bodies the same way).
+        // Close semantics stay with the Gecko-side wrapper.
         String contentType = app.mimeType;
         if (contentType != null && app.encoding != null) {
             contentType = contentType + "; charset=" + app.encoding;
@@ -113,7 +91,7 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
         if (contentType != null) {
             builder.header("Content-Type", contentType);
         }
-        builder.body(new java.io.ByteArrayInputStream(out.toByteArray()));
+        builder.body(app.body);
         return GeckoResult.fromValue(builder.build());
     }
 }

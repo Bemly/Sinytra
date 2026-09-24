@@ -605,6 +605,53 @@ final class P2TransportProbes {
             out.append("PASS interceptIframe body=").append(frameText)
                     .append('\n');
 
+            // --- 0003 interceptLargeBody: a body LARGER than the retired
+            // 16MB base64 cap. The network answer is impossible (NXDOMAIN)
+            // and the retired path refused >16MB — the app-provided
+            // pattern rendering proves the stream path delivers it.
+            activity.runOnUiThread(() -> provider.setInterceptFilters(
+                    new String[] {"https://body.example/",
+                                  "https://large.example/"}));
+            activity.runOnUiThread(() -> provider.loadUrl(
+                    "https://large.example/big.html"));
+            String largeExpected =
+                    "17000014:PREFIX:0123456789:0123456789:SUFFIX";
+            String largeVerdict = null;
+            String largeLast = null;
+            for (int attempt = 0; attempt < 12 && largeVerdict == null;
+                    attempt++) {
+                Thread.sleep(2500);
+                final CountDownLatch largePoll = new CountDownLatch(1);
+                final String[][] largeResult = new String[1][];
+                activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                        "(function(){var t=document.body"
+                                + "&&document.body.textContent;"
+                                + "return (t&&t.length>16000000)"
+                                + "?t.length+':'+t.slice(0,17)"
+                                + "+':'+t.slice(-17):null;})()",
+                        v -> {
+                            largeResult[0] = new String[] {v};
+                            largePoll.countDown();
+                        }));
+                largePoll.await(45, TimeUnit.SECONDS);
+                String value = largeResult[0] != null
+                        ? largeResult[0][0] : null;
+                if (value != null) {
+                    value = value.replace("\"", "");
+                    largeLast = value;
+                    if (largeExpected.equals(value)) {
+                        largeVerdict = value;
+                    }
+                }
+            }
+            if (largeVerdict == null) {
+                throw new IllegalStateException(
+                        "interceptLargeBody: oversized body never "
+                                + "rendered (last: " + largeLast + ")");
+            }
+            out.append("PASS interceptLargeBody verdict=")
+                    .append(largeVerdict).append('\n');
+
             // --- P2-4 deny value: non-null shouldInterceptRequest ⇒
             // subframe DENY. The DENY GeckoResult was verified nowhere
             // (JVM: GeckoResult class-init needs a live UI Looper; device:

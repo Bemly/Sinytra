@@ -407,6 +407,30 @@ public final class P0GlueActivity extends Activity {
                                             + "</p></body></html>")
                                             .getBytes()));
                 }
+                if (uri.contains("large.example")) {
+                    // 0003 interceptLargeBody: a body LARGER than the
+                    // retired 16MB base64 cap — only the stream path can
+                    // deliver it. textContent = "PREFIX:" + 17,000,000
+                    // cycling digits + ":SUFFIX".
+                    byte[] head =
+                            "<html><body><p>PREFIX:".getBytes();
+                    byte[] tail =
+                            ":SUFFIX</p></body></html>".getBytes();
+                    byte[] digits = new byte[17_000_000];
+                    for (int i = 0; i < digits.length; i++) {
+                        digits[i] = (byte) ('0' + (i % 10));
+                    }
+                    byte[] out = new byte[head.length + digits.length
+                            + tail.length];
+                    System.arraycopy(head, 0, out, 0, head.length);
+                    System.arraycopy(digits, 0, out, head.length,
+                            digits.length);
+                    System.arraycopy(tail, 0, out,
+                            head.length + digits.length, tail.length);
+                    return new android.webkit.WebResourceResponse(
+                            "text/html", "utf-8",
+                            new java.io.ByteArrayInputStream(out));
+                }
                 return null;
             }
 
