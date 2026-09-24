@@ -17,17 +17,31 @@ import org.mozilla.geckoview.GeckoSession;
 final class ProviderAdapters {
     private ProviderAdapters() {}
 
-    static final class SinytraPermissionRequest extends PermissionRequest {
-        private final String mOrigin;
+    // Framework-typed PermissionRequest for media (camera/mic) prompts.
+    // This is the ONLY PermissionRequest surface Chromium WebView exposes
+    // (onPermissionRequest is device-capture). grant()/deny() route the
+    // app's decision back into the Gecko MediaCallback — before P1 this
+    // was an empty shell and a granted permission left the page hanging.
+    static final class SinytraMediaPermissionRequest extends PermissionRequest {
+        private final Uri mOrigin;
+        private final GeckoSession.PermissionDelegate.MediaSource[] mVideo;
+        private final GeckoSession.PermissionDelegate.MediaSource[] mAudio;
+        private final GeckoSession.PermissionDelegate.MediaCallback mCallback;
 
-        SinytraPermissionRequest(String origin) {
-            mOrigin = origin;
+        SinytraMediaPermissionRequest(String origin,
+                GeckoSession.PermissionDelegate.MediaSource[] video,
+                GeckoSession.PermissionDelegate.MediaSource[] audio,
+                GeckoSession.PermissionDelegate.MediaCallback callback) {
+            mOrigin = Uri.parse(origin);
+            mVideo = video;
+            mAudio = audio;
+            mCallback = callback;
         }
 
         @Override
         public Uri getOrigin() {
             try {
-                return Uri.parse(mOrigin);
+                return mOrigin;
             } catch (Throwable t) {
                 return Uri.EMPTY;
             }
@@ -35,15 +49,56 @@ final class ProviderAdapters {
 
         @Override
         public String[] getResources() {
+            // Chromium resource contract: VIDEO/AUDIO_CAPTURE keys.
+            boolean wantVideo = mVideo.length > 0;
+            boolean wantAudio = mAudio.length > 0;
+            if (wantVideo && wantAudio) {
+                return new String[] {PermissionRequest.RESOURCE_VIDEO_CAPTURE,
+                        PermissionRequest.RESOURCE_AUDIO_CAPTURE};
+            }
+            if (wantVideo) {
+                return new String[] {PermissionRequest.RESOURCE_VIDEO_CAPTURE};
+            }
+            if (wantAudio) {
+                return new String[] {PermissionRequest.RESOURCE_AUDIO_CAPTURE};
+            }
             return new String[0];
         }
 
         @Override
         public void grant(String[] resources) {
+            boolean video = false;
+            boolean audio = false;
+            if (resources != null) {
+                for (String r : resources) {
+                    if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) {
+                        video = true;
+                    } else if (PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                            .equals(r)) {
+                        audio = true;
+                    }
+                }
+            }
+            try {
+                if (video || audio) {
+                    mCallback.grant(
+                            video && mVideo.length > 0 ? mVideo[0] : null,
+                            audio && mAudio.length > 0 ? mAudio[0] : null);
+                } else {
+                    mCallback.reject();
+                }
+            } catch (Throwable t) {
+                android.util.Log.w("Sinytra/permission", "media grant routing threw", t);
+            }
         }
 
         @Override
         public void deny() {
+            try {
+                mCallback.reject();
+            } catch (Throwable t) {
+                android.util.Log.w("Sinytra/permission", "media deny routing threw", t);
+            }
         }
     }
 

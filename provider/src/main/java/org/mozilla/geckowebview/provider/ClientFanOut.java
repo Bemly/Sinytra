@@ -208,38 +208,49 @@ final class ClientFanOut
     // --- PermissionBridge.Host ---
 
     @Override
-    public void onGeolocationPrompt(@NonNull String origin) {
+    public void onGeolocationPrompt(@NonNull String origin,
+            @NonNull PermissionBridge.Decision decision) {
         WebChromeClient chrome = mOwner.webChromeClient();
+        if (chrome == null) {
+            decision.deny();
+            return;
+        }
         GeolocationPermissions.Callback callback =
                 new GeolocationPermissions.Callback() {
                     @Override
                     public void invoke(String o, boolean allow, boolean retain) {
+                        if (allow) {
+                            decision.allow();
+                        } else {
+                            decision.deny();
+                        }
+                        // retain (remember this origin) has no Gecko
+                        // persistence primitive in P1 — accepted, logged.
+                        if (retain) {
+                            android.util.Log.d(TAG,
+                                    "geolocation retain=true not persisted");
+                        }
                     }
                 };
-        if (chrome == null) {
-            callback.invoke(origin, false, false);
-            return;
-        }
         try {
             chrome.onGeolocationPermissionsShowPrompt(origin, callback);
         } catch (Throwable t) {
             android.util.Log.w(TAG, "onGeolocationPermissionsShowPrompt threw", t);
-            callback.invoke(origin, false, false);
+            decision.deny();
         }
     }
 
     @Override
-    public void onPermissionRequest(@NonNull String origin, int geckoPermission) {
-        WebChromeClient chrome = mOwner.webChromeClient();
-        if (chrome == null) {
-            return;
-        }
-        try {
-            chrome.onPermissionRequest(
-                    new ProviderAdapters.SinytraPermissionRequest(origin));
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onPermissionRequest threw", t);
-        }
+    public void onPermissionRequest(@NonNull String origin, int geckoPermission,
+            @NonNull PermissionBridge.Decision decision) {
+        // No WebView prompt surface exists for content permissions other
+        // than geolocation — Chromium never routes these through
+        // onPermissionRequest (that API is for device capture, which the
+        // media path below owns). Deny loudly rather than fabricate a
+        // prompt the app cannot answer truthfully.
+        android.util.Log.w(TAG, "no WebView surface for content permission "
+                + geckoPermission + " on " + origin + " — denying");
+        decision.deny();
     }
 
     @Override
@@ -257,10 +268,25 @@ final class ClientFanOut
             @NonNull GeckoSession.PermissionDelegate.MediaSource[] video,
             @NonNull GeckoSession.PermissionDelegate.MediaSource[] audio,
             @NonNull GeckoSession.PermissionDelegate.MediaCallback callback) {
+        WebChromeClient chrome = mOwner.webChromeClient();
+        if (chrome == null) {
+            try {
+                callback.reject();
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "media callback reject threw", t);
+            }
+            return;
+        }
         try {
-            callback.reject();
+            chrome.onPermissionRequest(
+                    new ProviderAdapters.SinytraMediaPermissionRequest(uri,
+                            video, audio, callback));
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "media callback reject threw", t);
+            android.util.Log.w(TAG, "WebChromeClient.onPermissionRequest threw", t);
+            try {
+                callback.reject();
+            } catch (Throwable ignored) {
+            }
         }
     }
 
