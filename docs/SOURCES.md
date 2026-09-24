@@ -35,6 +35,16 @@
 - [HistoryDelegate](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.HistoryDelegate.html)
 - [ProgressDelegate](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.ProgressDelegate.html)
 
+## 相关第三方实现（比对参考，非上游语义来源）
+
+> 同题独立实现，用于交叉验证与借鉴；取用处与结论见 `RELATED-PROJECTS.md`。
+> 个人实验性质仓库，引用前自行复核。
+
+- [wszgrcy/firefox（build 分支：请求拦截器 + 构建裁剪，基线 156.0a1）](https://github.com/wszgrcy/firefox)
+- [wszgrcy/capacitor-geckoview（Capacitor Android runtime 的 GeckoView 化）](https://github.com/wszgrcy/capacitor-geckoview)
+- [wszgrcy/capacitor-geckoview-plugins（官方插件 fork 适配）](https://github.com/wszgrcy/capacitor-geckoview-plugins)
+- [wszgrcy/capacitor-geckoview-starter（模板工程，local/production 双轨）](https://github.com/wszgrcy/capacitor-geckoview-starter)
+
 ## AndroidX / AOSP 工具
 
 - [WebViewCompat — Android Developers](https://developer.android.com/reference/androidx/webkit/WebViewCompat)

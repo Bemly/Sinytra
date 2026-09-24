@@ -478,6 +478,12 @@ HistoryList=0, SessionState=0         → Gecko 没 flush，再测 hidden GeckoV
 3. **P1 开工**：按 `ROADMAP.md` §3 逐项认领（CookieManager 落地 P2 patch 前先保持
    honest-default；权限/文件选择/下载/SSL/HTTP Auth/WebStorage/geolocation/
    查找/打印）。
+4. **相关生态比对已建档（2026-09-25）**：`docs/RELATED-PROJECTS.md`——
+   wszgrcy/capacitor-geckoview 四仓库（同题独立实现）与 0001-0003 拦截线的
+   逐项对照 + `git apply --check` 实测（13/17 通过，冲突全为同列表追加/156
+   版本漂移）。借鉴候选见其 §5：ORB tainting 加固（升级窗口）、SW 并存
+   语义（P2 储备）、Range 降级为 app 侧闭环（0003 §4 待修订）、嵌入式
+   prefs 卫生（P1 候选）、打印/a11y 反向地图（P1 认领用）。
 
 ## 3. 已知阻塞：vendor launch 故障（测试环境问题，非 glue bug）
 
