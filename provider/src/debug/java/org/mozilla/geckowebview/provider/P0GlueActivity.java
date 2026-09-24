@@ -354,6 +354,12 @@ public final class P0GlueActivity extends Activity {
             // --- P2 probes: transport + androidx glue (own file, file-size rule) ---
             P2TransportProbes.run(this, out, provider, webView, factory, client);
 
+            // --- P1 probes: system capabilities (cookie policy, download,
+            // print PDF round-trip, media permission round-trip,
+            // geolocation deny) — needs the loaded https page the P2 deny
+            // probe leaves in place (secure context for the JS prompts) ---
+            P1SystemProbes.run(this, out, provider, webView, factory, client);
+
             runOnUiThread(provider::destroy);
             out.append("P0 GLUE PASS\n");
         } catch (Throwable t) {
