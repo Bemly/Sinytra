@@ -314,10 +314,13 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
 `adb logcat -s Sinytra/response` 仍可观测，降级后回归 **29 PASS**）→
 ② ~~复跑回归~~（29 PASS / P0 GLUE PASS）→ ③ ~~format-patch~~
 （`firefox-patches/0001-response-body-interception.patch`，7 commits，
-基线 f1b6c0f8）→ ④ ~~STATUS 收尾~~（本节）。**主分支合并评估（留给
+基线 f1b6c0f8）→ ④ ~~STATUS 收尾~~（本节）。~~**主分支合并评估（留给
 用户拍板）**：`feat/p2-js-transport` 建议暂不合入 master——0001 patch
 未发布到 Maven，合入会使 master 默认构建变红；待 0002 期间 patch
-稳定或定下"默认构建要求本地 GV"的策略后再合。
+稳定或定下"默认构建要求本地 GV"的策略后再合。~~
+**已拍板合入（2026-09-25，ff 49 commits @ ee1fd45，单维护者不维护旧线；
+"默认构建红"实测定性：master 上不带 flag 编译报 20 个"找不到符号"，
+全部是引用 0001-0005 patch 注入的 GeckoView 类型——属预期，见 §1k 末条）。**
 
 ## 1i. 0002 开工（2026-09-24 01:40）
 
@@ -390,7 +393,8 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
   49 锁。拦截线（0001/0002/0003）至此完整：filter 下发 → 请求面保真
   → 子帧让位 → 子资源/子帧替身 → 无上限流式。
 - **剩余候选**：敏感请求头收窄（Cookie/Authorization 目前全量透传，
-  显式决策点）；master 合并评估仍挂起（等用户拍板）。
+  显式决策点）；~~master 合并评估仍挂起（等用户拍板）~~
+  **已拍板合入（2026-09-25，见 §1k 末条）**。
 
 ## 1k. Gecko pin 升级 153.0 → 158.0a1（2026-09-25 完成，用户拍板）
 
@@ -433,6 +437,15 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
   `shared-settings.gradle` 从 `mobile/android/android-components/.config.yml`
   读 compileSdk 37.2；④ sed 批量替换会把宏定义体一起换掉（自递归），
   批量替换后必查定义行。
+
+- **master 合入（2026-09-25，用户拍板：单维护者、完全不需要维护旧线）**：
+  `feat/p2-js-transport` **ff 合入 master**（49 commits，f74925f → ee1fd45，
+  线性历史）。合入后 master 的**默认构建（不带 flag）实测红：20 个
+  "找不到符号"**（ResponseBridge/GeckoWebViewProvider 等引用 0001-0005
+  patch 注入的 GeckoView 类型，stock nightly AAR 里没有）——**预期状态**：
+  master 上一切构建/测试必须 `-PsinytraLocalGecko=true`（本地 objdir-158
+  已就位，工作流见 firefox-patches/README.md）。若未来要默认绿：
+  发布自建 AAR 到可达 Maven 或 mavenLocal，均为显式决策点，暂不做。
 
 ## 2. 下一步（按顺序，一次做一件）
 
