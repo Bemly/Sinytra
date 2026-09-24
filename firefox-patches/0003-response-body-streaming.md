@@ -1,7 +1,8 @@
 # firefox-patches/0003 — 流式响应体(同进程 JNI 流,移除 16MB 上限)
 
-> 状态:设计定稿,patch 未落文件。纪律:一 patch 一件事、独立测试、
-> 冲突不解不升级(AGENTS.md §3/§5)。基线:`FIREFOX_153_0_RELEASE`
+> 状态:**已定稿落树**(2026-09-25;153 线 @ 62b7b46e280e,158 重放见
+> README Pin 节)。纪律:一 patch 一件事、独立测试、冲突不解不升级
+> (AGENTS.md §3/§5)。原始基线:`FIREFOX_153_0_RELEASE`
 > (f1b6c0f86b96b7e0688c26f65803576f27cdaf88)+ 0001/0002 stack
 > (@ 539b7ff6f329)。
 
@@ -58,8 +59,14 @@ Java 流对象完全可以直接递给 native:base64 + 16MB 上限在解一个�
 
 ## 5. 边界(v1 不做)
 
-- 不做跨进程流(不需要,见 §2);POST body / Range 透传维持不做
-  (Chromium `shouldInterceptRequest` 语义同样不给)。
+- 不做跨进程流(不需要,见 §2);POST body 透传维持不做(Chromium
+  `shouldInterceptRequest` 语义同样不给——POST body 不进 WebResourceRequest)。
+- **Range(2026-09-25 修订,据 RELATED-PROJECTS 比对降级)**:原列为后续
+  候选,实测无需任何 Gecko 改动——0002 已把请求头(含 `Range`)全量透传
+  给 app,app 直接合成 206 + `Content-Range` 应答即可(wszgrcy 线的
+  LocalAssetRequestInterceptor 正是这么做的,媒体 seek 可用)。
+  唯一注意:206 语义正确性(边界/多段)归 app,Gecko 侧 `InterceptedHttp
+  Channel` 原样投递。此候选**关闭**。
 - 注册表泄漏面:`take` 未被调用的流活到进程结束——查询只应答一次,
   C++ 必取,风险接受;若未来出现重复应答再补超时清扫。
 
