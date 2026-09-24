@@ -392,6 +392,42 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
 - **剩余候选**：敏感请求头收窄（Cookie/Authorization 目前全量透传，
   显式决策点）；master 合并评估仍挂起（等用户拍板）。
 
+## 1k. Gecko pin 升级 153.0 → 158.0a1（2026-09-25 进行中，用户拍板）
+
+- **定性**：158.0 正式 tag 未发布（预计 2026-11），"提高到 158" 的唯一
+  现行形态 = **mozilla-central 158.0a1 最后一刻** `34ed69f161676c3ac7ca5f
+  201fade6d081e5bcd2`（version.txt=158.0a1 已核；下一个 version bump
+  commit `4c5c29cee1f9` → 159.0a1）。AAR 对齐改 `geckoview-nightly:
+  158.0.20260924093433`（maven.mozilla.org）。届时 158.0 stable 出来后
+  再评估切 release tag。
+- **rebase 完成**：`sinytra-pin-158` 分支 = 34ed69f16167 + 0001-0003 共
+  9 commits 逐个 cherry-pick。唯一冲突 `ParentChannelListener.cpp`
+  include 区（158 重排了 include 列表），已解；其余全部干净/自动合并
+  （含 `widget/android/moz.build` classes_with_WrapForJNI、
+  `components.conf`、`GeckoSession.java`、`GeckoViewNavigation.sys.mjs`
+  两处 0001 关键改动——已逐一 grep 复核落位）。
+- **provider 接线已提交（`d2cafc0`）**：compileSdk 36→**37.2**
+  （158 的 `android-components/.config.yml`：major 37/minor 2；
+  `android-37.2` 平台已 sdkmanager 补装——STATUS 旧记录"本地无 37.1"
+  已过时，37.1/37.2 均在）；依赖坐标换 nightly；本地替换
+  `topobjdir` → **objdir-158**（mozconfig-158 独立线，153 的 objdir-opt
+  保留可回退）。
+- **构建中**：`/tmp/build-158.sh` 后台流水线（mach build → export →
+  binaries → publish，独立 objdir-158 + 新 clang 工具链下载），日志
+  `/tmp/build-158.log`。
+- **构建完成后待做（顺序）**：① 0004 commit：`Synthesize()` 开头加
+  `loadInfo->SynthesizeServiceWorkerTainting(LoadTainting::Basic)`
+  （借鉴 wszgrcy 线，见 RELATED-PROJECTS §2.1；只放真实合成路径，
+  Reset/fallback 路径不动）→ 增量 binaries+publish；② provider
+  `-PsinytraLocalGecko` 编译（158 API churn 修复）+ JVM 49 锁；③
+  真机金丝雀 + 全量 harness（32 探针预期不变）；④ format-patch 重出
+  `firefox-patches/0001..0003-*.patch`（基线改 34ed69f16167）；
+  ⑤ README Pin/Stack、AGENTS.md pin 块、RELATED-PROJECTS §5 借鉴项
+  状态同步；⑥ 日志纪律落地 0005（既有插桩 `#ifdef DEBUG` /
+  `BuildConfig.DEBUG` 门，policy 见 README「日志纪律」）。
+- **路径坑记死**：U+F8FF 卷名字面路径经 Bash 传递编码不稳定（同一写法
+  时好时坏），一律走 `~/sinytra-vol` 符号链接（`/Volumes/<U+F8FF>`）。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~等 mach build + 替换校准~~ ✅（§1g）。
