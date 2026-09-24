@@ -1,0 +1,5 @@
+# Sinytra debug-only GeckoView config (firefox-patches/0005).
+# Release builds do not package this asset — sinytra.log.enabled stays
+# default-false there and no Sinytra instrumentation reaches logcat.
+prefs:
+  sinytra.log.enabled: true
