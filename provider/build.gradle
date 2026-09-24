@@ -2,16 +2,17 @@ plugins {
     id("com.android.application")
 }
 
-// BOOTSTRAP §3②: local GeckoView substitution is OPT-IN until a local
-// objdir exists (`./mach build` under the sibling checkout). Daily builds
-// keep the pinned Maven AAR below; enable with -PsinytraLocalGecko.
-// Sibling checkout: /Volumes//Projects/firefox (BOOTSTRAP §4 recommends
-// ~/src — this machine's internal disk has ~7GB free, so the sibling
-// lives on the external volume; recorded in firefox-patches/README.md).
+// BOOTSTRAP §3②: local GeckoView substitution is OPT-IN. Daily builds keep
+// the pinned Maven AAR below; enable with -PsinytraLocalGecko.
+// Sibling checkout: /Volumes/（U+F8FF 卷）/Projects/firefox（与本仓库同卷，
+// 磁盘以该卷为准；卷名含 U+F8FF 特殊字符，shell 里建议经 ~/sinytra-vol 符号
+// 链接或 python 探测访问——字面路径经 Bash 传递时编码不稳定，实测踩过）。
 def sinytraLocalGecko = (project.findProperty('sinytraLocalGecko') ?: 'false').toBoolean()
 if (sinytraLocalGecko) {
     ext.topsrcdir = file("${rootProject.projectDir}/../firefox").absolutePath
-    ext.topobjdir = file("${ext.topsrcdir}/objdir-opt").absolutePath
+    // 158 线独立 objdir（objdir-opt 保留给 153 分支）；由 mozconfig-158
+    // （MOZ_OBJDIR=@TOPSRCDIR@/objdir-158）构建产出。
+    ext.topobjdir = file("${ext.topsrcdir}/objdir-158").absolutePath
     apply from: "${ext.topsrcdir}/substitute-local-geckoview.gradle"
     // PREFER_PROJECT ignores the settings repositories once a project
     // repo exists — the substituted AAR's transitive deps (kotlin-stdlib,
@@ -25,10 +26,11 @@ if (sinytraLocalGecko) {
 
 android {
     namespace = "org.mozilla.geckowebview"
-    // GeckoView 153 stable: AAR minCompileSdk=1, androidx.core 1.18.0 — builds clean
-    // with AGP 9.x + compileSdk 36. (GV 154+ demands compileSdk 37.1, not yet
-    // exposed by the installed SDK snapshot.) targetSdk stays 34 (API-34 device).
-    compileSdk = 36
+    // 158 pin（158.0a1 @ 34ed69f16167）：GV 的 android-components/.config.yml
+    // 要求 compileSdk 37.2（AGP minor API level）；37.2 平台经 sdkmanager 已装。
+    // targetSdk 保持 34（API-34 真机）。
+    compileSdk = 37
+    compileSdkMinor = 2
 
     defaultConfig {
         applicationId = "org.mozilla.geckowebview"
@@ -74,14 +76,13 @@ android {
 }
 
 dependencies {
-    // Pinned stable. GV 153: minCompileSdk=1, builds with compileSdk 36.
-    // (GV 154+ needs compileSdk 37.1 — revisit when the SDK snapshot ships it.)
-    // Under -PsinytraLocalGecko the coordinate swaps to geckoview-nightly:
-    // Mozilla's substitute-local-geckoview.gradle only maps nightly/beta
-    // module names (the artifact itself is replaced by the local build,
-    // so the version string is irrelevant on that path).
-    def gvModule = sinytraLocalGecko ? 'geckoview-nightly' : 'geckoview'
-    implementation("org.mozilla.geckoview:${gvModule}:153.0.20260810162159")
+    // 158 线 pin（2026-09-25）：mozilla-central 158.0a1 最后一刻
+    // （34ed69f16167）对齐的 nightly AAR；正式 tag FIREFOX_158_0_RELEASE
+    // 尚未存在（预计 2026-11），届时再评估切 stable。
+    // 两侧同为 geckoview-nightly：daily 走 maven.mozilla.org，local 走
+    // objdir-158 发布（substitute-local-geckoview.gradle 只映射 nightly/beta
+    // 模块名，替换后版本串无关紧要）。
+    implementation("org.mozilla.geckoview:geckoview-nightly:158.0.20260924093433")
     implementation("androidx.annotation:annotation:1.9.1")
     // androidx.webkit boundary interfaces ship inside webkit AAR classes.jar;
     // compileOnly: real androidx classes come from the app at runtime.
