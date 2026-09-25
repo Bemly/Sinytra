@@ -450,6 +450,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   master 上一切构建/测试必须 `-PsinytraLocalGecko=true`（本地 objdir-158
   已就位，工作流见 firefox-patches/README.md）。若未来要默认绿：
   发布自建 AAR 到可达 Maven 或 mavenLocal，均为显式决策点，暂不做。
+  （20 个是合入当时的数；现行数见 §4 构建段。）
 
 ## 1l. P1 收尾（2026-09-25，全量 harness 37 PASS / JVM 53 锁）
 
@@ -595,7 +596,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   断言 + close delta）。
 - **回归**：全量 harness **40 PASS + P0 GLUE PASS**（fwPort data=
   sinytra-fwport-echo via=page），JVM **74 锁**全绿。
-- **拆分（卫生项）**：`GeckoWebViewProvider` 837→731 行——无操作
+- **拆分（卫生项）**：`GeckoWebViewProvider` 837→731 行（§1p 视觉接线后回涨到 787，仍 <900）——无操作
   View/Scroll delegate 抽到 `ProviderViewDelegates`（唯一活分支：
   file chooser onActivityResult 路由）；拆分后 harness 复跑 40 PASS
   不变。
@@ -793,5 +794,8 @@ framework-stubs/  # compileOnly 的 android14 hidden API stubs（WebViewFactoryP
 构建链要求，android-components/.config.yml）/`targetSdk=34` `minSdk=26`（对齐
 真机），GV `geckoview-nightly:158.0.20260924093433` 已 pin（mozilla-central
 158.0a1 最后一刻 `34ed69f16167`，见 AGENTS.md 顶部）。master 默认构建红属
-预期（引用 0001-0007 patch 注入的 GeckoView 类型），一切构建/测试须
+预期——2026-09-26 实测不带 flag 16 个编译错误，全部引用 patch 注入的
+GeckoView 类型/方法：0001/0002（`WebRequestInfo`、`GeckoSession.ResponseDelegate`/
+`setResponseDelegate`）、0006（`CertOverrideController`）、0007
+（`StorageController` 四个 cookie 方法）。一切构建/测试须
 `-PsinytraLocalGecko=true`（§1k）。详见 `DEVICE.md` §4。
