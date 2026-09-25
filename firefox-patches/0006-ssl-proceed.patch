@@ -1,0 +1,346 @@
+From 2f3d7e2e5b56c3b6d7f8b7e8b155d159e194d786 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Fri, 25 Sep 2026 20:14:13 +0800
+Subject: [PATCH] Sinytra patch 0006: SSL proceed via temporary cert overrides
+
+android.webkit.SslErrorHandler.proceed() means 'continue despite the
+invalid certificate'. GeckoView had no cert-override primitive and the
+failed certificate is only reachable at error time, so:
+
+- nsILoadURIDelegate.handleLoadError gains the failing channel (uuid
+  bump; sole caller nsDocShell::DisplayLoadError). docShell.failedChannel
+  was probed first and is unusable at delegate time: the JS-visible
+  getter reads the error page document's failed channel, set only after
+  this delegate call (nsDocShell.cpp GetFailedChannel -> doc->
+  GetFailedChannel()).
+- LoadURIDelegateChild captures securityInfo.serverCert DER (base64) on
+  ERROR_CLASS_BAD_CERT and ships it with GeckoView:OnLoadError.
+- LoadURIDelegateParent stashes it in the new global module
+  GeckoViewCertOverride, whose ged event GeckoView:AllowCertError
+  remembers a temporary nsICertOverrideService entry (Firefox
+  Add-Exception semantics; consumed once, session-scoped).
+- Provider side (Sinytra repo): SinytraSslErrorHandler in-package
+  subclass routes the app's decision; proceed = allowError + reload.
+
+Status: builds green, JVM locks green; device harness regression
+pending (device disconnected). Temporary SINYTRA-0006 diagnostics in
+the child actor are to be removed at finalization.
+---
+ docshell/base/nsDocShell.cpp                  |  2 +-
+ docshell/base/nsILoadURIDelegate.idl          |  9 +-
+ .../geckoview/CertOverrideController.java     | 53 +++++++++++
+ .../actors/LoadURIDelegateChild.sys.mjs       | 21 ++++-
+ .../actors/LoadURIDelegateParent.sys.mjs      |  9 +-
+ .../geckoview/GeckoViewStartup.sys.mjs        |  7 ++
+ .../geckoview/GeckoViewCertOverride.sys.mjs   | 94 +++++++++++++++++++
+ mobile/shared/modules/geckoview/moz.build     |  1 +
+ 8 files changed, 191 insertions(+), 5 deletions(-)
+ create mode 100644 mobile/android/geckoview/src/main/java/org/mozilla/geckoview/CertOverrideController.java
+ create mode 100644 mobile/shared/modules/geckoview/GeckoViewCertOverride.sys.mjs
+
+diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
+index e9dbce4ccc46..71a2864c7f13 100644
+--- a/docshell/base/nsDocShell.cpp
++++ b/docshell/base/nsDocShell.cpp
+@@ -3688,7 +3688,7 @@ nsDocShell::DisplayLoadError(nsresult aError, nsIURI* aURI,
+     nsCOMPtr<nsIURI> errorPageURI;
+     rv = loadURIDelegate->HandleLoadError(
+         aURI, delegateErrorCode, NS_ERROR_GET_MODULE(delegateErrorCode),
+-        getter_AddRefs(errorPageURI));
++        aFailedChannel, getter_AddRefs(errorPageURI));
+     // If the docshell is going away there's no point in showing an error page.
+     if (NS_FAILED(rv) || mIsBeingDestroyed) {
+       *aDisplayedErrorPage = false;
+diff --git a/docshell/base/nsILoadURIDelegate.idl b/docshell/base/nsILoadURIDelegate.idl
+index c253ccaaf8a1..d54d87cba977 100644
+--- a/docshell/base/nsILoadURIDelegate.idl
++++ b/docshell/base/nsILoadURIDelegate.idl
+@@ -9,13 +9,14 @@
+ 
+ interface nsIURI;
+ interface nsIPrincipal;
++interface nsIChannel;
+ 
+ /**
+  * The nsILoadURIDelegate interface.
+  * Used for delegating URI loads to GeckoView's application, e.g., Custom Tabs
+  * or Progressive Web Apps.
+  */
+-[scriptable, uuid(78e42d37-a34c-4d96-b901-25385669aba4)]
++[scriptable, uuid(5f2a9c81-4b7d-4e63-9a20-8c1d0e7f3b42)]
+ interface nsILoadURIDelegate : nsISupports
+ {
+   /**
+@@ -25,10 +26,14 @@ interface nsILoadURIDelegate : nsISupports
+    * @param aURI The URI that failed to load.
+    * @param aError The error code.
+    * @param aErrorModule The error module code.
++   * @param aFailedChannel The channel that failed, if any (Sinytra patch
++   *        0006: lets the embedder capture the failed TLS certificate for
++   *        SslErrorHandler.proceed; null for errors without a channel).
+ 
+    * Returns an error page URL to load, or null to show the default error page.
+    * No error page is shown at all if an error is thrown.
+    */
+   nsIURI
+-  handleLoadError(in nsIURI aURI, in nsresult aError, in short aErrorModule);
++  handleLoadError(in nsIURI aURI, in nsresult aError, in short aErrorModule,
++                  in nsIChannel aFailedChannel);
+ };
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/CertOverrideController.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/CertOverrideController.java
+new file mode 100644
+index 000000000000..caafbfbc682b
+--- /dev/null
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/CertOverrideController.java
+@@ -0,0 +1,53 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.geckoview;
++
++import androidx.annotation.AnyThread;
++import androidx.annotation.NonNull;
++import org.mozilla.gecko.EventDispatcher;
++import org.mozilla.gecko.util.GeckoBundle;
++
++/**
++ * Sinytra patch 0006 (SSL proceed): WebView's
++ * <code>WebViewClient.onReceivedSslError</code> hands the app a
++ * <code>SslErrorHandler</code>; <code>proceed()</code> means "continue
++ * despite the invalid certificate". The navigation is already terminal on
++ * the Gecko side by then, so proceed maps to Firefox's Add-Exception flow:
++ * remember a temporary (session-scoped, per host:port+certificate) override
++ * through the nsICertOverrideService and reload the URI.
++ *
++ * <p>Why a patch: GeckoView has no certificate-override primitive at all,
++ * and the failed certificate is only reachable at error time in Gecko
++ * (docShell.failedChannel.securityInfo — captured by the LoadURIDelegate
++ * actors). See firefox-patches/0006-ssl-proceed.md.
++ */
++public final class CertOverrideController {
++    private static final String LOGTAG = "CertOverrideController";
++
++    private CertOverrideController() {}
++
++    /**
++     * Remember a temporary override for the certificate that the load of
++     * <code>uri</code> last failed with. One-shot per error: consumed on the
++     * first successful remember; a repeat failure re-captures through the
++     * error flow. Must be called after the corresponding
++     * <code>GeckoView:OnLoadError</code> (the provider wires this from
++     * SslErrorHandler.proceed()).
++     *
++     * @param uri The URI whose failed load should be allowed.
++     * @return A {@link GeckoResult} that completes with whether an override
++     *     was remembered (false when no failed certificate is stashed for
++     *     the URI).
++     */
++    @AnyThread
++    public static @NonNull GeckoResult<Boolean> allowError(
++            final @NonNull String uri) {
++        final GeckoBundle msg = new GeckoBundle(1);
++        msg.putString("uri", uri);
++
++        return EventDispatcher.getInstance()
++                .queryBoolean("GeckoView:AllowCertError", msg);
++    }
++}
+diff --git a/mobile/shared/actors/LoadURIDelegateChild.sys.mjs b/mobile/shared/actors/LoadURIDelegateChild.sys.mjs
+index 8a22300f297c..93c6648ee012 100644
+--- a/mobile/shared/actors/LoadURIDelegateChild.sys.mjs
++++ b/mobile/shared/actors/LoadURIDelegateChild.sys.mjs
+@@ -13,7 +13,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
+ // Implements nsILoadURIDelegate.
+ export class LoadURIDelegateChild extends GeckoViewActorChild {
+   // nsILoadURIDelegate.
+-  handleLoadError(aUri, aError, aErrorModule) {
++  handleLoadError(aUri, aError, aErrorModule, aFailedChannel) {
+     debug`handleLoadError: uri=${aUri && aUri.spec}
+                              displaySpec=${aUri && aUri.displaySpec}
+                              error=${aError}`;
+@@ -32,6 +32,25 @@ export class LoadURIDelegateChild extends GeckoViewActorChild {
+       errorClass,
+     };
+ 
++    // Sinytra patch 0006 (SSL proceed): attach the failed server
++    // certificate for certificate errors, so the app's
++    // SslErrorHandler.proceed() can remember a temporary override.
++    // The channel is passed through the delegate contract because
++    // docShell.failedChannel only points at the error-page document's
++    // copy (set after this delegate call).
++    if (errorClass === Ci.nsINSSErrorsService.ERROR_CLASS_BAD_CERT) {
++      try {
++        const secInfo = aFailedChannel ? aFailedChannel.securityInfo : null;
++        const cert = secInfo ? secInfo.serverCert : null;
++        if (cert) {
++          const der = cert.getRawDER();
++          msg.certBase64 = btoa(String.fromCharCode.apply(null, der));
++        }
++      } catch (e) {
++        warn`certificate capture failed ${e}`;
++      }
++    }
++
+     let errorPagePromise = this.sendQuery("GeckoView:OnLoadError", msg);
+ 
+     return lazy.LoadURIDelegate.handleLoadError(
+diff --git a/mobile/shared/actors/LoadURIDelegateParent.sys.mjs b/mobile/shared/actors/LoadURIDelegateParent.sys.mjs
+index 2039c79e1d46..84944e97b032 100644
+--- a/mobile/shared/actors/LoadURIDelegateParent.sys.mjs
++++ b/mobile/shared/actors/LoadURIDelegateParent.sys.mjs
+@@ -1,13 +1,20 @@
+ /* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * License, v. 2.0. If a copy of this MPL was not distributed with this
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+ import { GeckoViewActorParent } from "resource://gre/modules/GeckoViewActorParent.sys.mjs";
++import { GeckoViewCertOverride } from "resource://gre/modules/GeckoViewCertOverride.sys.mjs";
+ 
+ export class LoadURIDelegateParent extends GeckoViewActorParent {
+   async receiveMessage({ name, data }) {
+     switch (name) {
+       case "GeckoView:OnLoadError": {
++        // Sinytra patch 0006 (SSL proceed): keep the failed server
++        // certificate so SslErrorHandler.proceed() can remember a
++        // temporary override for it (GeckoView:AllowCertError).
++        if (data.certBase64) {
++          GeckoViewCertOverride.stash(data.uri, data.certBase64);
++        }
+         return this.eventDispatcher.sendRequestForResult(
+           "GeckoView:OnLoadError",
+           data
+diff --git a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+index b6968986d36e..740729d5df9b 100644
+--- a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
++++ b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+@@ -196,6 +196,13 @@ export class GeckoViewStartup {
+           ],
+         });
+ 
++        // Sinytra patch 0006 (SSL proceed): turns the app's
++        // SslErrorHandler.proceed() into a temporary cert override.
++        GeckoViewUtils.addLazyGetter(this, "GeckoViewCertOverride", {
++          module: "resource://gre/modules/GeckoViewCertOverride.sys.mjs",
++          ged: ["GeckoView:AllowCertError"],
++        });
++
+         GeckoViewUtils.addLazyGetter(this, "GeckoViewPushController", {
+           module: "resource://gre/modules/GeckoViewPushController.sys.mjs",
+           ged: ["GeckoView:PushEvent", "GeckoView:PushSubscriptionChanged"],
+diff --git a/mobile/shared/modules/geckoview/GeckoViewCertOverride.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewCertOverride.sys.mjs
+new file mode 100644
+index 000000000000..06acdb5ceda2
+--- /dev/null
++++ b/mobile/shared/modules/geckoview/GeckoViewCertOverride.sys.mjs
+@@ -0,0 +1,94 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of this MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++// Sinytra patch 0006 (SSL proceed): process-wide stash of the failed
++// certificate from GeckoView:OnLoadError plus the EventDispatcher handler
++// that turns android.webkit.SslErrorHandler.proceed() into a temporary
++// nsICertOverrideService entry (Firefox Add-Exception semantics).
++// The child actor stashes through LoadURIDelegateParent; the Java side
++// reaches allowError() via GeckoView:AllowCertError (registered in
++// GeckoViewStartup's ged list) through CertOverrideController.
++
++import { GeckoViewUtils } from "resource://gre/modules/GeckoViewUtils.sys.mjs";
++
++const { debug, warn } = GeckoViewUtils.initLogging(
++  "GeckoViewCertOverride"
++);
++
++// uri spec -> { host, port, certBase64 } captured at error time.
++const pending = new Map();
++
++function uriKey(aUriSpec) {
++  try {
++    const uri = Services.io.newURI(aUriSpec);
++    return {
++      host: uri.asciiHost,
++      // -1 is internally treated as 443 by nsICertOverrideService.
++      port: uri.port,
++    };
++  } catch (e) {
++    return null;
++  }
++}
++
++export const GeckoViewCertOverride = {
++  // Called from LoadURIDelegateParent when the child actor attached the
++  // failed server certificate to the error message.
++  stash(aUriSpec, aCertBase64) {
++    const hostPort = uriKey(aUriSpec);
++    if (!hostPort || !hostPort.host || !aCertBase64) {
++      return;
++    }
++    debug`stash cert override candidate ${aUriSpec}`;
++    pending.set(aUriSpec, {
++      host: hostPort.host,
++      port: hostPort.port,
++      certBase64: aCertBase64,
++    });
++  },
++
++  // Remember a temporary (session-scoped) override for the certificate the
++  // load of aUriSpec failed with. One-shot: consumed on first use; a repeat
++  // failure re-stashes through the error flow.
++  allowError(aUriSpec) {
++    const entry = pending.get(aUriSpec);
++    if (!entry) {
++      warn`allowError: no stashed certificate for ${aUriSpec}`;
++      return false;
++    }
++    pending.delete(aUriSpec);
++    try {
++      const certDB = Cc["@mozilla.org/security/x509certdb;1"].getService(
++        Ci.nsIX509CertDB
++      );
++      const cert = certDB.constructX509FromBase64(entry.certBase64);
++      const overrideService = Cc[
++        "@mozilla.org/security/certoverride;1"
++      ].getService(Ci.nsICertOverrideService);
++      // rememberValidityOverride asserts the main thread; ged handlers run
++      // on the gecko main thread.
++      overrideService.rememberValidityOverride(
++        entry.host,
++        entry.port,
++        {},
++        cert,
++        true
++      );
++      debug`remembered temporary override for ${entry.host}:${entry.port}`;
++      return true;
++    } catch (e) {
++      warn`allowError failed ${e}`;
++      return false;
++    }
++  },
++
++  onEvent(aEvent, aData, aCallback) {
++    switch (aEvent) {
++      case "GeckoView:AllowCertError": {
++        aCallback.onSuccess(this.allowError(aData.uri));
++        break;
++      }
++    }
++  },
++};
+diff --git a/mobile/shared/modules/geckoview/moz.build b/mobile/shared/modules/geckoview/moz.build
+index 8bbf8d5aca64..8397b6042e0f 100644
+--- a/mobile/shared/modules/geckoview/moz.build
++++ b/mobile/shared/modules/geckoview/moz.build
+@@ -12,6 +12,7 @@ EXTRA_JS_MODULES += [
+     "GeckoViewAIFeatures.sys.mjs",
+     "GeckoViewAutocomplete.sys.mjs",
+     "GeckoViewAutofill.sys.mjs",
++    "GeckoViewCertOverride.sys.mjs",
+     "GeckoViewClipboardPermission.sys.mjs",
+     "GeckoViewConsole.sys.mjs",
+     "GeckoViewContent.sys.mjs",
+-- 
+2.55.0
+

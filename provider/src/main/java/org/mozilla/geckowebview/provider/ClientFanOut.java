@@ -7,6 +7,7 @@ import android.webkit.GeolocationPermissions;
 import android.webkit.HttpAuthHandler;
 import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
+import android.webkit.SinytraSslErrorHandler;
 import android.webkit.ValueCallback;
 import android.webkit.WebBackForwardList;
 import android.webkit.WebChromeClient;
@@ -177,24 +178,26 @@ final class ClientFanOut
         }
         // P1 SSL: cert failures go to onReceivedSslError (Chromium order:
         // onReceivedSslError INSTEAD of onReceivedError for these). The
-        // SslError carries no certificate (Gecko onLoadError has none) and
-        // the handler is a token — cancel is already the effective
-        // outcome, proceed() needs a Gecko cert-override primitive (P2).
+        // SslError carries no certificate (Gecko does not surface one in the
+        // error callback); the handler routes the app's decision — cancel is
+        // the error page, proceed = temporary cert override + reload
+        // (firefox-patches/0006, Firefox Add-Exception semantics).
         if (sslPrimaryError >= 0) {
-            android.webkit.SslErrorHandler handler =
-                    FrameworkTokens.newSslErrorHandler();
-            if (handler != null) {
-                try {
-                    client.onReceivedSslError(mOwner.webView(),
-                            handler,
+            try {
+                client.onReceivedSslError(mOwner.webView(),
+                        new SinytraSslErrorHandler(
+                                () -> proceedSslError(failingUrl),
+                                () -> {
+                                    // cancel: the load is already terminal;
+                                    // the error page stands.
+                                }),
                             new android.net.http.SslError(sslPrimaryError,
                                     (android.net.http.SslCertificate) null,
                                     failingUrl));
-                    return;
-                } catch (Throwable t) {
-                    android.util.Log.w(TAG,
-                            "WebViewClient.onReceivedSslError threw", t);
-                }
+                return;
+            } catch (Throwable t) {
+                android.util.Log.w(TAG,
+                        "WebViewClient.onReceivedSslError threw", t);
             }
         }
         try {
@@ -203,6 +206,40 @@ final class ClientFanOut
         } catch (Throwable t) {
             android.util.Log.w(TAG, "WebViewClient.onReceivedError threw", t);
         }
+    }
+
+    // SslErrorHandler.proceed: Chromium semantics = continue the blocked load
+    // despite the invalid certificate. The navigation is already terminal on
+    // the Gecko side, so proceed = remember a temporary override for the
+    // failed certificate (0006) and reload the URI. If the reload fails
+    // again the app is consulted again (same as Chromium re-asking).
+    private void proceedSslError(@NonNull String url) {
+        android.webkit.WebView webView = mOwner.webView();
+        if (webView == null) {
+            return;
+        }
+        org.mozilla.geckoview.CertOverrideController.allowError(url)
+                .accept(ok -> {
+                    android.util.Log.d(TAG, "ssl proceed override=" + ok
+                            + " url=" + url);
+                    if (Boolean.TRUE.equals(ok)) {
+                        // Reload through OUR provider bridge after the failed
+                        // load fully settles (the docshell is mid-decision
+                        // when proceed() fires; an immediate loadUri was
+                        // observed to be swallowed by the error-page flow).
+                        // A plain android.os.Handler, NOT View.post: the
+                        // WebView can be detached (harness, background
+                        // tabs), and a detached View queues the runnable
+                        // into the attach-time RunQueue where it never runs.
+                        new android.os.Handler(android.os.Looper
+                                .getMainLooper()).postDelayed(() -> {
+                            android.util.Log.d(TAG,
+                                    "ssl proceed reloading " + url);
+                            mOwner.ownerBridge().loadUrl(url);
+                        }, 500);
+                    }
+                },
+                e -> android.util.Log.w(TAG, "ssl proceed failed", e));
     }
 
     // --- PermissionBridge.Host ---

@@ -8,11 +8,13 @@ import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import java.io.File;
 import java.io.FileInputStream;
 import java.lang.reflect.Field;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 // P1 system-capability probes: cookie policy flags, cookie jar round-trip
@@ -374,6 +376,135 @@ final class P1SystemProbes {
                 serverThread.join(2000);
             }
         }
+
+        // --- P2 SSL proceed (firefox-patches/0006): self-signed TLS server
+        // (keystore in debug assets) → cert error → app proceeds →
+        // temporary override + reload → the body actually renders. Locks
+        // the full chain: cert capture at error time, the
+        // GeckoView:AllowCertError round-trip, and the in-package
+        // SslErrorHandler decision routing. Runs last (navigates away). ---
+        final AtomicInteger sslPrompts = new AtomicInteger();
+        final AtomicReference<String> sslPageBody = new AtomicReference<>();
+        final CountDownLatch sslPageDone = new CountDownLatch(1);
+        javax.net.ssl.SSLContext sslContext =
+                sslContextFromAssets(activity, "sinytra-test.p12",
+                        "sinytra-probe");
+        try (javax.net.ssl.SSLServerSocket tlsServer =
+                (javax.net.ssl.SSLServerSocket) sslContext
+                        .getServerSocketFactory().createServerSocket(0, 4,
+                                java.net.InetAddress.getByName("127.0.0.1"))) {
+            tlsServer.setSoTimeout(30000);
+            Thread tlsThread = new Thread(() -> {
+                // The first handshake is expected to fail (the probe
+                // navigation); keep accepting for the post-override reload.
+                for (int i = 0; i < 4; i++) {
+                    try (java.net.Socket socket = tlsServer.accept()) {
+                        socket.getInputStream().read(new byte[4096]);
+                        byte[] body = "sinytra-ssl-0006-ok".getBytes("UTF-8");
+                        String head = "HTTP/1.1 200 OK\r\n"
+                                + "Content-Type: text/plain\r\n"
+                                + "Content-Length: " + body.length + "\r\n"
+                                + "Connection: close\r\n\r\n";
+                        java.io.OutputStream os = socket.getOutputStream();
+                        os.write(head.getBytes("UTF-8"));
+                        os.write(body);
+                        os.flush();
+                    } catch (Throwable t) {
+                        android.util.Log.d("Sinytra/p1",
+                                "tls server connection ended", t);
+                    }
+                }
+            }, "sinytra-tls-server");
+            tlsThread.start();
+            WebViewClient originalClient = provider.getWebViewClient();
+            WebViewClient sslClient = new WebViewClient() {
+                @Override
+                public void onReceivedSslError(WebView view,
+                        android.webkit.SslErrorHandler handler,
+                        android.net.http.SslError error) {
+                    // Chromium semantics: exactly one decision; proceed on
+                    // the first prompt, cancel afterwards (a working
+                    // override means no second prompt ever arrives).
+                    if (sslPrompts.incrementAndGet() == 1) {
+                        handler.proceed();
+                    } else {
+                        handler.cancel();
+                    }
+                }
+
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    // Body proof with retries: the eval races the fresh
+                    // document's transport poller (same pattern as the
+                    // jsEval probe's retry loop).
+                    new Thread(() -> {
+                        for (int i = 0; i < 10
+                                && sslPageBody.get() == null; i++) {
+                            try {
+                                Thread.sleep(1000);
+                                evalJs(activity, provider,
+                                        "document.body.innerText", 4000,
+                                        value -> {
+                                            if (value != null && value
+                                                    .contains("sinytra-ssl-0006-ok")) {
+                                                sslPageBody.set(value);
+                                                sslPageDone.countDown();
+                                            }
+                                        });
+                            } catch (Throwable t) {
+                                android.util.Log.d("Sinytra/p1",
+                                        "ssl probe eval attempt " + i
+                                                + " failed");
+                            }
+                        }
+                    }, "sinytra-ssl-eval").start();
+                }
+            };
+            activity.runOnUiThread(() -> provider.setWebViewClient(sslClient));
+            try {
+                activity.runOnUiThread(() -> provider.loadUrl(
+                        "https://127.0.0.1:" + tlsServer.getLocalPort()
+                                + "/probe"));
+                if (!sslPageDone.await(60, TimeUnit.SECONDS)
+                        || sslPageBody.get() == null) {
+                    throw new IllegalStateException(
+                            "ssl proceed never rendered the body: prompts="
+                                    + sslPrompts.get() + " body="
+                                    + sslPageBody.get());
+                }
+                if (sslPrompts.get() != 1) {
+                    throw new IllegalStateException(
+                            "ssl proceed prompted " + sslPrompts.get()
+                                    + " times (override loop?)");
+                }
+                out.append("PASS sslProceed body=")
+                        .append(sslPageBody.get()).append('\n');
+            } finally {
+                activity.runOnUiThread(
+                        () -> provider.setWebViewClient(originalClient));
+                tlsThread.join(2000);
+            }
+        }
+    }
+
+    // In-process TLS context for the sslProceed probe: PKCS12 keystore from
+    // debug assets (self-signed CN=127.0.0.1, SAN IP:127.0.0.1).
+    private static javax.net.ssl.SSLContext sslContextFromAssets(
+            Activity activity, String asset, String password)
+            throws Exception {
+        java.security.KeyStore keyStore =
+                java.security.KeyStore.getInstance("PKCS12");
+        try (java.io.InputStream in = activity.getAssets().open(asset)) {
+            keyStore.load(in, password.toCharArray());
+        }
+        javax.net.ssl.KeyManagerFactory kmf =
+                javax.net.ssl.KeyManagerFactory.getInstance(
+                        javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(keyStore, password.toCharArray());
+        javax.net.ssl.SSLContext context =
+                javax.net.ssl.SSLContext.getInstance("TLS");
+        context.init(kmf.getKeyManagers(), null, null);
+        return context;
     }
 
     private static org.mozilla.geckowebview.session.PrintBridge
@@ -425,6 +556,23 @@ final class P1SystemProbes {
     private static void evalJs(Activity activity,
             GeckoWebViewProvider provider, String script) throws Exception {
         evalJs(activity, provider, script, value -> { });
+    }
+
+    // Short-timeout variant for post-navigation polling: the eval races the
+    // fresh document's transport poller (STATUS §1d), so callers retry with
+    // a bounded per-attempt wait instead of the 30s one-shot.
+    private static void evalJs(Activity activity,
+            GeckoWebViewProvider provider, String script, long timeoutMs,
+            ValueCallback<String> callback) throws Exception {
+        final CountDownLatch done = new CountDownLatch(1);
+        activity.runOnUiThread(() -> provider.evaluateJavaScript(script,
+                value -> {
+                    callback.onReceiveValue(value);
+                    done.countDown();
+                }));
+        if (!done.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+            throw new IllegalStateException("eval timeout: " + script);
+        }
     }
 
     // The JsBridge transport returns JSON — a string result arrives
