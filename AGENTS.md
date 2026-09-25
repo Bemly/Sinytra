@@ -172,8 +172,10 @@ P-1（bootstrap spike，最高优先级）→ P0（~20% API 跑起来）→ P1�
 - Java 风格：AOSP 规范，`@NonNull/@Nullable` 全覆盖 public API，入口校验参数；
   bridge 只翻译不缓存状态，状态下沉 `storage/`。
 - 线程/异步：GeckoView 调用与 delegate 回调默认 UI 线程，阻塞 IO 切后台、贴回 UI 交付；
-  异步统一 `GeckoResult` 链式，不手写 latch（framework 同步 API 必须阻塞等待的
-  例外须在注释写明理由，并禁止在 UI 线程等待）；超时/取消显式处理；delegate 异常
+  异步统一 `GeckoResult` 链式，不手写 latch——唯一例外是 framework 契约本身同步
+  的 API（如 `CookieManager.getCookie`，Chromium 同样阻塞调用线程）：等待必须有界、
+  被等待的链必须在别的 Looper 线程完成（调用方即使是 UI 线程也不会死锁），理由写在
+  类头注释（先例 `GeckoCookieManager`）；超时/取消显式处理；delegate 异常
   不许上抛崩 App，按 WebView 语义降级 + 日志（tag `Sinytra/<模块>`，发布关 verbose）。
 - 安全：`addJavascriptInterface` 反射面最小化；自定义 scheme/拦截器默认拒文件访问，
   按 allowlist 放行。
