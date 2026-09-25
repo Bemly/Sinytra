@@ -23,7 +23,6 @@ import org.mozilla.geckowebview.storage.GeckoGeolocationStore;
 import org.mozilla.geckowebview.storage.GeckoServiceWorkerController;
 import org.mozilla.geckowebview.storage.GeckoTracingController;
 import org.mozilla.geckowebview.storage.GeckoWebIconDatabase;
-import org.mozilla.geckowebview.storage.GeckoWebStorage;
 import org.mozilla.geckowebview.storage.GeckoWebStorageFacade;
 import org.mozilla.geckowebview.storage.GeckoWebViewDatabaseImpl;
 import org.mozilla.geckowebview.view.GeckoViewHost;
@@ -43,7 +42,6 @@ public final class GeckoWebViewFactoryProvider
     private final GeckoWebViewStatics mStatics = new GeckoWebViewStatics();
     private volatile GeckoCookieManager mCookieManager;
     private volatile GeckoCookieManagerImpl mCookieManagerImpl;
-    private volatile GeckoWebStorage mWebStorage;
     private volatile GeckoWebStorageFacade mStorageFacade;
     private volatile GeckoWebIconDatabase mIconDatabase;
     private volatile GeckoWebViewDatabaseImpl mWebViewDatabase;
@@ -271,21 +269,6 @@ public final class GeckoWebViewFactoryProvider
                 if (existing == null) {
                     existing = new GeckoCookieManager(context);
                     mCookieManager = existing;
-                }
-            }
-        }
-        return existing;
-    }
-
-    @NonNull
-    GeckoWebStorage storage(@NonNull Context context) {
-        GeckoWebStorage existing = mWebStorage;
-        if (existing == null) {
-            synchronized (this) {
-                existing = mWebStorage;
-                if (existing == null) {
-                    existing = new GeckoWebStorage(context);
-                    mWebStorage = existing;
                 }
             }
         }
