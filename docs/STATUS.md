@@ -2,9 +2,9 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-25 21:3x（P2 第二批收口：0008 contentDisposition 透传
-> + 0006 SSL proceed 定稿（cert-override 原语 + SslErrorHandler 子类接真
-> proceed），全量 harness **39 PASS** + P0 GLUE PASS、JVM **66 锁**）。
+> 更新时间：2026-09-25 23:0x（P2 第三批：framework 面 WebMessagePort
+> 落地（同包子类解除 AOSP 决策点）+ provider 拆分卫生项 + 视觉面缺口
+> 记死，全量 harness **40 PASS** + P0 GLUE PASS、JVM **74 锁**）。
 > 设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
@@ -570,27 +570,57 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
   framework 面 WebMessagePort（AOSP 决策点）、SW+拦截并存语义（储备）、
   a11y、CTS 全量（Linux 宿主/ROM 阶段）。
 
+## 1o. P2 第三批：framework 面 WebMessagePort 落地（2026-09-25 深夜，全量 harness 40 PASS / JVM 74 锁）
+
+- **AOSP 决策点解除（无需 AOSP patch、无需 factory hook）**：
+  `ProviderAdapters` 旧记录"框架 ctor package-private"是对 android.jar
+  桩 javap 的误读（@SystemApi 被剥离）——android14-release 源码里
+  `WebMessagePort()` 是 `@SystemApi public`。与 SslErrorHandler 完全
+  同构：同包放置满足 javac，真实 public ctor 满足运行期（SSL 先例
+  真机已证）。
+- **实现**：`android.webkit.SinytraWebMessagePort`（provider APK 内新
+  类，同包子类；`Binding` 接口注入路由，不引 org.mozilla 依赖，SSL
+  同款决策注入风格）。`GeckoWebViewProvider.createWebMessageChannel`
+  接真：返回一对 framework 端口，路由进 MessageBridge，页面传输与
+  boundary 面（LiveMessagePort）共用同一 JsBridge 通道。Chromium 奇偶
+  语义锁定：closed port 后 post/setCallback 抛 ISE、callback 二次设置
+  抛 ISE、onMessage 首参收端口自身（包装层把 MessageBridge 的 null
+  端口面替换为 this）。诚实缺口不变：端口转移（getPorts）无 transport
+  原语。
+- **JVM +8 锁**（SinytraWebMessagePortTest，共 74）：closed-port/
+  callback-once/端口身份/异常不上抛；mockable jar 限制记死——
+  WebMessage.getData() 恒 null，数据内容归设备锁。**探针**：msgChannel
+  收紧（fwNull 必须 false）+ 新 fwPort（端到端 via=page + 端口身份
+  断言 + close delta）。
+- **回归**：全量 harness **40 PASS + P0 GLUE PASS**（fwPort data=
+  sinytra-fwport-echo via=page），JVM **74 锁**全绿。
+- **拆分（卫生项）**：`GeckoWebViewProvider` 837→731 行——无操作
+  View/Scroll delegate 抽到 `ProviderViewDelegates`（唯一活分支：
+  file chooser onActivityResult 路由）；拆分后 harness 复跑 40 PASS
+  不变。
+- **新发现记死（视觉面缺口）**：framework WebView 路径从未接线视觉
+  输出——`createWebView` 不挂 GeckoViewHost 子视图、ViewDelegate 全
+  no-op；P0 的视觉验收一直是 P0Render 直用 GeckoView，harness 探针
+  全是回调级。**任何视觉类语义（a11y、截图、Surface 生命周期）的前置
+  = 视觉面接线**（GeckoViewHost attach 进 WebView 视图树 + Surface
+  生命周期），且当前 harness 无法视觉验证（注入的 WebView 未进布局）。
+
 ## 2. 下一步（按顺序，一次做一件）
 
-> 0001-0007 patch 线、P1 开工、unit 扩面、copy=0 诊断（§2a）、生态比对
-> 等历史待办已全部闭案——过程与踩坑记录保留在本文件各节与对应设计文档
-> （0001 树内踩坑迁入其设计文档 §8；CTS 基线迁入 `CTS.md` §5）。本节只列
-> 当前真实的下一步。
-
-1. **P2 剩余（§1n 末清单，逐项独立验收）**：
-   - **framework 面 `WebMessagePort`**：唯一硬堵点等 AOSP 决策——
-     `ProviderAdapters.WebMessagePortFactory`（AOSP patch 放开
-     package-private ctor vs framework factory hook）；boundary 面
-     （androidx.webkit）已全功能（§1d）。
-   - **SW + 拦截并存语义**（储备）：参考语义已建档
-     （`RELATED-PROJECTS.md` §2.1 ForceControl/SW-first/fallback），
-     届时再定是否移植。
-   - **a11y**：JNI 面清单可参照 `RELATED-PROJECTS.md` §2.2 的
-     a11y-disable 反向地图。
-   - **CTS 全量**：等 Linux 宿主（路线 A）/ ROM 阶段 provider 预装切换
-     （BOOTSTRAP §2.1）；Chromium 基线参照系已锁（`CTS.md` §5，98.6%）。
-2. **收尾卫生**：`GeckoWebViewProvider.java` 816 行逼近 900 拆分线，
-   下次加功能前先拆（先例：§1e harness 拆分）。
+1. **视觉面接线（P2 新硬点，§1o 末条）**：GeckoViewHost attach 进
+   framework WebView 视图树 + Surface 生命周期
+   （onAttachedToWindow/onDetachedFromWindow/onPause/onResume）——a11y
+   与一切视觉验收的前置；先让 harness 能把注入的 WebView 挂进布局
+   （视觉可验证），再接线、再探针。
+2. **a11y**：视觉面接线后认领——SessionAccessibility 节点树经
+   ViewDelegate.getAccessibilityNodeProvider /
+   onProvideVirtualStructure 露出；JNI 面清单参照
+   `RELATED-PROJECTS.md` §2.2 反向地图。
+3. **SW + 拦截并存语义**（储备，显式决策点）：参考语义已建档
+   （`RELATED-PROJECTS.md` §2.1 ForceControl/SW-first/fallback）；SW
+   未被真实场景需要前不接线（AGENTS §5 不为以后可能用而接能力）。
+4. **CTS 全量**：等 Linux 宿主（路线 A）/ ROM 阶段 provider 预装切换
+   （BOOTSTRAP §2.1）；Chromium 基线参照系已锁（`CTS.md` §5，98.6%）。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 

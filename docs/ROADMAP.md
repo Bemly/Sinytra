@@ -62,6 +62,11 @@ geolocation、页内查找、打印。
    线程/返回值/GC/对象生命周期的语义，GeckoView 没有天然对应实现，需自研
    `JavascriptBridge` + 可能的 GeckoView patch。
 3. **`WebMessagePort / postWebMessage`**：消息通道生命周期与线程语义需逐项对齐。
+   > **2026-09-25 闭案**：framework 面落地——`android.webkit.SinytraWebMessagePort`
+   > 同包子类（框架 ctor 实为 public @SystemApi，旧"package-private"记录是
+   > android.jar 桩误读），无需 AOSP patch；boundary 面早已全功能
+   > （LiveMessagePort）。真机 fwPort 探针 via=page + 端口身份断言；
+   > 端口转移（getPorts）仍为诚实缺口（transport 无原语）。
 4. **`shouldInterceptRequest`**：拦截时机、线程、返回值语义差异大，单独建 bridge。
 5. **`saveState / restoreState / WebBackForwardList`**：Gecko 的
    `onSessionStateChange` 序列化与 WebView 的状态模型不同，需 `StateBridge` 转译。
