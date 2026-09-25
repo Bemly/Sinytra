@@ -21,6 +21,19 @@ public final class GeckoRuntimeHolder {
 
     private GeckoRuntimeHolder() {}
 
+    /**
+     * Returns the runtime if already created, without creating one.
+     *
+     * <p>CookieManager and friends can be touched before any WebView exists;
+     * those callers must not force a runtime create ({@link
+     * GeckoRuntime#create} is main-thread-only), they degrade honestly
+     * instead. See GeckoCookieManager.
+     */
+    @Nullable
+    public static GeckoRuntime peek() {
+        return sRuntime;
+    }
+
     @NonNull
     public static GeckoRuntime get(@NonNull Context appContext) {
         GeckoRuntime existing = sRuntime;

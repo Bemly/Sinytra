@@ -8,8 +8,11 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 // android.webkit.CookieManager implementation over GeckoCookieManager state.
-// Per-cookie get/set stays honest-default until the P2 Necko patch lands
-// (API_MAPPING.md §7); policy flags + clear paths are live.
+// Per-cookie get/set/removeSessionCookies/hasCookies go through the real
+// Gecko cookie jar via firefox-patches/0007-cookie-jar primitives; policy
+// flags map onto ContentBlocking.setCookieBehavior (GeckoCookieManager).
+// clear paths were live before the patch; flush stays a no-op (Gecko
+// persists the jar automatically, no primitive to force it).
 public final class GeckoCookieManagerImpl extends CookieManager {
     private final GeckoCookieManager mDelegate;
 
