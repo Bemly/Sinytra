@@ -33,7 +33,9 @@ android {
     compileSdkMinor = 2
 
     defaultConfig {
-        applicationId = "org.mozilla.geckowebview"
+        // 2026-09-26 定稿：自有包名（不顶 com.android.webview，BOOTSTRAP §2.3）。
+        // namespace/Java 包保持 org.mozilla.geckowebview，只换安装身份。
+        applicationId = "moe.bemly.geckowebview"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

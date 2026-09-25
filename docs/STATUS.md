@@ -309,8 +309,8 @@ MOZBUILD_STATE_PATH=/Volumes//Projects/mozbuild PATH="$HOME/.cargo/bin:$PATH"
 ./gradlew :provider:assembleDebug -PsinytraLocalGecko=true
 # 真机（先 force-stop 再起，否则 am start 不重启）
 adb -s V885Q49L8TAMFEEE install -r provider/build/outputs/apk/debug/provider-debug.apk
-adb -s V885Q49L8TAMFEEE shell am force-stop org.mozilla.geckowebview.debug
-adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n org.mozilla.geckowebview.debug/org.mozilla.geckowebview.provider.P0GlueActivity
+adb -s V885Q49L8TAMFEEE shell am force-stop moe.bemly.geckowebview.debug
+adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n moe.bemly.geckowebview.debug/org.mozilla.geckowebview.provider.P0GlueActivity
 ```
 
 **收尾清单（2026-09-24 01:30 全部完成）**：① ~~插桩日志降级~~
@@ -652,18 +652,19 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
     + `super_setLayoutParams`（Activity measure NPE）；WebStorage/Geolocation
     `getInstance()↔Proxy` 自循环用重入标记断环；`FrameworkEntryActivity`
     （真 `new WebView()` + `onPageFinished`）PASS；P0Glue 在切换后 PASS。
-  - applicationId 在分支上改成了 `firefox.bemly.moe`（master 仍是
-    `org.mozilla.geckowebview`）——主线化时需定一个。
+  - applicationId 在分支上改成了 `firefox.bemly.moe`；**master 已定稿为
+    `moe.bemly.geckowebview`**（2026-09-26，debug = `moe.bemly.geckowebview.debug`；
+    Java 包/namespace 不变）。
   - 分支比 master 落后整个 158 升级 + 0001–0007 + P2 第二至四批，不能直接合，
     只能按上面三点在 master 上重做。
 - **设备现状（2026-09-26）**：AnyWebView 1.3 + LSPosed v1.11.0 在位、SELinux
-  Enforcing；Current = `org.bromite.webview`；master 的
+  Enforcing；Current = `org.bromite.webview`；旧 applicationId 的
   `org.mozilla.geckowebview.debug` 已装但**不在候选列表**（无 `WebViewLibrary`）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
 1. **切换路线主线化**（BOOTSTRAP §2.3 清单）：master 补 `WebViewLibrary`
-   metadata + versionCode 编码方案 + 定 applicationId → trampoline（Proxy 转发、
+   metadata + versionCode 编码方案（applicationId 已定）→ trampoline（Proxy 转发、
    PrivateAccess、storage/geo 断环）→ 真实路径探针（`FrameworkEntryActivity`
    迁入 `src/debug`）。验收：Valid + Current 为我方 + 真实路径 PASS + 反射
    harness 41 PASS 不退。

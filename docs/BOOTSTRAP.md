@@ -107,7 +107,7 @@ process bootstrap（这是 P2 之外的前置 patch，优先级高于一切 brid
 | Valid：library flag | `<meta-data android:name="com.android.webview.WebViewLibrary" android:value="libxul.so"/>`（真实 .so，不做 dummy） | PoC `ce86279` |
 | Valid：versionCode | ≥ `Minimum WebView version code`；PoC 用 647900000（branch 6479 > stock 6478/8037/8066）；正式编码方案主线化时定 | PoC `ce86279` |
 | Valid：targetSdk | ≥ 33（现 34） | DEVICE §2 |
-| 包名 | 用自己的包名，不顶 `com.android.webview`；PoC 分支用 `firefox.bemly.moe`，master 是 `org.mozilla.geckowebview`——主线化时二选一 | PoC STATUS |
+| 包名 | **`moe.bemly.geckowebview`**（2026-09-26 定稿；debug 为 `.debug` 后缀）。自有包名，不顶 `com.android.webview`；Java 包/namespace 仍是 `org.mozilla.geckowebview`（只换安装身份） | 用户拍板 |
 | 入口 | `com.android.webview.chromium.WebViewChromiumFactoryProviderForT.create(WebViewDelegate)` trampoline：用 `Proxy` 实现**真实** `WebViewFactoryProvider` 接口（stub 把 `createWebView` 参数 erase 成 Object，直接 implements 会 `AbstractMethodError`），只做转发 | PoC `00d3559` |
 | `PrivateAccess` | `createWebView` 时保留 `PrivateAccess` 并经 `super_setLayoutParams` 先写 MATCH_PARENT（否则 Activity measure NPE） | PoC `00d3559` |
 | WebStorage/Geolocation | framework 这两类 ctor 包私有、只能返回 `getInstance()`；在 Proxy 内会 `getInstance()↔getProvider()` 自循环 → trampoline 里用重入标记直读已构造实例断环 | PoC `00d3559` |

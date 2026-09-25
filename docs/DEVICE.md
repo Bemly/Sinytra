@@ -39,8 +39,9 @@
 - Valid：`org.bromite.webview`、`com.google.android.webview.canary` 156.0.8072.0、
   `com.android.webview` 126.0.6478.246、`com.google.android.webview` 155.0.8059.4。
 - Invalid：`com.huawei.webview` 12.1.3.373（Version code too low）。
-- 已装 `org.mozilla.geckowebview.debug`（master 构建）但**不在列表里**——master
-  manifest 还没有 `WebViewLibrary` metadata（切换路线尚未主线化，`STATUS.md` §2）。
+- 已装 `org.mozilla.geckowebview.debug`（旧 applicationId 的 master 构建）但**不在列表里**
+  ——manifest 还没有 `WebViewLibrary` metadata（切换路线尚未主线化，`STATUS.md` §2）。
+  现行 applicationId 为 `moe.bemly.geckowebview`（debug `.debug`），旧包可卸。
 
 ## 4. 构建与 adb 固定流程
 
