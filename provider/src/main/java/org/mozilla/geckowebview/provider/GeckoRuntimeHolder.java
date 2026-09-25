@@ -47,18 +47,20 @@ public final class GeckoRuntimeHolder {
             Context app = appContext.getApplicationContext();
             GeckoRuntimeSettings.Builder builder =
                     new GeckoRuntimeSettings.Builder().javaScriptEnabled(true);
-            // Sinytra 0005 日志门: 调试（debuggable）构建经打包的
-            // geckoview-config.yaml 打开 sinytra.log.enabled（C++ 插桩的
-            // 运行时开关，0005 宏读）; 非 debuggable 构建不打包该 asset，
-            // pref 保持默认 false，零输出。判据用 FLAG_DEBUGGABLE
-            // （AGP 9 不再生成 BuildConfig；且这正是「调试模式」的本义，
-            // GeckoView 对默认 config 路径也用同一判据）。
-            // configFilePath 只收真实文件路径，assets 先拷到 filesDir。
+            // GeckoView config (public configFilePath mechanism): all builds
+            // get the provider hygiene prefs (src/main asset: no network
+            // probing, no Remote Settings fetch); debug builds override the
+            // asset with sinytra.log.enabled added (0005 日志门). FLAG_
+            // DEBUGGABLE is the "debug mode" criterion (AGP 9 generates no
+            // BuildConfig); configFilePath needs a real file, so assets are
+            // copied to filesDir first.
             boolean debuggable =
                     (app.getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
-            File debugConfig = debuggable ? installDebugConfig(app) : null;
-            if (debugConfig != null) {
-                builder = builder.configFilePath(debugConfig.getAbsolutePath());
+            File config = installConfig(app);
+            if (config != null) {
+                builder = builder.configFilePath(config.getAbsolutePath());
+            } else if (debuggable) {
+                Log.w(TAG, "geckoview-config.yaml missing — 0005 gate off");
             }
             sRuntime = GeckoRuntime.create(app, builder.build());
             Log.i(TAG, "GeckoRuntime created");
@@ -67,7 +69,7 @@ public final class GeckoRuntimeHolder {
     }
 
     @Nullable
-    private static File installDebugConfig(@NonNull Context app) {
+    private static File installConfig(@NonNull Context app) {
         try (InputStream in = app.getAssets().open("geckoview-config.yaml")) {
             File out = new File(app.getFilesDir(), "geckoview-config.yaml");
             try (OutputStream os = new FileOutputStream(out)) {
@@ -79,7 +81,7 @@ public final class GeckoRuntimeHolder {
             }
             return out;
         } catch (IOException e) {
-            Log.w(TAG, "debug geckoview-config.yaml missing/unreadable", e);
+            Log.w(TAG, "geckoview-config.yaml missing/unreadable", e);
             return null;
         }
     }

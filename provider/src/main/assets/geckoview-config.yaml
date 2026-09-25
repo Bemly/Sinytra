@@ -1,0 +1,13 @@
+# Sinytra provider base GeckoView config (all builds).
+# A system WebView must not probe networks or phone Mozilla services on its
+# own (RELATED-PROJECTS.md §2.1 hygiene set; GeckoView public configFilePath
+# mechanism — no patch needed). The debug variant overrides this file with
+# the same prefs plus sinytra.log.enabled (0005).
+# - connectivity/captive-portal: Gecko-side network probing a WebView has no
+#   business doing (this is Chromium-free embedding, not a browser).
+# - services.settings.server: Remote Settings is a browser-product channel;
+#   pinned to a blackhole address so nothing is fetched.
+prefs:
+  network.connectivity-service.enabled: false
+  network.captive-portal-service.enabled: false
+  services.settings.server: http://127.0.0.1:1

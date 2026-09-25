@@ -1,5 +1,9 @@
-# Sinytra debug-only GeckoView config (firefox-patches/0005).
-# Release builds do not package this asset — sinytra.log.enabled stays
+# Sinytra debug GeckoView config (overrides src/main for debug builds).
+# Same hygiene prefs as the base file, plus the 0005 instrumentation gate.
+# Release builds package only the base file — sinytra.log.enabled stays
 # default-false there and no Sinytra instrumentation reaches logcat.
 prefs:
+  network.connectivity-service.enabled: false
+  network.captive-portal-service.enabled: false
+  services.settings.server: http://127.0.0.1:1
   sinytra.log.enabled: true
