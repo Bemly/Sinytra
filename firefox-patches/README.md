@@ -31,6 +31,7 @@
 | 0003 | 流式响应体 | 替身体流式读取，无 16MB 上限 | base64+cap 基于过时假设（详见 0003 设计文档） | **已定稿**：`0003-response-body-streaming.patch`；**158 重放 @ `8efda7b417c0`** |
 | 0004 | 合成响应 SW tainting（ORB 加固） | 顶层导航合成响应无 loading principal，ORB/跨源检查会拒 | `InterceptedHttpChannel` 的 SW 路径会 SynthesizeServiceWorkerTainting，自研路径不会——借鉴 wszgrcy 线（RELATED-PROJECTS §2.1） | **已定稿**：`0004-synthesized-sw-tainting.patch`（@ `bc58ea7cf4df`）；153 上不需要（真机已通），158 起防御性补上 |
 | 0005 | 插桩日志 debug 门 | debug 构建多打、release 零输出（README「日志纪律」） | AAR debug/release 变体共用一个 libxul，编译期门做不到按变体区分 → 运行时 pref `sinytra.log.enabled`（默认 false） | **已定稿**：`0005-debug-only-instrumentation.patch`（@ `b43672422aa1`）；provider debug 构建经 `src/debug/assets/geckoview-config.yaml` 打开 |
+| 0007 | CookieManager cookie-jar 原语 | `CookieManager` 逐 cookie get/set/removeSessionCookies/hasCookies | GV 无任何逐 cookie API（jar 在 Necko；0006 编号预留给 download/SSL-proceed 排查）→ `StorageController` 四原语 + JS 模块 `nsICookieManager` 直控（设计文档 `0007-cookie-jar.md`） | **已定稿**：`0007-cookie-jar.patch`（@ `dfcc04709482`）；设备 cookieJar 探针 + 38 探针回归 |
 
 设计文档：`0001/0002/0003-*.md`（树内勘察、地基选型、边界、测试计划）。
 

@@ -1,0 +1,315 @@
+From dfcc04709482ecb6e076fc47d122456464d6f3fe Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Fri, 25 Sep 2026 10:24:42 +0800
+Subject: [PATCH] Sinytra patch 0007: cookie-jar primitives on
+ StorageController
+
+android.webkit.CookieManager needs per-cookie get/set over Necko's jar;
+GeckoView only exposed jar-wide clearing. Add four @AnyThread primitives
+to StorageController (GetCookie/SetCookie/RemoveSessionCookies/
+HasCookies via the global EventDispatcher), implemented in
+GeckoViewStorageController.sys.mjs over nsICookieManager.
+
+- getCookie: native-level read (HttpOnly included, Secure only for
+  https), RFC 6265 order via getCookiesFromHost(aSorted=true).
+- setCookie: minimal Set-Cookie parse (nsICookieService's parser needs a
+  channel, which a programmatic set does not have - NS_ENSURE_ARG) +
+  nsICookieManager.add, whose validation result gives a precise boolean.
+  Behavior pre-check mirrors Chromium: reject while cookies are globally
+  rejected. Session cookies need a non-past expiry (add() honors expiry
+  even for sessions - the more restrictive wins).
+- removeSessionCookies: sessionCookies enumeration + remove.
+- hasCookies: jar-wide existence.
+
+Verified on device: harness cookieJar probe (set -> get ->
+removeSessionCookies -> gone) plus the full 38-probe regression, with
+the provider CookieManager facade wired to these primitives.
+---
+ .../mozilla/geckoview/StorageController.java  |  66 +++++++
+ .../geckoview/GeckoViewStartup.sys.mjs        |   5 +
+ .../GeckoViewStorageController.sys.mjs        | 173 ++++++++++++++++++
+ 3 files changed, 244 insertions(+)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
+index 6e78545bd5da..e7ced668c7aa 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/StorageController.java
+@@ -319,4 +319,70 @@ public final class StorageController {
+     msg.putBoolean("allowPermanentPrivateBrowsing", allowPermanentPrivateBrowsing);
+     EventDispatcher.getInstance().dispatch("GeckoView:SetPermission", msg);
+   }
++
++  // ---- Sinytra cookie-jar primitives (firefox-patches/0007-cookie-jar). ----
++  // WebView exposes a process-wide CookieManager over Necko's cookie jar;
++  // GeckoView only had jar-wide clearing (ClearFlags.COOKIES) and no per-cookie
++  // access, so android.webkit.CookieManager could not be implemented over the
++  // real jar. These four primitives close that gap. See the JS side in
++  // GeckoViewStorageController.sys.mjs for the jar semantics.
++
++  /**
++   * Get the cookie string for the given URI, in Cookie header form
++   * ("name=value; name2=value2"), ordered per RFC 6265. Native-level read:
++   * HttpOnly cookies are included (unlike document.cookie), and Secure cookies
++   * are only included for https URIs.
++   *
++   * @param uri The URI the cookies would be sent to.
++   * @return A {@link GeckoResult} that completes with the cookie string, empty
++   *     if none apply.
++   */
++  @AnyThread
++  public @NonNull GeckoResult<String> getCookie(final @NonNull String uri) {
++    final GeckoBundle msg = new GeckoBundle(1);
++    msg.putString("uri", uri);
++
++    return EventDispatcher.getInstance().queryString("GeckoView:GetCookie", msg);
++  }
++
++  /**
++   * Set a cookie for the given URI from a Set-Cookie-shaped string
++   * ("name=value; Path=/; Secure; ..."). Subject to the engine's cookie
++   * behavior.
++   *
++   * @param uri The URI the cookie is set for.
++   * @param value The Set-Cookie-shaped cookie string.
++   * @return A {@link GeckoResult} that completes with whether the cookie was
++   *     accepted.
++   */
++  @AnyThread
++  public @NonNull GeckoResult<Boolean> setCookie(
++      final @NonNull String uri, final @NonNull String value) {
++    final GeckoBundle msg = new GeckoBundle(2);
++    msg.putString("uri", uri);
++    msg.putString("cookie", value);
++
++    return EventDispatcher.getInstance().queryBoolean("GeckoView:SetCookie", msg);
++  }
++
++  /**
++   * Remove all session cookies (cookies without an expiry).
++   *
++   * @return A {@link GeckoResult} that completes with whether any cookie was
++   *     removed.
++   */
++  @AnyThread
++  public @NonNull GeckoResult<Boolean> removeSessionCookies() {
++    return EventDispatcher.getInstance().queryBoolean("GeckoView:RemoveSessionCookies");
++  }
++
++  /**
++   * Return whether any cookie exists in the jar.
++   *
++   * @return A {@link GeckoResult} that completes with the answer.
++   */
++  @AnyThread
++  public @NonNull GeckoResult<Boolean> hasCookies() {
++    return EventDispatcher.getInstance().queryBoolean("GeckoView:HasCookies");
++  }
+ }
+diff --git a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+index fb883b8efb99..b6968986d36e 100644
+--- a/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
++++ b/mobile/shared/components/geckoview/GeckoViewStartup.sys.mjs
+@@ -178,6 +178,11 @@ export class GeckoViewStartup {
+             "GeckoView:GetPermissionsByURI",
+             "GeckoView:SetPermission",
+             "GeckoView:SetPermissionByURI",
++            // Sinytra cookie-jar primitives (firefox-patches/0007-cookie-jar).
++            "GeckoView:GetCookie",
++            "GeckoView:SetCookie",
++            "GeckoView:RemoveSessionCookies",
++            "GeckoView:HasCookies",
+           ],
+         });
+ 
+diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+index 1be98f6b3163..be1c525c716d 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+@@ -198,6 +198,30 @@ export const GeckoViewStorageController = {
+         );
+         break;
+       }
++      // ---- Sinytra cookie-jar primitives (firefox-patches/0007-cookie-jar).
++      // Android WebView's CookieManager reads and writes the jar at the
++      // native level: HttpOnly cookies are included (unlike document.cookie)
++      // and Secure cookies only apply to https.
++      case "GeckoView:GetCookie": {
++        aCallback.onSuccess(this.getCookieString(aData.uri));
++        break;
++      }
++      case "GeckoView:SetCookie": {
++        aCallback.onSuccess(this.setCookie(aData.uri, aData.cookie));
++        break;
++      }
++      case "GeckoView:RemoveSessionCookies": {
++        const session = Services.cookies.sessionCookies;
++        for (const c of session) {
++          Services.cookies.remove(c.host, c.name, c.path, c.originAttributes);
++        }
++        aCallback.onSuccess(session.length > 0);
++        break;
++      }
++      case "GeckoView:HasCookies": {
++        aCallback.onSuccess(Services.cookies.cookies.length > 0);
++        break;
++      }
+     }
+   },
+ 
+@@ -267,4 +291,153 @@ export const GeckoViewStorageController = {
+       JSON.stringify(pattern)
+     );
+   },
++
++  // Sinytra: Cookie header string for the URI, ordered per RFC 6265
++  // (aSorted). Native-level read: HttpOnly included, Secure only for https.
++  getCookieString(aUriSpec) {
++    let uri;
++    try {
++      uri = Services.io.newURI(aUriSpec);
++    } catch (e) {
++      return "";
++    }
++    const host = uri.asciiHost;
++    if (!host) {
++      // file:// and friends have no cookie jar.
++      return "";
++    }
++    const secureOnly = uri.schemeIs("https");
++    const cookies = Services.cookies.getCookiesFromHost(host, {}, true);
++    return cookies
++      .filter(c => secureOnly || !c.isSecure)
++      .map(c => `${c.name}=${c.value}`)
++      .join("; ");
++  },
++
++  // Sinytra: store a Set-Cookie-shaped string. nsICookieService's own
++  // Set-Cookie parser (setCookieStringFromHttp) requires a channel, which a
++  // programmatic set does not have, so parse the common attributes here and
++  // go through nsICookieManager.add, whose validation result tells us
++  // whether the cookie was accepted. Unknown attributes are ignored, as in
++  // Chromium.
++  setCookie(aUriSpec, aCookieString) {
++    // Mirror Chromium: setting fails while cookies are globally rejected.
++    if (
++      Services.cookies.getCookieBehavior(false) ===
++      Ci.nsICookieService.BEHAVIOR_REJECT
++    ) {
++      return false;
++    }
++    let uri;
++    try {
++      uri = Services.io.newURI(aUriSpec);
++    } catch (e) {
++      return false;
++    }
++    const host = uri.asciiHost;
++    if (!host) {
++      return false;
++    }
++    const pieces = String(aCookieString).split(";");
++    const eq = pieces[0].indexOf("=");
++    if (eq < 1) {
++      // Requires a non-empty name before "=".
++      return false;
++    }
++    const name = pieces[0].slice(0, eq).trim();
++    const value = pieces[0].slice(eq + 1).trim();
++    let cookieHost = host;
++    let path = "/";
++    let isSecure = uri.schemeIs("https");
++    let isHttpOnly = false;
++    let isSession = true;
++    // add() honors expiry even for session cookies (the more restrictive of
++    // the two wins), so a session cookie still needs a non-past expiry.
++    // 400 days matches the engine's own cookie lifetime cap.
++    let expiry = Date.now() + 400 * 24 * 60 * 60 * 1000;
++    let sameSite = Ci.nsICookie.SAMESITE_UNSET;
++    for (let i = 1; i < pieces.length; i++) {
++      const attr = pieces[i];
++      const aeq = attr.indexOf("=");
++      const aname = (aeq === -1 ? attr : attr.slice(0, aeq))
++        .trim()
++        .toLowerCase();
++      const avalue = aeq === -1 ? "" : attr.slice(aeq + 1).trim();
++      switch (aname) {
++        case "domain":
++          cookieHost = avalue.replace(/^\.+/, "");
++          break;
++        case "path":
++          path = avalue || "/";
++          break;
++        case "secure":
++          isSecure = true;
++          break;
++        case "httponly":
++          isHttpOnly = true;
++          break;
++        case "max-age": {
++          const seconds = parseInt(avalue, 10);
++          if (!Number.isNaN(seconds)) {
++            isSession = false;
++            // add() takes expiry in milliseconds (see nsICookieManager.idl).
++            expiry = Date.now() + seconds * 1000;
++          }
++          break;
++        }
++        case "expires": {
++          const time = Date.parse(avalue);
++          if (!Number.isNaN(time)) {
++            isSession = false;
++            expiry = time;
++          }
++          break;
++        }
++        case "samesite": {
++          const site = avalue.toLowerCase();
++          sameSite =
++            site === "strict"
++              ? Ci.nsICookie.SAMESITE_STRICT
++              : site === "none"
++                ? Ci.nsICookie.SAMESITE_NONE
++                : Ci.nsICookie.SAMESITE_LAX;
++          break;
++        }
++      }
++    }
++    if (cookieHost !== host) {
++      // A Domain attribute may only widen to a domain that matches the URI
++      // host (Chromium rejects others), and add() signals a domain cookie
++      // with a leading dot.
++      if (
++        !host.endsWith("." + cookieHost) &&
++        !cookieHost.endsWith("." + host)
++      ) {
++        return false;
++      }
++      cookieHost = "." + cookieHost;
++    }
++    try {
++      const validation = Services.cookies.add(
++        cookieHost,
++        path,
++        name,
++        value,
++        isSecure,
++        isHttpOnly,
++        isSession,
++        expiry,
++        {},
++        sameSite,
++        isSecure
++          ? Ci.nsICookie.SCHEME_HTTPS
++          : Ci.nsICookie.SCHEME_HTTP
++      );
++      return validation.result === Ci.nsICookieValidation.eOK;
++    } catch (e) {
++      // e.g. single-label domain cookies, which add() refuses.
++      warn`setCookie failed ${e}`;
++      return false;
++    }
++  },
+ };
+-- 
+2.55.0
+
