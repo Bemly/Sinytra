@@ -82,6 +82,13 @@ geolocation、页内查找、打印。
    Sinytra 最终要自己提供一套 support-library boundary glue，
    逐个想宣称支持的 `WebViewFeature` 对齐实现 + `isFeatureSupported` 诚实返回。
    光实现 framework `android.webkit.*` 不会自动获得 AndroidX 兼容。
+9. **视觉面（GeckoViewHost 挂载 + Surface 生命周期）**：
+   > **2026-09-25 闭案**：GeckoViewHost 作为 WebView 子视图挂进视图树
+   > （AbsoluteLayout.LayoutParams；子视图 View 生命周期接管 Surface），
+   > onPause/onResume → session.setActive；screencap 像素证据 +
+   > visualSurface 探针（harness 41 PASS）。a11y v1 遍历链路（子视图 →
+   > SessionAccessibility）随挂载免费连通（uiautomator 证据）；v2 深度
+   > 对齐等 TalkBack/CTS 反馈。
 
 ## 5. 测试与验收
 

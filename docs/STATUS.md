@@ -2,9 +2,9 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-25 23:0x（P2 第三批：framework 面 WebMessagePort
-> 落地（同包子类解除 AOSP 决策点）+ provider 拆分卫生项 + 视觉面缺口
-> 记死，全量 harness **40 PASS** + P0 GLUE PASS、JVM **74 锁**）。
+> 更新时间：2026-09-25 23:5x（P2 第四批：视觉面接线落地——GeckoViewHost
+> 子视图挂进 framework WebView + 截图像素证据 + uiautomator a11y 遍历
+> 证据，全量 harness **41 PASS** + P0 GLUE PASS、JVM **74 锁**）。
 > 设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
@@ -605,22 +605,47 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
   = 视觉面接线**（GeckoViewHost attach 进 WebView 视图树 + Surface
   生命周期），且当前 harness 无法视觉验证（注入的 WebView 未进布局）。
 
+## 1p. P2 第四批：视觉面接线落地（2026-09-25 深夜，全量 harness 41 PASS / JVM 74 锁）
+
+- **方案**：`GeckoWebViewProvider` 构造时把 `GeckoViewHost` 作为
+  **framework WebView 的子视图**挂进视图树（WebView 是 AbsoluteLayout——
+  子视图参数必须是 `AbsoluteLayout.LayoutParams`，普通 LayoutParams
+  会在 onLayout 强转崩）。子视图自己的 View 生命周期接管 Surface
+  attach/detach/freeze，provider 永不自己管理像素（ARCHITECTURE §3：
+  view 宿主 session surface）。挂载失败降级 headless + loud log，
+  全部非视觉路径不受影响。
+- **配套语义**：`onPause/onResume`（app 主动调用）映射
+  `session.setActive(false/true)`（ARCHITECTURE §2 的后台原语）；
+  `destroy()` 经 `GeckoViewHost.release()` 关 session（顺带解绑视图）。
+- **harness**：WebView 底部停靠 700px 进 activity 布局（Chromium 绑定
+  面空白不渲染，Gecko 子视图才是显示者；状态文本保持顶部可读）+
+  新 `visualSurface` 探针（GeckoView 子视图存在 + isAttachedToWindow
+  + getSession 非空三断言）。
+- **像素级证据（screencap）**：底部停靠带内清晰渲染 Gecko 替身页
+  `sinytra-body-0001`——Gecko 内容经 framework WebView 视图树真实
+  显示，视觉缺口闭合。
+- **a11y v1 结构性落地（uiautomator 证据）**：a11y 客户端（uiautomator
+  dump）能从窗口树读到 Gecko 渲染的页面文本节点（正文 + iframe URL）
+  ——遍历链路 WebView → GeckoView 子视图 → SessionAccessibility
+  节点树天然连通（子视图挂载的免费收益）。
+- **回归**：全量 harness **41 PASS + P0 GLUE PASS**（+visualSurface），
+  既有 40 探针在子视图挂载后全部不变；JVM 74 锁、lint 门绿。
+
 ## 2. 下一步（按顺序，一次做一件）
 
-1. **视觉面接线（P2 新硬点，§1o 末条）**：GeckoViewHost attach 进
-   framework WebView 视图树 + Surface 生命周期
-   （onAttachedToWindow/onDetachedFromWindow/onPause/onResume）——a11y
-   与一切视觉验收的前置；先让 harness 能把注入的 WebView 挂进布局
-   （视觉可验证），再接线、再探针。
-2. **a11y**：视觉面接线后认领——SessionAccessibility 节点树经
-   ViewDelegate.getAccessibilityNodeProvider /
-   onProvideVirtualStructure 露出；JNI 面清单参照
-   `RELATED-PROJECTS.md` §2.2 反向地图。
-3. **SW + 拦截并存语义**（储备，显式决策点）：参考语义已建档
+1. **a11y v2 深度对齐（小项，等反馈）**：v1 遍历链路已通（§1p）；
+   剩 framework 深度面——WebView 节点自身的
+   AccessibilityNodeProvider/onProvideVirtualStructure 合并、焦点/
+   performAccessibilityAction 映射。**先拿 TalkBack 手测 + CTS a11y
+   用例（ROM 阶段）的失败清单再动手**——现在盲改反而可能打断已通的
+   子视图遍历。
+2. **SW + 拦截并存语义**（储备，显式决策点）：参考语义已建档
    （`RELATED-PROJECTS.md` §2.1 ForceControl/SW-first/fallback）；SW
    未被真实场景需要前不接线（AGENTS §5 不为以后可能用而接能力）。
-4. **CTS 全量**：等 Linux 宿主（路线 A）/ ROM 阶段 provider 预装切换
+3. **CTS 全量**：等 Linux 宿主（路线 A）/ ROM 阶段 provider 预装切换
    （BOOTSTRAP §2.1）；Chromium 基线参照系已锁（`CTS.md` §5，98.6%）。
+   a11y/视觉类验收（TalkBack、截图像素锁、`CtsWebViewTestCases` 视觉
+   用例）都汇入这一站。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 
