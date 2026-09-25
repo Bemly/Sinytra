@@ -65,15 +65,40 @@ public final class GeckoWebViewFactoryProvider
     private final java.util.Map<WebView, GeckoWebViewProvider> mWebViews =
             java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
+    // Host app context for the context-less singletons (getWebStorage /
+    // getGeolocationPermissions): from WebViewDelegate.getApplication() on the
+    // framework path, else from the first WebView (harness path).
+    @Nullable
+    private volatile Context mAppContext;
+    @Nullable
+    private volatile android.webkit.SinytraWebStorage mFrameworkStorage;
+    @Nullable
+    private volatile android.webkit.SinytraGeolocationPermissions mFrameworkGeo;
+
     public GeckoWebViewFactoryProvider() {}
 
     public static android.webkit.WebViewFactoryProvider create(Object delegate) {
         Log.i(TAG, "create() via trampoline/delegate=" + delegate);
-        return new GeckoWebViewFactoryProvider();
+        GeckoWebViewFactoryProvider factory = new GeckoWebViewFactoryProvider();
+        if (delegate instanceof android.webkit.WebViewDelegate) {
+            try {
+                android.app.Application app =
+                        ((android.webkit.WebViewDelegate) delegate).getApplication();
+                if (app != null) {
+                    factory.mAppContext = app.getApplicationContext();
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "WebViewDelegate.getApplication threw", t);
+            }
+        }
+        return factory;
     }
 
     @Override
     public Object createWebView(WebView webView, Object privateAccess) {
+        if (mAppContext == null) {
+            mAppContext = webView.getContext().getApplicationContext();
+        }
         GeckoWebViewProvider provider = new GeckoWebViewProvider(webView, this);
         mWebViews.put(webView, provider);
         return provider;
@@ -109,11 +134,34 @@ public final class GeckoWebViewFactoryProvider
         return mStatics;
     }
 
+    // Provider-owned singletons: never GeolocationPermissions/WebStorage
+    // .getInstance() — after the system switch those route back into this
+    // factory and recurse (see android.webkit.SinytraWebStorage).
     @Override
     public GeolocationPermissions getGeolocationPermissions() {
-        GeolocationPermissions framework = GeckoGeolocationStore.frameworkInstance();
-        return framework != null ? framework
-                : GeolocationPermissions.getInstance();
+        android.webkit.SinytraGeolocationPermissions existing = mFrameworkGeo;
+        if (existing == null) {
+            synchronized (this) {
+                existing = mFrameworkGeo;
+                if (existing == null) {
+                    existing = new android.webkit.SinytraGeolocationPermissions(
+                            geoStore(requireAppContext("getGeolocationPermissions")));
+                    mFrameworkGeo = existing;
+                }
+            }
+        }
+        return existing;
+    }
+
+    @NonNull
+    private Context requireAppContext(@NonNull String caller) {
+        Context context = mAppContext;
+        if (context == null) {
+            throw new IllegalStateException(caller
+                    + "(): no host context yet (factory not created via "
+                    + "WebViewDelegate and no WebView created)");
+        }
+        return context;
     }
 
     @Override
@@ -189,8 +237,18 @@ public final class GeckoWebViewFactoryProvider
 
     @Override
     public WebStorage getWebStorage() {
-        android.webkit.WebStorage framework = GeckoWebStorageFacade.frameworkInstance();
-        return framework != null ? framework : WebStorage.getInstance();
+        android.webkit.SinytraWebStorage existing = mFrameworkStorage;
+        if (existing == null) {
+            synchronized (this) {
+                existing = mFrameworkStorage;
+                if (existing == null) {
+                    existing = new android.webkit.SinytraWebStorage(
+                            storageFacade(requireAppContext("getWebStorage")));
+                    mFrameworkStorage = existing;
+                }
+            }
+        }
+        return existing;
     }
 
     @Override
