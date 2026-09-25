@@ -34,7 +34,10 @@
 | 0006 | SSL proceed（证书例外） | `SslErrorHandler.proceed()`（带病证书继续加载） | GV 无 cert-override 原语，失败证书只在错误时可达（delegate 通道带出）→ `nsILoadURIDelegate` 加 channel 参数 + 子 actor 捕获 + `GeckoViewCertOverride` stash → `nsICertOverrideService` temporary override（设计文档 `0006-ssl-proceed.md`） | **已定稿**：`0006-ssl-proceed.patch`（@ `2f3d7e2e5b56`）；设备 sslProceed 探针（自签 TLS + 进程内服务器）+ 39 探针回归 |
 | 0007 | CookieManager cookie-jar 原语 | `CookieManager` 逐 cookie get/set/removeSessionCookies/hasCookies | GV 无任何逐 cookie API（jar 在 Necko）→ `StorageController` 四原语 + JS 模块 `nsICookieManager` 直控（设计文档 `0007-cookie-jar.md`） | **已定稿**：`0007-cookie-jar.patch`（@ `dfcc04709482`）；设备 cookieJar 探针 + 38 探针回归 |
 
-设计文档：`0001/0002/0003-*.md`（树内勘察、地基选型、边界、测试计划）。
+设计文档：`0001/0002/0003/0006/0007-*.md`（树内勘察、地基选型、边界、测试计划）。
+
+可重现性（2026-09-26 实测）：0001→0007 按编号 `git apply` 到 pin 点，得到的树与
+`sinytra-pin-158` HEAD 完全一致（树内提交顺序是 0007 先于 0006，二者无冲突）。
 
 ## 工作流
 
@@ -51,7 +54,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 cd ~/sinytra-vol/Projects/Sinytra
 JAVA_HOME=/opt/homebrew/opt/openjdk@17 ANDROID_HOME=/opt/homebrew/share/android-commandlinetools \
   ./gradlew :provider:assembleDebug -PsinytraLocalGecko=true
-# 真机回归：P0RenderActivity 金丝雀 + P0GlueActivity 32 探针
+# 真机回归：P0RenderActivity 金丝雀 + P0GlueActivity 全量探针（现 41 PASS）
 ```
 
 环境备忘：rust 用 rustup 工具链（homebrew rustc 缺 android target 的
@@ -65,16 +68,20 @@ std；`~/.cargo/bin` 已放 rustc/cargo/rustdoc shim，构建 PATH 需前置）�
 （`ParentChannelListener.cpp` include 区重排），`GeckoSession.java`/
 `components.conf`/`widget moz.build`/JS 两处全部自动合并。
 
-## 日志纪律（2026-09-25 定）
+## 日志纪律（2026-09-25 定，0005 落地后校正）
 
 插桩日志的目标是**排查**：debug 构建要多打（入口/出口/关键分支），release
-构建不启用。机制按层：
+构建不启用。机制按层（以 0005 实际落地为准）：
 
-- C++：`__android_log_print` 包 `#ifdef DEBUG`（moz debug 构建定义 DEBUG，
-  release 编译期剔除）；
-- 树内 Java（geckoview 模块）：`BuildConfig.DEBUG` 门；
-- provider Java：`src/debug` sourceSet / `BuildConfig.DEBUG`（既有做法）；
-- JS：debug flag。
+- C++：一律走 `SINYTRA_LOG` 宏，**运行时** pref `sinytra.log.enabled` 门
+  （默认 false，首调缓存）。不用 `#ifdef DEBUG`：AAR debug/release 变体共用
+  同一个 libxul，编译期门区分不了 provider 变体；
+- 树内 Java（geckoview 模块）：该模块自己的 `BuildConfig.DEBUG` 门；
+- provider Java：`src/debug` sourceSet 隔离探针；运行期判定用
+  `ApplicationInfo.FLAG_DEBUGGABLE`（AGP 9 不再生成 BuildConfig）；
+- JS：`debug` 级别（0001 收尾已把 dump 降级）；
+- 开关：provider debug 构建经 `src/debug/assets/geckoview-config.yaml`
+  打开 `sinytra.log.enabled`，release 不带该配置。
 
-tag 一律 `Sinytra/<模块>`；上游共享文件里的插桩必须在定稿时收敛到
-`ifdef DEBUG` 门内或删除，不许裸奔进 release。
+tag 一律 `Sinytra/<模块>`；上游共享文件里的插桩必须在定稿时收敛到上述门内
+或删除，不许裸奔进 release。
