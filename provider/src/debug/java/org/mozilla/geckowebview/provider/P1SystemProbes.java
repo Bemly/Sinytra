@@ -15,10 +15,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-// P1 system-capability probes: cookie policy flags, downloads
-// (DownloadListener), print (PDF round-trip through the destination fd),
-// media permission prompt + decision routing, geolocation prompt (deny
-// path — deterministic without location services).
+// P1 system-capability probes: cookie policy flags, cookie jar round-trip
+// (Gecko jar via firefox-patches/0007), print (PDF round-trip through the
+// destination fd), media permission prompt + decision routing, geolocation
+// prompt (deny path — deterministic without location services).
 //
 // Same harness contract as P0/P2 sections: every probe appends a PASS
 // line or throws. Clients/listeners installed here are restored in each
@@ -91,6 +91,62 @@ final class P1SystemProbes {
             throw new IllegalStateException("cookiePolicy failed");
         }
         out.append("PASS cookiePolicy\n");
+
+        // --- P2 cookie jar: real Gecko jar round-trip through the
+        // firefox-patches/0007 primitives (set → get →
+        // removeSessionCookies → gone). The cookiePolicy probe above only
+        // covers facade state; this one proves jar data. Runs against
+        // example.org regardless of the current page (jar ops are
+        // host-addressed, not page-addressed). The facade resolves the
+        // round-trip synchronously (poll on the Gecko thread), so these run
+        // directly on the probe thread. ---
+        final AtomicReference<Boolean> jarSet = new AtomicReference<>();
+        final AtomicReference<Boolean> jarRemoved = new AtomicReference<>();
+        final CountDownLatch jarSetDone = new CountDownLatch(1);
+        final CountDownLatch jarRemoveDone = new CountDownLatch(1);
+        CookieManager jarManager =
+                factory.cookieManager(webView.getContext());
+        jarManager.setCookie("https://example.org/",
+                "sinytra-cookie-0007=jar; Path=/",
+                value -> {
+                    jarSet.set(value);
+                    jarSetDone.countDown();
+                });
+        if (!jarSetDone.await(15, TimeUnit.SECONDS)
+                || !Boolean.TRUE.equals(jarSet.get())) {
+            throw new IllegalStateException(
+                    "cookieJar setCookie failed: " + jarSet.get());
+        }
+        String jarValue = jarManager.getCookie("https://example.org/");
+        if (jarValue == null
+                || !jarValue.contains("sinytra-cookie-0007=jar")) {
+            throw new IllegalStateException(
+                    "cookieJar getCookie lost the marker: " + jarValue);
+        }
+        if (!jarManager.hasCookies()) {
+            throw new IllegalStateException(
+                    "cookieJar hasCookies=false right after a set");
+        }
+        jarManager.removeSessionCookies(value -> {
+            jarRemoved.set(value);
+            jarRemoveDone.countDown();
+        });
+        if (!jarRemoveDone.await(15, TimeUnit.SECONDS)
+                || !Boolean.TRUE.equals(jarRemoved.get())) {
+            throw new IllegalStateException(
+                    "cookieJar removeSessionCookies failed: "
+                            + jarRemoved.get());
+        }
+        String jarGone = jarManager.getCookie("https://example.org/");
+        if (jarGone != null && jarGone.contains("sinytra-cookie-0007")) {
+            throw new IllegalStateException(
+                    "cookieJar marker survived removeSessionCookies: "
+                            + jarGone);
+        }
+        out.append("PASS cookieJar get=\"")
+                .append(jarValue.length() > 64
+                        ? jarValue.substring(0, 64) + "…" : jarValue)
+                .append("\"\n");
 
         // --- P1 print: PrintBridge streams a real PDF into the
         // destination fd (regression: the old bridge reported success
