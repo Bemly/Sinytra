@@ -1,6 +1,8 @@
 package org.mozilla.geckowebview.provider;
 
 import android.app.Activity;
+import android.webkit.WebMessage;
+import android.webkit.WebMessagePort;
 import android.webkit.WebView;
 import java.lang.reflect.InvocationHandler;
 import java.util.concurrent.CountDownLatch;
@@ -165,9 +167,13 @@ final class P2TransportProbes {
             if (msgError[0] != null) {
                 throw new IllegalStateException("msgChannel failed", msgError[0]);
             }
-            // WebMessagePort is abstract: framework-typed ports need the P2
-            // patch's concrete subclass. Bridge bookkeeping holds 2 ports per
-            // channel; verify via count (msgBox holds framework array or null).
+            // Framework-typed channel: android.webkit.SinytraWebMessagePort
+            // is live (2026-09-25, same-package subclass over the @SystemApi
+            // framework ctor) — the pair must come back non-null.
+            if (msgBox[0] == null) {
+                throw new IllegalStateException(
+                        "msgChannel: framework ports null");
+            }
             out.append("PASS msgChannel fwNull=").append(msgBox[0] == null)
                     .append(" bridgePorts=").append(provider.messagePortCount())
                     .append('\n');
@@ -408,6 +414,100 @@ final class P2TransportProbes {
                         + " after=" + provider.messagePortCount());
             }
             out.append("PASS boundaryPort data=").append(bndData[0])
+                    .append(" via=").append(jsReady ? "page" : "local")
+                    .append(" bridgePorts=").append(provider.messagePortCount())
+                    .append('\n');
+
+            // --- P2-3 framework-typed port round-trip (SinytraWebMessagePort)
+            // The framework face rides the same MessageBridge/JsBridge page
+            // transport as the boundary probe above: post on ports[1], the
+            // shim loops it back to the same port id, the callback fires.
+            // Chromium parity locked here: onMessage receives the port
+            // ITSELF (not null), and closed ports throw IllegalStateException.
+            final WebMessagePort[][] fwPorts = new WebMessagePort[1][];
+            final String[] fwData = new String[1];
+            final Throwable[] fwError = new Throwable[1];
+            final CountDownLatch fwDone = new CountDownLatch(1);
+            activity.runOnUiThread(() -> {
+                try {
+                    WebMessagePort[] ports = provider.createWebMessageChannel();
+                    if (ports == null || ports.length != 2) {
+                        throw new IllegalStateException(
+                                "fw createWebMessageChannel returned "
+                                        + (ports == null ? "null" : ports.length));
+                    }
+                    fwPorts[0] = ports;
+                    ports[1].setWebMessageCallback(
+                            new WebMessagePort.WebMessageCallback() {
+                                @Override
+                                public void onMessage(WebMessagePort port,
+                                        WebMessage message) {
+                                    if (port != fwPorts[0][1]) {
+                                        fwError[0] = new IllegalStateException(
+                                                "onMessage port != receiver");
+                                    }
+                                    fwData[0] = message.getData();
+                                    fwDone.countDown();
+                                }
+                            });
+                    ports[1].postMessage(new WebMessage("sinytra-fwport-echo"));
+                } catch (Throwable t) {
+                    fwError[0] = t;
+                    fwDone.countDown();
+                }
+            });
+            if (!fwDone.await(45, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("fw port timeout");
+            }
+            if (fwError[0] != null) {
+                throw new IllegalStateException("fw port failed", fwError[0]);
+            }
+            if (!"sinytra-fwport-echo".equals(fwData[0])) {
+                throw new IllegalStateException("fw port round-trip data: "
+                        + fwData[0]);
+            }
+            // Closed-port + callback-once semantics (Chromium parity):
+            // close drops exactly one bridge port; postMessage after close
+            // and a second setWebMessageCallback both throw ISE.
+            final int fwPortsBeforeClose = provider.messagePortCount();
+            final Throwable[] fwCloseError = new Throwable[1];
+            final CountDownLatch fwCloseDone = new CountDownLatch(1);
+            activity.runOnUiThread(() -> {
+                try {
+                    WebMessagePort[] ports = fwPorts[0];
+                    ports[0].close();
+                    try {
+                        ports[0].postMessage(new WebMessage("after-close"));
+                        fwCloseError[0] = new IllegalStateException(
+                                "postMessage after close did not throw");
+                    } catch (IllegalStateException expected) {
+                        // Chromium parity
+                    }
+                    try {
+                        ports[1].setWebMessageCallback(
+                                new WebMessagePort.WebMessageCallback() { });
+                        fwCloseError[0] = new IllegalStateException(
+                                "second setWebMessageCallback did not throw");
+                    } catch (IllegalStateException expected) {
+                        // Chromium parity
+                    }
+                } catch (Throwable t) {
+                    fwCloseError[0] = t;
+                } finally {
+                    fwCloseDone.countDown();
+                }
+            });
+            fwCloseDone.await(10, TimeUnit.SECONDS);
+            if (fwCloseError[0] != null) {
+                throw new IllegalStateException("fw port close failed",
+                        fwCloseError[0]);
+            }
+            if (provider.messagePortCount() != fwPortsBeforeClose - 1) {
+                throw new IllegalStateException("fw close did not drop one "
+                        + "port: before=" + fwPortsBeforeClose + " after="
+                        + provider.messagePortCount());
+            }
+            out.append("PASS fwPort data=").append(fwData[0])
                     .append(" via=").append(jsReady ? "page" : "local")
                     .append(" bridgePorts=").append(provider.messagePortCount())
                     .append('\n');

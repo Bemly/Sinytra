@@ -191,36 +191,10 @@ final class ProviderAdapters {
         }
     }
 
-    // Framework-typed WebMessagePort over a MessageBridge.Port.
-    //
-    // DESIGN RECORD (2026-09-22, javac-verified): the framework ctor is
-    // package-private (android14 javap shows `WebMessagePort()` with no
-    // access modifier), so subclassing from org.mozilla.* does NOT
-    // compile ("not public, cannot be accessed from outside package").
-    // PermissionRequest/RenderProcess subclassing compiles ONLY because
-    // those ctors are public; WebMessagePort is the odd one out.
-    // Chromium subclasses INSIDE android.webkit (WebMessagePortImpl) --
-    // we cannot ship an android.webkit class from the provider APK
-    // without colliding with the framework, and framework-stubs is
-    // compileOnly (never packaged, never on the device). Reflection on
-    // the package-private ctor ALSO fails on-device (hidden-API
-    // enforcement: InstantiationException on the abstract class path,
-    // verified in earlier harness rounds as fwNull=true).
-    //
-    // Therefore: NO concrete WebMessagePort exists in this build.
-    // createWebMessageChannel returns real MessageBridge ports through
-    // the boundary interface (CompatSmallBoundaries.LiveMessagePort,
-    // which IS functional for androidx.webkit clients), while the
-    // framework-typed createWebMessageChannel keeps its honest null +
-    // loud log until ONE of these lands: (a) an AOSP patch making the
-    // ctor public/hidden-API-allowlisted, or (b) a framework-side
-    // WebMessagePortFactory hook. Option (b) is the P2 patch queue item
-    // below; this factory documents the decision point.
-    //
-    // Entanglement today: MessageBridge.createChannel pairs ports;
-    // postMessage routes into the JsBridge transport toward the page
-    // shim; boundary clients get full function via LiveMessagePort.
-    static final class WebMessagePortFactory {
-        private WebMessagePortFactory() {}
-    }
+    // Framework-typed WebMessagePort decision point RESOLVED (2026-09-25):
+    // android.webkit.SinytraWebMessagePort (same-package subclass over the
+    // @SystemApi framework ctor — the old "package-private ctor" record
+    // below was javap of the android.jar stub, where @SystemApi is
+    // stripped) backs the framework face directly. No AOSP patch, no
+    // factory hook. Full record in the SinytraWebMessagePort header.
 }

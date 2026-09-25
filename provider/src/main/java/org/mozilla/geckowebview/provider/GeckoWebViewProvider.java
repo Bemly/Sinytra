@@ -30,6 +30,7 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
+import android.webkit.SinytraWebMessagePort;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebViewProvider;
@@ -773,19 +774,39 @@ public final class GeckoWebViewProvider
         }
     }
     @Override public WebMessagePort[] createWebMessageChannel() {
-        // Framework-typed ports need a concrete WebMessagePort subclass;
-        // the framework ctor is package-private (see ProviderAdapters
-        // design record) so none can exist in this build: honest null +
-        // loud log. androidx.webkit clients get FULL function through
-        // the boundary interface (CompatWebViewProvider.createChannel ->
-        // LiveMessagePort over the same MessageBridge). Harness asserts
-        // fwNull=true + bridgePorts=2.
-        mMessages.createChannel();
-        android.util.Log.w(TAG,
-                "createWebMessageChannel: no concrete WebMessagePort in "
-                        + "this build (package-private framework ctor); "
-                        + "boundary clients use LiveMessagePort instead");
-        return null;
+        // Framework-typed ports: android.webkit.SinytraWebMessagePort
+        // (same-package subclass over the @SystemApi framework ctor — see
+        // its header; resolves the old AOSP-patch-vs-hook decision point
+        // with neither). Routes into MessageBridge; the page transport is
+        // shared with the boundary face (LiveMessagePort). Port transfer
+        // (getPorts) stays an honest gap.
+        MessageBridge.Port[] ports = mMessages.createChannel();
+        return new WebMessagePort[] {
+                new SinytraWebMessagePort(portBinding(ports[0])),
+                new SinytraWebMessagePort(portBinding(ports[1])),
+        };
+    }
+
+    @NonNull
+    private SinytraWebMessagePort.Binding portBinding(
+            @NonNull MessageBridge.Port port) {
+        return new SinytraWebMessagePort.Binding() {
+            @Override
+            public void post(@NonNull String data) {
+                mMessages.postMessage(port, data, null);
+            }
+
+            @Override
+            public void close() {
+                mMessages.close(port);
+            }
+
+            @Override
+            public void setCallback(
+                    @Nullable WebMessagePort.WebMessageCallback callback) {
+                mMessages.setCallback(port, callback);
+            }
+        };
     }
     @Override public void postMessageToMainFrame(WebMessage message, Uri targetOrigin) {
         if (message == null) {
