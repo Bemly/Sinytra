@@ -1,8 +1,6 @@
 package org.mozilla.geckowebview.compat;
 
-import android.webkit.WebChromeClient;
 import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.lang.reflect.InvocationHandler;
@@ -11,7 +9,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.chromium.support_lib_boundary.VisualStateCallbackBoundaryInterface;
 import org.chromium.support_lib_boundary.WebViewProviderBoundaryInterface;
 
-// WebViewProviderBoundaryInterface over one GeckoWebViewProvider: the glue
+// WebViewProviderBoundaryInterface over one WebView backend (CompatHost): the glue
 // object androidx.webkit drives through WebViewProviderFactory. Only the
 // claimed-feature paths are implemented; everything else throws
 // UnsupportedOperationException so isFeatureSupported stays honest.
@@ -19,17 +17,17 @@ public final class CompatWebViewProvider implements InvocationHandler {
     @NonNull
     private final WebView mWebView;
     @NonNull
-    private final org.mozilla.geckowebview.provider.GeckoWebViewProvider mProvider;
+    private final CompatHost.WebViewBackend mProvider;
 
     private CompatWebViewProvider(@NonNull WebView webView,
-            @NonNull org.mozilla.geckowebview.provider.GeckoWebViewProvider provider) {
+            @NonNull CompatHost.WebViewBackend provider) {
         mWebView = webView;
         mProvider = provider;
     }
 
     @NonNull
     public static InvocationHandler create(@NonNull WebView webView,
-            @NonNull org.mozilla.geckowebview.provider.GeckoWebViewProvider provider) {
+            @NonNull CompatHost.WebViewBackend provider) {
         return new CompatWebViewProvider(webView, provider);
     }
 
@@ -111,17 +109,5 @@ public final class CompatWebViewProvider implements InvocationHandler {
             self.set(callback);
             return callback;
         }
-    }
-
-    @SuppressWarnings("unused")
-    private static WebViewClient clientOf(
-            @NonNull org.mozilla.geckowebview.provider.GeckoWebViewProvider p) {
-        return p.getWebViewClient();
-    }
-
-    @SuppressWarnings("unused")
-    private static WebChromeClient chromeOf(
-            @NonNull org.mozilla.geckowebview.provider.GeckoWebViewProvider p) {
-        return p.getWebChromeClient();
     }
 }

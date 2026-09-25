@@ -71,7 +71,8 @@ import org.mozilla.geckowebview.settings.GeckoWebSettings;
 // tests instead of silently misbehaving. Delegate exceptions never propagate:
 // see onGeckoError path. Client fan-out lives in ClientFanOut (file-size rule).
 public final class GeckoWebViewProvider
-        implements WebViewProvider, ClientFanOut.Owner {
+        implements WebViewProvider, ClientFanOut.Owner,
+        org.mozilla.geckowebview.compat.CompatHost.WebViewBackend {
     private static final String TAG = "Sinytra/session";
 
     private final WebView mWebView;
@@ -362,6 +363,7 @@ public final class GeckoWebViewProvider
         return mMessages.portCount();
     }
 
+    @Override
     @NonNull
     public MessageBridge messageBridge() {
         return mMessages;
@@ -555,6 +557,7 @@ public final class GeckoWebViewProvider
 
     // Compat entry points (called by CompatWebViewProvider boundary).
 
+    @Override
     public void insertVisualStateCallback(long requestId,
             @NonNull java.lang.reflect.InvocationHandler boundary) {
         insertVisualStateCallback(requestId,
@@ -562,6 +565,7 @@ public final class GeckoWebViewProvider
                         .CompatVisualStateCallback.wrap(requestId, boundary));
     }
 
+    @Override
     public void postCompatMessage(@Nullable Object messageHandler,
             @Nullable Object targetOrigin) {
         String data = null;
@@ -586,6 +590,7 @@ public final class GeckoWebViewProvider
         }
     }
 
+    @Override
     public void setCompatRendererClient(
             @Nullable java.lang.reflect.InvocationHandler boundary) {
         if (boundary == null) {

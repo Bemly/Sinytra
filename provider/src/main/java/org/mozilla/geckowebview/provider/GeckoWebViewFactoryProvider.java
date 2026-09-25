@@ -36,7 +36,8 @@ import org.mozilla.geckowebview.view.GeckoViewHost;
 // WebViewFactoryProvider.java). At runtime the framework passes the real
 // PrivateAccess — retained as Object, used via reflection only if needed.
 public final class GeckoWebViewFactoryProvider
-        implements android.webkit.WebViewFactoryProvider {
+        implements android.webkit.WebViewFactoryProvider,
+        org.mozilla.geckowebview.compat.CompatHost.Factory {
     private static final String TAG = "Sinytra/provider";
 
     private final GeckoWebViewStatics mStatics = new GeckoWebViewStatics();
@@ -90,6 +91,13 @@ public final class GeckoWebViewFactoryProvider
         return provider;
     }
 
+    @Override
+    @NonNull
+    public org.mozilla.geckowebview.compat.CompatHost.WebViewBackend webViewBackend(
+            @NonNull WebView webView) {
+        return webViewProvider(webView);
+    }
+
     void unregisterWebViewProvider(@NonNull GeckoWebViewProvider provider) {
         synchronized (mWebViews) {
             mWebViews.values().removeIf(p -> p == provider);
@@ -126,6 +134,7 @@ public final class GeckoWebViewFactoryProvider
         return tracingController();
     }
 
+    @Override
     @Nullable
     public org.mozilla.geckowebview.storage.GeckoTracingController tracingController() {
         // API 28+: the framework class does not exist below Q; hosts that
@@ -152,6 +161,7 @@ public final class GeckoWebViewFactoryProvider
         return serviceWorkerController();
     }
 
+    @Override
     @Nullable
     public org.mozilla.geckowebview.storage.GeckoServiceWorkerController
             serviceWorkerController() {

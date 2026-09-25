@@ -15,7 +15,7 @@ import org.chromium.support_lib_boundary.WebViewProviderFactoryBoundaryInterface
 // unclaimed (P2 patch / future work) and throw on use.
 public final class CompatWebViewFactory implements InvocationHandler {
     @NonNull
-    private final org.mozilla.geckowebview.provider.GeckoWebViewFactoryProvider mFactory;
+    private final CompatHost.Factory mFactory;
     @NonNull
     private final InvocationHandler mStatics;
     @NonNull
@@ -26,9 +26,7 @@ public final class CompatWebViewFactory implements InvocationHandler {
     private final InvocationHandler mTracing;
     private final String[] mFeatures;
 
-    private CompatWebViewFactory(
-            @NonNull org.mozilla.geckowebview.provider.GeckoWebViewFactoryProvider
-                    factory) {
+    private CompatWebViewFactory(@NonNull CompatHost.Factory factory) {
         mFactory = factory;
         mStatics = CompatStatics.create(factory.getStatics());
         mConverter = CompatConverter.create();
@@ -39,9 +37,7 @@ public final class CompatWebViewFactory implements InvocationHandler {
     }
 
     @NonNull
-    public static InvocationHandler create(
-            @NonNull org.mozilla.geckowebview.provider.GeckoWebViewFactoryProvider
-                    factory) {
+    public static InvocationHandler create(@NonNull CompatHost.Factory factory) {
         return new CompatWebViewFactory(factory);
     }
 
@@ -50,7 +46,7 @@ public final class CompatWebViewFactory implements InvocationHandler {
         switch (method.getName()) {
             case "createWebView":
                 return CompatWebViewProvider.create((android.webkit.WebView) args[0],
-                        mFactory.webViewProvider((android.webkit.WebView) args[0]));
+                        mFactory.webViewBackend((android.webkit.WebView) args[0]));
             case "getWebkitToCompatConverter":
                 return mConverter;
             case "getStatics":
