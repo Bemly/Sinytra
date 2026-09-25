@@ -15,8 +15,10 @@ import androidx.annotation.NonNull;
 // No-op default View/Scroll delegates for GeckoWebViewProvider (file-size
 // rule split, mirrors ClientFanOut/ProviderAdapters). The real view
 // behavior comes from the framework WebView plus the GeckoViewHost child,
-// so every hook here is a harmless default; the only live branch is
-// onActivityResult (file chooser result routing into the pending callback).
+// so almost every hook here is a harmless default. Live branches:
+// setLayoutParams (the framework WebView makes NO super call — the params
+// must be written through PrivateAccess.super_setLayoutParams, see
+// FrameworkPrivateAccess) and onActivityResult (file chooser routing).
 final class ProviderViewDelegates {
     private static final String TAG = "Sinytra/session";
 
@@ -46,7 +48,11 @@ final class ProviderViewDelegates {
                     boolean clampedY) {}
             @Override public void onWindowVisibilityChanged(int visibility) {}
             @Override public void onDraw(Canvas canvas) {}
-            @Override public void setLayoutParams(ViewGroup.LayoutParams layoutParams) {}
+            @Override public void setLayoutParams(ViewGroup.LayoutParams layoutParams) {
+                if (layoutParams != null) {
+                    provider.privateAccess().superSetLayoutParams(layoutParams);
+                }
+            }
             @Override public boolean performLongClick() { return false; }
             @Override public void onConfigurationChanged(
                     android.content.res.Configuration newConfig) {}

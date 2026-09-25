@@ -97,7 +97,7 @@ public final class GeckoWebViewFactoryProvider
         if (mAppContext == null) {
             mAppContext = webView.getContext().getApplicationContext();
         }
-        GeckoWebViewProvider provider = new GeckoWebViewProvider(webView, this);
+        GeckoWebViewProvider provider = new GeckoWebViewProvider(webView, this, privateAccess);
         mWebViews.put(webView, provider);
         return provider;
     }

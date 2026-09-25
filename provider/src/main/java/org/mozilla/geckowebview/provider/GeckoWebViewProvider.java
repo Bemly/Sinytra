@@ -105,10 +105,16 @@ public final class GeckoWebViewProvider
     @Nullable
     private ValueCallback<Uri[]> mFileChooserCallback;
     private volatile boolean mDestroyed;
+    // The framework's WebView.PrivateAccess (super_* channel); absent only
+    // when a caller constructs the provider without one.
+    @NonNull
+    private final FrameworkPrivateAccess mPrivateAccess;
 
     public GeckoWebViewProvider(@NonNull WebView webView,
-            @NonNull GeckoWebViewFactoryProvider factory) {
+            @NonNull GeckoWebViewFactoryProvider factory,
+            @Nullable Object privateAccess) {
         mWebView = webView;
+        mPrivateAccess = new FrameworkPrivateAccess(privateAccess);
         mFactory = factory;
         mFanOut = new ClientFanOut(this);
         mBridge = new GeckoSessionBridge(mFanOut);
@@ -198,6 +204,11 @@ public final class GeckoWebViewProvider
     @NonNull
     GeckoSessionBridge bridge() {
         return mBridge;
+    }
+
+    @NonNull
+    FrameworkPrivateAccess privateAccess() {
+        return mPrivateAccess;
     }
 
     // --- ClientFanOut.Owner ---
