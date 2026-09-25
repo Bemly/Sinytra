@@ -6,7 +6,7 @@ import androidx.annotation.Nullable;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.StorageController;
-import org.mozilla.geckowebview.provider.GeckoRuntimeHolder;
+import org.mozilla.geckowebview.runtime.GeckoRuntimeHolder;
 
 // WebStorage-shaped facade over GeckoView's StorageController.
 // No independent state: every call delegates to the host-process runtime.

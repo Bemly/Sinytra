@@ -6,7 +6,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.StorageController;
-import org.mozilla.geckowebview.provider.GeckoRuntimeHolder;
+import org.mozilla.geckowebview.runtime.GeckoRuntimeHolder;
 
 // WebStorage-shaped facade over GeckoView's StorageController.
 // WebStorage itself is NOT subclassed here: its ctor is package-private in

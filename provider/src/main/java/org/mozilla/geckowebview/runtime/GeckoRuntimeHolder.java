@@ -1,4 +1,4 @@
-package org.mozilla.geckowebview.provider;
+package org.mozilla.geckowebview.runtime;
 
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
@@ -12,9 +12,11 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.GeckoRuntimeSettings;
-import org.mozilla.geckoview.GeckoSession;
-import org.mozilla.geckoview.GeckoView;
 
+// Host-process GeckoRuntime singleton (ARCHITECTURE §2: at most one live
+// runtime per host app process). Base layer (AGENTS §2): every package may
+// depend on runtime/, runtime/ depends on nothing of ours — so session/
+// storage reach the runtime without reverse-depending on provider/.
 public final class GeckoRuntimeHolder {
     private static final String TAG = "Sinytra/provider";
     private static volatile GeckoRuntime sRuntime;
@@ -84,14 +86,5 @@ public final class GeckoRuntimeHolder {
             Log.w(TAG, "geckoview-config.yaml missing/unreadable", e);
             return null;
         }
-    }
-
-    public static void attachView(@NonNull Context context, @NonNull GeckoView view,
-            @NonNull GeckoSession session) {
-        GeckoRuntime runtime = get(context);
-        if (!session.isOpen()) {
-            session.open(runtime);
-        }
-        view.setSession(session);
     }
 }

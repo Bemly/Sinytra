@@ -72,7 +72,7 @@ sinytra/
 │   └── src/
 │       ├── main/AndroidManifest.xml # validity 所需 metadata（WebViewLibrary）
 │       ├── main/java/org/mozilla/geckowebview/
-│       │   └── provider/ session/ view/ settings/ storage/ compat/
+│       │   └── provider/ session/ view/ settings/ storage/ compat/ runtime/
 │       ├── main/java/com/android/webview/chromium/  # framework 硬编码入口 trampoline（§5）
 │       ├── main/java/android/webkit/                # 同包子类（SslErrorHandler/WebMessagePort 等）
 │       ├── main/java/org/chromium/support_lib_glue/ # androidx.webkit boundary 入口
@@ -94,7 +94,8 @@ sinytra/
 ## 2. 分层与关键语义（违反即打回）
 
 - 依赖单向：`provider（orchestration）├─→ session / view / settings+storage /
-  compat`。**`session` 不依赖 `view`**（bridge 只做翻译、不碰 View，才能做无 View
+  compat`；`runtime/`（进程级 `GeckoRuntimeHolder`）是最底层，任何包可依赖，
+  它不依赖任何自有包；除 provider 与入口类外，**谁都不许依赖 `provider/`**。**`session` 不依赖 `view`**（bridge 只做翻译、不碰 View，才能做无 View
   后台 session + `setActive/setPriorityHint` 手动管理）；`compat/` 只许依赖
   `session/` 公开接口 + `storage`，不许直调 `view`/GeckoView 内部。
 - `GeckoRuntime`：**每个宿主 App 进程最多一个活动实例**——不是全系统、也不是

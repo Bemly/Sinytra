@@ -769,7 +769,6 @@ provider/src/main/java/org/mozilla/geckowebview/
 │   ├── GeckoWebViewProvider.java         # WebViewProvider 实现（P0-P2 接线，扇出到下两行）
 │   ├── ClientFanOut.java                 # app 回调扇出（WebViewClient/WebChromeClient 分发）
 │   ├── ProviderAdapters.java / FrameworkTokens.java  # framework token 注册表 + adapters
-│   ├── GeckoRuntimeHolder.java           # 宿主进程级 GeckoRuntime 单例（UI 线程 create；peek() 诚实降级）
 │   ├── GeckoBackForwardList.java         # SessionState/HistoryList → WebBackForwardList 转译
 │   └── CompatWebSettings.java            # android.webkit.WebSettings facade
 ├── session/  # GeckoSessionBridge + 专职 bridge（Navigation/Progress/Content/Error/Find/
@@ -778,7 +777,8 @@ provider/src/main/java/org/mozilla/geckowebview/
 ├── storage/  # 单例族实现：CookieManager（0007 真 cookie jar）、WebStorage、Geolocation、
 │             #   ServiceWorker、Tracing、WebIconDatabase、WebViewDatabase
 ├── compat/   # androidx.webkit boundary glue（P2-8；18 项诚实 feature 集 + LiveMessagePort）
-└── view/     (GeckoViewHost：bind/release，不进 session 依赖)
+├── view/     (GeckoViewHost：bind/release + attach(open+setSession)，session 不碰 View)
+└── runtime/  (GeckoRuntimeHolder：宿主进程级 GeckoRuntime 单例，最底层；UI 线程 create，peek() 诚实降级)
 provider/src/main/assets/sinytra-js/  # 内置 WebExtension（JS transport：eval / interface /
                                       #   WebMessage 端口；协议见 content.js 头注释）
 provider/src/debug/  # 探针与 harness（release dexdump 0 引用）：P0GlueActivity（编排）+

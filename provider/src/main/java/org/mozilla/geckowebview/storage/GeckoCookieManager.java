@@ -15,7 +15,7 @@ import org.mozilla.geckoview.ContentBlocking;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoRuntime;
 import org.mozilla.geckoview.StorageController;
-import org.mozilla.geckowebview.provider.GeckoRuntimeHolder;
+import org.mozilla.geckowebview.runtime.GeckoRuntimeHolder;
 
 // CookieManager state over the real Gecko cookie jar.
 //

@@ -1,18 +1,15 @@
 package org.mozilla.geckowebview.session;
 
-import android.content.Context;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.util.List;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
-import org.mozilla.geckoview.GeckoView;
-import org.mozilla.geckowebview.provider.GeckoRuntimeHolder;
 
 // Owns one GeckoSession + its bridges, independent of any View (session must NOT
-// depend on view per ARCHITECTURE.md §3). The host View is attached separately
-// via attachTo(view). One instance = one WebView backend.
+// depend on view per ARCHITECTURE.md §3). The host View attaches itself from
+// the view layer (GeckoViewHost.bind). One instance = one WebView backend.
 public final class GeckoSessionBridge
         implements NavigationBridge.Host, ProgressBridge.Host {
     public interface Client {
@@ -175,10 +172,6 @@ public final class GeckoSessionBridge
     @NonNull
     public GeckoSession session() {
         return mSession;
-    }
-
-    public void attachTo(@NonNull Context context, @NonNull GeckoView view) {
-        GeckoRuntimeHolder.attachView(context, view, mSession);
     }
 
     // --- NavigationBridge.Host ---

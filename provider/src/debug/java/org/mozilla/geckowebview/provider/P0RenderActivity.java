@@ -89,7 +89,7 @@ public final class P0RenderActivity extends Activity {
             }
         });
 
-        GeckoRuntimeHolder.attachView(this, view, mSession);
+        org.mozilla.geckowebview.view.GeckoViewHost.attach(this, view, mSession);
         Log.i(TAG, "loading " + url);
         mSession.loadUri(url);
     }

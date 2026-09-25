@@ -1,5 +1,6 @@
 package org.mozilla.geckowebview.provider;
 
+import org.mozilla.geckowebview.runtime.GeckoRuntimeHolder;
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.Bitmap;

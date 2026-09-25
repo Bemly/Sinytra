@@ -98,7 +98,9 @@ provider（orchestration）
    ├─→ session（bridge：只做 android.webkit ↔ GeckoSession/Delegate 翻译，不碰 View）
    ├─→ view（GeckoView 宿主：own View/Surface/输入，调 session 接口）
    ├─→ settings / storage（无状态翻译 / 有状态下沉）
-   └─→ compat（只依赖 session 公开桥接接口 + storage，不许直调 view/GeckoView 内部）
+   └─→ compat（只依赖 session 公开桥接接口 + storage，不许直调 view/GeckoView 内部；
+              需要 provider 能力时由 provider 实现 compat 定义的 CompatHost 接口）
+runtime（GeckoRuntimeHolder：进程级单例，最底层，所有包可依赖，自身不依赖自有包）
 ```
 
 即：`session` 不依赖 `view`（bridge 与 UI host 解耦，才能做无 View 的后台 session
