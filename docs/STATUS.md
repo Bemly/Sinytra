@@ -662,6 +662,20 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   Enforcing；Current = `org.bromite.webview`；旧 applicationId 的
   `org.mozilla.geckowebview.debug` 已装但**不在候选列表**（无 `WebViewLibrary`）。
 
+## 1r. 硬规则收口（2026-09-26，全量 harness 41 PASS + P0 GLUE PASS / JVM 74 锁）
+
+- applicationId 定稿 `moe.bemly.geckowebview`（debug `.debug`），新包名下真机
+  canary + 全量 harness 通过。
+- **分层**：`GeckoRuntimeHolder` 下沉到最底层 `runtime/`（session/storage 不再反向
+  依赖 provider）；`GeckoSessionBridge.attachTo(GeckoView)` 删除，open+setSession
+  移到 `GeckoViewHost.attach`（session 不碰 View）；compat 改依赖自定义
+  `CompatHost.Factory/WebViewBackend` 接口、由 provider 实现（compat 不再点名
+  provider 类）。
+- **latch**：`GeckoCookieManager` 的有界阻塞属 framework 同步契约的必需例外（类头注释
+  已写明理由），代码不改；AGENTS §7 条款校正为允许 UI 线程有界等待。
+- **行数**：`P2TransportProbes` 869 → 590，拦截类探针（0001–0003 + P2-4 deny）拆到
+  `P2InterceptProbes`（304），编排层紧接调用、顺序不变。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. **切换路线主线化**（BOOTSTRAP §2.3 清单）：master 补 `WebViewLibrary`
@@ -782,7 +796,7 @@ provider/src/main/java/org/mozilla/geckowebview/
 provider/src/main/assets/sinytra-js/  # 内置 WebExtension（JS transport：eval / interface /
                                       #   WebMessage 端口；协议见 content.js 头注释）
 provider/src/debug/  # 探针与 harness（release dexdump 0 引用）：P0GlueActivity（编排）+
-                     #   P2TransportProbes / P1SystemProbes / P0RenderActivity /
+                     #   P2TransportProbes / P2InterceptProbes / P1SystemProbes / P0RenderActivity /
                      #   BootstrapProbe + BootstrapProbeActivity
 framework-stubs/  # compileOnly 的 android14 hidden API stubs（WebViewFactoryProvider/
                   # WebViewProvider/WebViewDelegate/WebViewFactory/PacProcessor/

@@ -380,6 +380,7 @@ public final class P0GlueActivity extends Activity {
 
             // --- P2 probes: transport + androidx glue (own file, file-size rule) ---
             P2TransportProbes.run(this, out, provider, webView, factory, client);
+            P2InterceptProbes.run(this, out, provider, client);
 
             // --- P1 probes: system capabilities (cookie policy, download,
             // print PDF round-trip, media permission round-trip,
