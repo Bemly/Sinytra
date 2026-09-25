@@ -11,6 +11,7 @@ import android.os.Message;
 import android.print.PrintDocumentAdapter;
 import android.util.Log;
 import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.ClientCertRequest;
 import android.webkit.DownloadListener;
 import android.webkit.GeolocationPermissions;
@@ -60,6 +61,7 @@ import org.mozilla.geckowebview.session.JsEvaluator;
 import org.mozilla.geckowebview.session.MessageBridge;
 import org.mozilla.geckowebview.session.ResponseBridge;
 import org.mozilla.geckowebview.session.RenderProcessBridge;
+import org.mozilla.geckowebview.view.GeckoViewHost;
 import org.mozilla.geckowebview.settings.GeckoWebSettings;
 
 // WebViewProvider backend for one WebView instance (P0 subset).
@@ -86,6 +88,11 @@ public final class GeckoWebViewProvider
     private final RenderProcessBridge mRenderProcess;
     // Sinytra 0001: response interception surface (see ResponseBridge).
     private final ResponseBridge mResponseBridge;
+    // Visual surface (2026-09-25): GeckoViewHost attached as a WebView
+    // child; the child's own view lifecycle owns surface attach/detach.
+    // Null = attach failed, headless fallback (loud log).
+    @Nullable
+    private final GeckoViewHost mViewHost;
     @NonNull
     private volatile String[] mInterceptFilters = new String[0];
     private final java.util.Map<Long, WebView.VisualStateCallback> mPendingVisualState =
@@ -158,6 +165,26 @@ public final class GeckoWebViewProvider
         } catch (Throwable t) {
             android.util.Log.w(TAG, "JsBridge.bind threw", t);
         }
+        // Visual surface: attach a GeckoViewHost as a child of the WebView
+        // (the framework WebView is an AbsoluteLayout, so the child params
+        // must be AbsoluteLayout.LayoutParams — its onLayout casts them).
+        // The child's own view lifecycle owns surface attach/detach/freeze;
+        // the provider never manages pixels itself (ARCHITECTURE §3: the
+        // view hosts the session surface). Failure degrades to headless
+        // operation with a loud log — every non-visual path keeps working.
+        GeckoViewHost host = null;
+        try {
+            host = new GeckoViewHost(webView.getContext());
+            webView.addView(host, new android.widget.AbsoluteLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 0));
+            host.bind(webView.getContext(), mBridge);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG,
+                    "GeckoViewHost attach threw (headless fallback)", t);
+            host = null;
+        }
+        mViewHost = host;
     }
 
     // Test seam: JsBridge bound to this provider's session.
@@ -248,7 +275,13 @@ public final class GeckoWebViewProvider
         mDestroyed = true;
         mFactory.unregisterWebViewProvider(this);
         try {
-            mBridge.close();
+            if (mViewHost != null) {
+                // GeckoViewHost.release() closes the bridge/session, which
+                // unbinds the view (GV setSession is @NonNull — see host).
+                mViewHost.release();
+            } else {
+                mBridge.close();
+            }
         } catch (Throwable t) {
             android.util.Log.w(TAG, "bridge.close threw", t);
         }
@@ -594,8 +627,31 @@ public final class GeckoWebViewProvider
     @Override public int getContentWidth() { return 0; }
     @Override public void pauseTimers() {}
     @Override public void resumeTimers() {}
-    @Override public void onPause() {}
-    @Override public void onResume() {}
+
+    // App-invoked pause/resume map to the Gecko session active state
+    // (the documented background/foreground primitive; ARCHITECTURE §2).
+    @Override
+    public void onPause() {
+        try {
+            if (mBridge.session().isOpen()) {
+                mBridge.session().setActive(false);
+            }
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "onPause setActive threw", t);
+        }
+    }
+
+    @Override
+    public void onResume() {
+        try {
+            if (mBridge.session().isOpen()) {
+                mBridge.session().setActive(true);
+            }
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "onResume setActive threw", t);
+        }
+    }
+
     @Override public boolean isPaused() { return false; }
     @Override public void freeMemory() {}
     @Override public void clearCache(boolean includeDiskFiles) {

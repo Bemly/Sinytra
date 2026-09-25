@@ -1,6 +1,7 @@
 package org.mozilla.geckowebview.provider;
 
 import android.app.Activity;
+import android.view.View;
 import android.webkit.WebMessage;
 import android.webkit.WebMessagePort;
 import android.webkit.WebView;
@@ -539,6 +540,50 @@ final class P2TransportProbes {
                 throw new IllegalStateException("visual state failed", vsError[0]);
             }
             out.append("PASS visualState\n");
+
+            // --- Visual surface: the provider's GeckoViewHost child sits
+            // in the WebView's view tree and owns the surface through its
+            // own view lifecycle (the harness docks the WebView into the
+            // window). Structural locks here; pixel truth is screencapped
+            // out-of-band during the run.
+            final Throwable[] surfError = new Throwable[1];
+            final CountDownLatch surfDone = new CountDownLatch(1);
+            activity.runOnUiThread(() -> {
+                try {
+                    org.mozilla.geckoview.GeckoView gv = null;
+                    for (int i = 0; i < webView.getChildCount(); i++) {
+                        View c = webView.getChildAt(i);
+                        if (c instanceof org.mozilla.geckoview.GeckoView) {
+                            gv = (org.mozilla.geckoview.GeckoView) c;
+                            break;
+                        }
+                    }
+                    if (gv == null) {
+                        throw new IllegalStateException(
+                                "no GeckoView child (children="
+                                        + webView.getChildCount() + ")");
+                    }
+                    if (!gv.isAttachedToWindow()) {
+                        throw new IllegalStateException(
+                                "GeckoView child not attached to window");
+                    }
+                    if (gv.getSession() == null) {
+                        throw new IllegalStateException(
+                                "GeckoView child session null");
+                    }
+                } catch (Throwable t) {
+                    surfError[0] = t;
+                } finally {
+                    surfDone.countDown();
+                }
+            });
+            surfDone.await(10, TimeUnit.SECONDS);
+            if (surfError[0] != null) {
+                throw new IllegalStateException("visual surface failed",
+                        surfError[0]);
+            }
+            out.append("PASS visualSurface child=GeckoView attached=true ")
+                    .append("session=live\n");
 
             // --- 0001 interceptBody: app-provided body, URL identity ---
             // Registers a filter prefix, loads a non-resolvable marker

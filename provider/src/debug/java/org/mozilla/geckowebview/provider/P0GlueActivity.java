@@ -111,6 +111,33 @@ public final class P0GlueActivity extends Activity {
             out.append("PASS createWebView type\n");
             GeckoWebViewProvider provider = (GeckoWebViewProvider) raw;
 
+            // Visual-surface verification: the provider attaches a
+            // GeckoViewHost child into this WebView, but the child only
+            // owns a surface once the WebView is IN a window — dock the
+            // WebView (Chromium-bound and blank; the Gecko child is what
+            // renders) at the bottom of the activity. The status text
+            // stays readable above; logcat remains the primary record.
+            final CountDownLatch layoutDone = new CountDownLatch(1);
+            final Throwable[] layoutError = new Throwable[1];
+            runOnUiThread(() -> {
+                try {
+                    android.widget.FrameLayout.LayoutParams lp =
+                            new android.widget.FrameLayout.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                    700, android.view.Gravity.BOTTOM);
+                    addContentView(webView, lp);
+                } catch (Throwable t) {
+                    layoutError[0] = t;
+                } finally {
+                    layoutDone.countDown();
+                }
+            });
+            layoutDone.await(10, TimeUnit.SECONDS);
+            if (layoutError[0] != null) {
+                throw new IllegalStateException("webview layout failed",
+                        layoutError[0]);
+            }
+
             TestClient client = new TestClient();
             Log.i(TAG, "runProbe: loading URL_1");
             runOnUiThread(() -> {
