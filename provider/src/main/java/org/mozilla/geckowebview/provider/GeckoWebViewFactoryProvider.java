@@ -164,9 +164,9 @@ public final class GeckoWebViewFactoryProvider
 
     @Override
     public CookieManager getCookieManager() {
-        throw new IllegalStateException(
-                "getCookieManager(): framework must pass a Context "
-                        + "(use cookieManager(context))");
+        // CookieManager.getInstance() lands here with no Context on the
+        // framework path; use the host context captured at create().
+        return cookieManager(requireAppContext("getCookieManager"));
     }
 
     @Override
@@ -229,8 +229,7 @@ public final class GeckoWebViewFactoryProvider
 
     @Override
     public WebIconDatabase getWebIconDatabase() {
-        throw new IllegalStateException(
-                "getWebIconDatabase(): framework must pass a Context (use icons(context))");
+        return icons(requireAppContext("getWebIconDatabase"));
     }
 
     @Override
