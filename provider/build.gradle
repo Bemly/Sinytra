@@ -38,8 +38,13 @@ android {
         applicationId = "moe.bemly.geckowebview"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0-p1"
+        // User builds require versionCode >= "Minimum WebView version code"
+        // (dumpsys webviewupdate; this device 647807131, Chromium BBBBPPPXX
+        // with branch BBBB). Scheme 999_GGG_NNN: 999 keeps the branch field
+        // (9991+) above any Chromium branch; GGG = pinned GeckoView major;
+        // NNN = release counter within that pin. BOOTSTRAP §2.3.
+        versionCode = 999_158_001
+        versionName = "0.2.0-gv158"
     }
 
     buildTypes {

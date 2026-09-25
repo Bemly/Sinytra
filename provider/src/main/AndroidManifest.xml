@@ -9,5 +9,13 @@
         android:allowBackup="false">
         <!-- Debug harnesses (P-1/P0 probes) live in src/debug + its manifest;
              the shipping manifest declares no activities. -->
+        <!-- WebView provider validity (BOOTSTRAP §2.1/§2.3): WebViewUpdateService
+             rejects packages without this flag (VALIDITY_NO_LIBRARY_FLAG) and
+             AnyWebView only lists packages that declare it. It names the REAL
+             Gecko library: the framework's RELRO preload of it fails harmlessly;
+             Gecko loads libxul itself through GeckoLoader. No dummy .so. -->
+        <meta-data
+            android:name="com.android.webview.WebViewLibrary"
+            android:value="libxul.so" />
     </application>
 </manifest>
