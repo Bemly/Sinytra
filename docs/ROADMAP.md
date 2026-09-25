@@ -45,6 +45,14 @@ geolocation、页内查找、打印。
 > 真实化（逐 cookie get/set/removeSessionCookies/hasCookies + 策略映射
 > cookieBehavior）。0006 剩余候选：SSL proceed（cert-override 原语）、
 > contentDisposition 透传。
+>
+> **补充（2026-09-25 深夜，P2 第二批）**：0006 SSL proceed 定稿
+> （`SslErrorHandler.proceed()` 接真：delegate 通道带出失败证书 →
+> nsICertOverrideService temporary override → 重载；设备 sslProceed
+> 探针）；0008 contentDisposition 透传（纯 provider 侧）。harness
+> **39 PASS** + P0 GLUE PASS、JVM 66 锁。P2 剩余：framework 面
+> WebMessagePort（AOSP 决策点）、SW+拦截并存语义（储备）、a11y、
+> CTS 全量。
 
 ## 4. P2 — 啃硬骨头（逐项建任务跟踪）
 

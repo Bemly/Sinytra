@@ -2,10 +2,10 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-25 11:2x（P2 第一批收口：CookieManager 真实化（0007）+
-> 敏感头收窄 + provider 卫生 prefs + download 判决反转并恢复探针，全量
-> harness **38 PASS** + P0 GLUE PASS、JVM **62 锁**）。设备：MOONDROP
-> MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-25 21:3x（P2 第二批收口：0008 contentDisposition 透传
+> + 0006 SSL proceed 定稿（cert-override 原语 + SslErrorHandler 子类接真
+> proceed），全量 harness **39 PASS** + P0 GLUE PASS、JVM **66 锁**）。
+> 设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -538,6 +538,37 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
   proceed 语义（需 cert-override 原语）+ contentDisposition 透传。
 - 回归：全量 harness **38 PASS + P0 GLUE PASS**，JVM **62 锁**全绿
   （53 + cookie 7 + 敏感头 2）。
+
+## 1n. P2 第二批收口（2026-09-25，全量 harness 39 PASS / JVM 66 锁）
+
+- **0008 contentDisposition 透传（零 Gecko 改动）**：C++ StreamListener
+  本就遍历全部响应头（并合成 content-disposition 条目）——
+  `ContentBridge` 大小写无关提取 `Content-Disposition`/`Content-Type`
+  传给 `DownloadListener`（Chromium 契约字段），+2 JVM 锁。
+- **0006 SSL proceed 定稿（firefox-patches/0006 @ `2f3d7e2e5b56`）**：
+  `SslErrorHandler.proceed()` 接真。链路：`nsILoadURIDelegate.
+  handleLoadError` 加失败 channel 参数 → child actor 在
+  ERROR_CLASS_BAD_CERT 时取 `serverCert` DER → base64 进 OnLoadError 消息
+  → parent actor stash 进新全局模块 `GeckoViewCertOverride` → Java
+  `CertOverrideController.allowError(uri)`（新 geckoview 类）→
+  `nsICertOverrideService` temporary override → 500ms 后经
+  `ownerBridge().loadUrl` 重载。Java 侧 `android.webkit.SinytraSslErrorHandler`
+  （包内子类；AOSP 基类 proceed/cancel 是空壳、ctor public @SystemApi，
+  Chromium 胶水同为匿名子类——android.jar 把 ctor 剥成包私有，包内放置
+  同时满足 javac 与运行期）。**踩坑记死**：① `docShell.failedChannel`
+  JS getter 读错误页文档的副本（delegate 窗口期 null，两轮实测）→ 显式
+  传参是唯一正解；② harness/framework WebView 绑定系统 provider 陷阱
+  （同 download 探针）；③ **detached View.post 永不执行**（线程转储证实
+  主线程空闲 epoll）——重载必须用主线程 Handler；④ 重载页首 eval 与
+  poller 竞争 → 重试；⑤ IDL 变更先 `mach build export`（复现 §1g ①）。
+  同步语义分歧已记录：temporary exception 按 host:port+证书会话内放行。
+- **探针**：`sslProceed`（自包含：debug assets 自签 PKCS12 + 进程内
+  SSLServerSocket，断言恰好 1 次 prompt + body 渲染，eval 带重试）。
+- 回归：全量 harness **39 PASS + P0 GLUE PASS**（诊断移除后干净构建复跑
+  确认）、JVM **66 锁**。
+- **0006 从此闭案**：download（§1m 已反转）+ SSL proceed 均闭。P2 剩余：
+  framework 面 WebMessagePort（AOSP 决策点）、SW+拦截并存语义（储备）、
+  a11y、CTS 全量（Linux 宿主/ROM 阶段）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
