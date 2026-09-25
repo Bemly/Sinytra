@@ -1,7 +1,7 @@
 # BOOTSTRAP — Sinytra
 
-> P-1 可行性验证、AOSP 最小解耦、GeckoView 三层依赖、workspace 布局。
-> 动 framework / 接 GeckoView / 拉 AOSP 前先读本文件。
+> P-1 可行性验证、System WebView 切换路线（root + AnyWebView）、GeckoView 三层依赖、
+> workspace 布局。碰 provider 入口/manifest/切换流程、接 GeckoView 前先读本文件。
 
 ## 1. P-1 — Bootstrap 可行性验证（P0 之前必须先过，spike 性质，最高优先级）
 
@@ -21,7 +21,7 @@
 - GeckoView AndroidManifest.xml 里的 components 在 WebView provider 场景下是否可解析/可实例化
 ```
 
-结论只有两种：① 可行 → 锁定 bootstrap 约束进 §3（`WebViewLibraryLoader` 分流）；
+结论只有两种：① 可行 → 锁定 bootstrap 约束（见下方实测结论 + §2 切换路线）；
 ② 不可行/需改 Gecko → 按 `ARCHITECTURE.md` §6.4 走 `firefox-patches/` 专门处理
 process bootstrap（这是 P2 之外的前置 patch，优先级高于一切 bridge）。
 
@@ -54,147 +54,111 @@ process bootstrap（这是 P2 之外的前置 patch，优先级高于一切 brid
   example.com（含进度 15→55→100 + `onPageStop success=true`），截图验证通过。
   → **P-1 结论①：bootstrap 可行**，约束：child bind 失败时页面停在 `about:blank`
   并重试 tabN（`tab27 → tab0 → tab8...` 轮询），属 Gecko 侧正常重试语义，
-  不是 glue bug；量产 ROM 需处理 vendor 电源管理白名单（见下）。
+  不是 glue bug；目标机上需关掉 vendor 电源管理（本机 MTK DuraSpeed，见下 +
+  `STATUS.md` §3）——切换后所有 App 的 Gecko child 都受它影响。
 - 调试机注意事项（本机 `user release-keys`，非 userdebug/eng）：
   保持亮屏解锁测（Doze + 锁屏会冻住 App 心跳，截图全黑属正常）；
   复现 bind 问题先看 `am_proc_start ... :<process>` 是否出现，再看
   `Unable to launch app ... : process is bad` + `duraspeed block` 是否成对出现。
 
-## 2. AOSP Framework 改动（只做最小解耦）
+## 2. System WebView 切换路线（唯一路线：root + AnyWebView，不刷机）
 
-现状（Android 14 实测，`AOSP_BASE = android14-release`）：`WebViewFactory` 直接硬编码
-`CHROMIUM_WEBVIEW_FACTORY =
-"com.android.webview.chromium.WebViewChromiumFactoryProviderForT"`，
-没有 master 那套 `Flags.useBEntryPoint()` + `ForB/ForT` 分流；
-`WebViewFactory` 会反射调 `create(WebViewDelegate)` 静态工厂拿 provider；
-`WebViewLibraryLoader` 仍有 `CHROMIUM_WEBVIEW_NATIVE_RELRO_32/64`、
-RELRO/shared_relro、`WebViewZygote` 等 Chromium 专属假设；
-provider 包名由 `config_webview_packages.xml` 决定（默认 `com.android.webview`）；
-provider 加载前 framework 会读 provider APK 的 `com.android.webview.WebViewLibrary`
-metadata（`verifyPackageInfo` 里缺失直接判 provider 无效）并预加载其 native 库
-（随后必走 `WebViewLibraryLoader.loadNativeLibrary()`）。
+> 2026-09-26 用户拍板：唯一目标是在**已 root + LSPosed + AnyWebView** 的现有
+> 手机上，经「开发者选项 → WebView 实现」把 Sinytra 切成 system WebView。
+> 旧 §2.1–§2.4（测试 ROM overlay、`aosp-patches/` metadata 自声明、
+> `WebViewLibraryLoader` engine 分流、自建 ROM/CTS）**全部作废**，不再规划。
+> 路线在 `poc/dev-option-switch` 分支真机跑通过（2026-09-22，153 线），
+> 主线化是当前第一优先级（`STATUS.md` §2）。
 
-### 2.1 测试 ROM：userdebug + config overlay（先做这个）
+### 2.1 framework 侧事实（Android 14，不改 framework 的前提）
 
-- 测试 ROM 用 `userdebug / eng` build。
-- **不能假设所有 userdebug/eng 产品都自动跳过 provider 签名检查**：AOSP
-  emulator/goldfish 等具体 product 的 overlay 才配置允许测试 provider；
-  实际行为以目标 product 的 `config_webview_packages.xml` / overlay 为准。
-- 在设备 overlay 或 `frameworks/base/core/res/res/xml/config_webview_packages.xml`
-  中加入：
+- `WebViewUpdateService` 判 provider 是否 Valid（`dumpsys webviewupdate`
+  的 `WebView packages` 列表）：`targetSdkVersion ≥ 33`、manifest 必须有
+  `com.android.webview.WebViewLibrary` metadata（缺则
+  `VALIDITY_NO_LIBRARY_FLAG`）、user build 还要求 `versionCode ≥
+  Minimum WebView version code`（按 stock 候选包的 branch 字段算，本机
+  647807131；过低报 `Version code too low`）、非系统包签名要匹配
+  `config_webview_packages.xml` 且包要在候选名单里——**候选名单 + 签名这一关靠
+  AnyWebView 放行**（具体 hook 点未逐一反编译核实，以 dumpsys 结果为准）。
+- `WebViewFactory` 硬编码 `Class.forName("com.android.webview.chromium.
+  WebViewChromiumFactoryProviderForT")` + `create(WebViewDelegate)`，不读任何
+  provider 声明的 factory 类名——`android.webkit.WebViewFactoryClass` 之类
+  metadata 在 stock framework 上是死配置，不声明。
+- framework 会按 `WebViewLibrary` 对 provider 做 RELRO 预加载
+  （`WebViewLibraryLoader`）：对 `libxul.so` 失败属预期、无害——Gecko 自己经
+  `GeckoLoader` 从 `base.apk!/lib/arm64-v8a` 加载（P-1 已证）。
+  `WebViewZygote.preloadInZygote` NoSuchMethod 同属 benign（Chromium 私有静态
+  方法，缺失即跳过）。
 
-```xml
-<webviewprovider
-    description="Gecko WebView"
-    packageName="org.mozilla.geckowebview"
-    availableByDefault="true" />
-```
+### 2.2 AnyWebView（LSPosed 模块）
 
-- 之后“设置 → 开发者选项 → WebView 实现”里就能切到 `Gecko WebView`。
-  先走通这条切换链路，再碰 §2.2。
+- 包 `com.thinkdifferent.anywebview`，**必须 v1.3**（`de.robv` 旧入口）；
+  v1.4.x 要 libxposed API 101，本机 LSPosed v1.11.0 不支持，hook 静默失败。
+- LSPosed 作用域勾「系统框架」（scope=system），改作用域后重启生效。
+- 作用：把已安装且声明了 `WebViewLibrary` 的包追加进 provider 候选名单并
+  放过签名检查——它**不**改 factory 类名、**不**放宽 targetSdk/versionCode，
+  这些仍由 provider 自己满足。
+- 可逆、不写 `/system`：开发者选项切回任一 stock 包即回滚。
 
-### 2.2 Framework patch：PoC trampoline（短期）→ metadata 自声明（正式）
+### 2.3 provider 侧必须满足的约束（主线化清单）
 
-> PoC 诚实声明：只放 `WebViewChromiumFactoryProviderForT` trampoline
-> 做不到“零 framework 改动”——Android 14 在加载该类之前就要求 provider APK
-> 有 `com.android.webview.WebViewLibrary` metadata（无则判无效），之后还必走
-> `WebViewLibraryLoader.loadNativeLibrary()`。所以 PoC 只有两条路：
-> ① 做 dummy native library 先满足 RELRO/WebViewZygote 旧假设（脏活，P0 后全删）；
-> ② **推荐：第一版 AOSP patch 就先把 native loader/bootstrap 对 Gecko 分流掉**（见 §2.3），
-> trampoline 只解决类名硬编码。不要花时间伪装 Chromium bootstrap 再全部删掉。
+| 约束 | 做法 | 来源 |
+|---|---|---|
+| Valid：library flag | `<meta-data android:name="com.android.webview.WebViewLibrary" android:value="libxul.so"/>`（真实 .so，不做 dummy） | PoC `ce86279` |
+| Valid：versionCode | ≥ `Minimum WebView version code`；PoC 用 647900000（branch 6479 > stock 6478/8037/8066）；正式编码方案主线化时定 | PoC `ce86279` |
+| Valid：targetSdk | ≥ 33（现 34） | DEVICE §2 |
+| 包名 | 用自己的包名，不顶 `com.android.webview`；PoC 分支用 `firefox.bemly.moe`，master 是 `org.mozilla.geckowebview`——主线化时二选一 | PoC STATUS |
+| 入口 | `com.android.webview.chromium.WebViewChromiumFactoryProviderForT.create(WebViewDelegate)` trampoline：用 `Proxy` 实现**真实** `WebViewFactoryProvider` 接口（stub 把 `createWebView` 参数 erase 成 Object，直接 implements 会 `AbstractMethodError`），只做转发 | PoC `00d3559` |
+| `PrivateAccess` | `createWebView` 时保留 `PrivateAccess` 并经 `super_setLayoutParams` 先写 MATCH_PARENT（否则 Activity measure NPE） | PoC `00d3559` |
+| WebStorage/Geolocation | framework 这两类 ctor 包私有、只能返回 `getInstance()`；在 Proxy 内会 `getInstance()↔getProvider()` 自循环 → trampoline 里用重入标记直读已构造实例断环 | PoC `00d3559` |
 
-**PoC 路线（允许进分支、不进主分支）**：Gecko APK 里直接提供 10～20 行
-compatibility trampoline，AOSP 以为自己在加载 Chromium，实际拿到 Gecko：
+### 2.4 切换后验收
 
-```java
-package com.android.webview.chromium;
+- `dumpsys webviewupdate`：Sinytra 在 `Valid package` 里、Current/Preferred 均为我方。
+- 真实路径探针（PoC 的 `FrameworkEntryActivity`）：`new WebView(context)` →
+  framework `WebViewFactory` → trampoline → Sinytra，`onPageFinished` 到达。
+  这取代“反射注入 harness”成为 P0–P2 的最终验收口径；反射 harness 继续做
+  bridge 级回归。
+- 切换后单例族全部是我方实现（反射 harness 里 storage 单例是系统 Chromium
+  的，这是两种口径的核心差异）。
+- 第三方 App 冒烟 + CTS（`CTS.md`，切换后 `am instrument` 直跑）。
+- 注意：切换是**全局**的，所有 App（含系统 App）立即改用 Sinytra；跑前先确认
+  回滚命令可用（`DEVICE.md` §5）。
 
-public final class WebViewChromiumFactoryProviderForT {
-    public static WebViewFactoryProvider create(WebViewDelegate delegate) {
-        return new GeckoWebViewFactoryProvider(delegate);
-    }
-}
-```
+## 3. GeckoView 两层开发模型（Maven AAR / 本地 Gecko）
 
-这样 PoC 期至多省掉 §2.3 之外的 framework 改动即可验证。
-但这是脏捷径，P0 验收后必须切正式路线，trampoline 不许合入主分支。
-
-**正式路线（唯一长期方案）**：provider 在 `AndroidManifest.xml` 自声明入口：
-
-```xml
-<meta-data
-    android:name="android.webkit.WebViewFactoryClass"
-    android:value="org.mozilla.geckowebview.GeckoWebViewFactoryProvider" />
-```
-
-AOSP 侧改成从 provider APK 的 metadata 读 factory 类名，而不是硬编码返回
-`com.android.webview.chromium.*`（同时把 `CHROMIUM_WEBVIEW_FACTORY_METHOD`
-之类命名泛化）。效果：
-
-```text
-              WebViewFactory
-                   │
-            provider metadata
-              ┌────┴────┐
-              ▼         ▼
-          Chromium    Gecko
-              │         │
-            Blink     Gecko
-```
-
-### 2.3 `WebViewLibraryLoader` 按 engine 分流
-
-`engine="chromium"` 走原 RELRO 路径；`engine="gecko"` 时 provider 自行
-bootstrap（`GeckoRuntime/GeckoThread/libxul` + Gecko child processes，
-约束由 P-1 锁定），**不许**让 Gecko 假装 Chromium RELRO loader。
-
-### 2.4 顺序
-
-先 §2.1（overlay 切换）→ PoC trampoline 跑 P0 → 再做 §2.2 正式解耦 +
-§2.3 分流。以目标 ROM 分支的 `frameworks/base/core/java/android/webkit/`
-为准改；`aosp-patches/` 里每个 patch 只做一件事。
-
-## 3. GeckoView 三层开发模型（日常 / 本地 Gecko / 发布）
+> 现状（2026-09-25 起）：master 引用 firefox-patches 0001–0007 注入的
+> GeckoView 类型，**一切构建/测试都必须走 ②**（`-PsinytraLocalGecko=true`）；
+> ① 只在 stock AAR 能编过的分支上成立。要恢复“默认绿”需发布自建 AAR 到可达
+> Maven/mavenLocal——显式决策点，暂不做。
 
 ```text
-① 绝大部分时间（日常开发，几乎只碰这里）
+① stock AAR（patch 前的历史形态）
 
 provider/（独立 Java 17 Gradle 工程）
         ↓ implementation "org.mozilla.geckoview:geckoview-nightly:<pin死版本>"
 Mozilla Maven AAR
-
-不用编 Firefox。改一次 Java adapter：
-./gradlew assembleDebug && adb install -r GeckoWebView.apk
-就能试。简单如 reload()/stopLoading()/goBack() 全是这种纯 Java 转发。
 ```
 
 ```text
-② GeckoView public API 不够时（才启用本地 Gecko）
+② 本地 Gecko（现行形态）
 
-~/src/
-├── sinytra/     ← 本仓库（Provider + patch stack，只存差异）
-└── firefox/     ← Mozilla Firefox checkout（sibling，不进本 Git）
+<U+F8FF 卷>/Projects/          （经 ~/sinytra-vol 符号链接访问）
+├── Sinytra/     ← 本仓库（Provider + patch stack，只存差异）
+├── firefox/     ← Mozilla Firefox checkout（sibling，不进本 Git；分支 sinytra-pin-158）
+└── mozbuild/    ← MOZBUILD_STATE_PATH
 
-provider/build.gradle 加：
-ext.topsrcdir = "/path/to/firefox"
-ext.topobjdir = "/path/to/objdir"
-apply from: "${topsrcdir}/substitute-local-geckoview.gradle"
-
-Mozilla 官方支持的 dependency substitution：
-Provider → 本地修改后的 GeckoView → 本地 Firefox/Gecko，
-GeckoWebViewProvider.java 一行依赖代码都不用改。
-触发条件见 ARCHITECTURE.md §6.4。
+provider/build.gradle 在 -PsinytraLocalGecko 下 apply
+${topsrcdir}/substitute-local-geckoview.gradle（topobjdir = firefox/objdir-158）：
+Provider → 本地 patch 后的 GeckoView → 本地 Gecko，provider 源码不用改。
+触发条件见 ARCHITECTURE.md §6.4；命令见 firefox-patches/README.md。
 ```
 
-```text
-③ 发布 / CI / 可重现
+可重现 = `FIREFOX_COMMIT` + `firefox-patches/` 按编号 `git apply`
+（2026-09-26 实测：0001→0007 按编号应用到 34ed69f16167 的树与
+`sinytra-pin-158` HEAD 完全一致）+ provider 固定 source。
 
-Firefox @ 固定 commit（后期再做成 git submodule pin）
-        + firefox-patches/（逐个 rebase，冲突不解不升级）
-        + provider/ 固定 source
-```
-
-- 开发早期**不要**用 git submodule 绑 firefox，也**不要**把 Provider 写进
+- **不要**用 git submodule 绑 firefox，也**不要**把 Provider 写进
   Firefox 源码树。Firefox 负责 Gecko+GeckoView，本仓库负责
   `android.webkit → GeckoView`，只有确实缺 primitive 才往下打 patch。
 - Nightly 版本一律 pin 精确号，不用 `+`。
@@ -212,57 +176,12 @@ Firefox @ 固定 commit（后期再做成 git submodule pin）
   附带说明：解决哪个 WebView API、为什么 public API 不够用、上游有无对应 bug。
 - 升级 Firefox commit 时逐个 rebase patch，冲突不解决不许升级。
 
-## 4. 本地 workspace 布局（AOSP / Firefox 不进本 Git）
+## 4. 本地 workspace 布局（Firefox 不进本 Git；不拉 AOSP）
 
-> **本 Git 只存差异**：`provider/` + `aosp-patches/` + `firefox-patches/` +
-> `manifests/` + `tools/` + `tests/` + 文档。AOSP 与 Firefox 源码树永远是
-> sibling checkout，不做 submodule、不复制进仓库、不把 provider 写进 Firefox 树。
+> **本 Git 只存差异**：`provider/` + `framework-stubs/` + `firefox-patches/` +
+> `tests/` + 文档。Firefox 源码树是 sibling checkout，不做 submodule、不复制进
+> 仓库、不把 provider 写进 Firefox 树。**不拉 AOSP 树**：hidden API 编译靠
+> `framework-stubs/`（android14 接口 stub，compileOnly），语义核对看
+> `SOURCES.md` 的 android14-release 源码链接或设备 `framework.jar`。
 
-推荐磁盘布局：
-
-```text
-~/src/
-├── sinytra/                 ← 本仓库
-│   ├── provider/
-│   ├── aosp-patches/
-│   ├── firefox-patches/
-│   ├── manifests/
-│   └── tests/
-├── firefox/                 ← Mozilla Firefox checkout（sibling，见 §3②）
-└── aosp/                    ← repo 管理的 AOSP checkout
-    ├── .repo/
-    ├── frameworks/base/
-    ├── packages/apps/GeckoWebView/   ← 稳定后把本仓库接进来（见下）
-    └── ...
-```
-
-### 4.1 本仓库接进 AOSP（稳定后）
-
-用 repo manifest 把本仓库作为独立 project 落到 AOSP 树里，
-仍是自己的 Git，不 fork 整个 AOSP：
-
-```xml
-<project name="Bemly/gecko-system-webview"
-         path="packages/apps/GeckoWebView"
-         revision="main"
-         remote="github" />
-```
-
-片段放在本仓库 `manifests/gecko-webview.xml`。效果：`repo sync` 后
-AOSP 与本项目自动落到正确位置；早期只读 `frameworks/base` 代码时可单独
-`git clone platform/frameworks/base`，不拉整套 AOSP。
-
-### 4.2 AOSP 拉取规模（三阶段）
-
-1. **只写 adapter**（P0 前期）：不拉 AOSP。`WebViewProvider /
-   WebViewFactoryProvider` 是 hidden API，普通 SDK 没有——针对目标系统完整
-   `framework.jar` 做 `compileOnly`，或引用对应版本 AOSP 接口源码/stub。
-2. **第一次替换 System WebView**：拉完整 AOSP checkout。改
-   `frameworks/base/core/java/android/webkit/` + overlay/config
-   （见 §2.1），在真机/模拟器验证“开发者选项 → WebView 实现 → Gecko WebView”。
-3. **完整 ROM / CTS**：正常 AOSP build 环境出
-   `system.img / product.img / system_ext.img...` 并跑 CTS。
-
-升级路线：`AOSP 官方源码 + aosp-patches/ + Firefox 固定 commit + firefox-patches/`，
-Android 大版本 / Firefox 大版本升级时只 rebase patch stack，
-绝大部分 Java glue 不用动。
+实际布局见 §3 ②（全部在 U+F8FF 外置卷上，内置盘空间不足；`~/src` 布局不适用）。

@@ -9,8 +9,14 @@
 - [WebView.java](https://android.googlesource.com/platform/frameworks/base/+/android14-release/core/java/android/webkit/WebView.java)
 - [WebViewFactory.java](https://android.googlesource.com/platform/frameworks/base/+/android14-release/core/java/android/webkit/WebViewFactory.java)
 - [WebViewLibraryLoader.java](https://android.googlesource.com/platform/frameworks/base/+/android14-release/core/java/android/webkit/WebViewLibraryLoader.java)
-- [config_webview_packages.xml](https://android.googlesource.com/platform/frameworks/base/+/HEAD/core/res/res/xml/config_webview_packages.xml)
+- [config_webview_packages.xml](https://android.googlesource.com/platform/frameworks/base/+/android14-release/core/res/res/xml/config_webview_packages.xml)（候选/签名名单；本项目不改它，由 AnyWebView 放行）
+- [services/core/.../server/webkit/（WebViewUpdateService validity 判定）](https://android.googlesource.com/platform/frameworks/base/+/android14-release/services/core/java/com/android/server/webkit/)
 - [WebViewGlueCommunicator.java（androidx support-library glue 入口）](https://android.googlesource.com/platform/frameworks/support/+/f3d75c56cc038c3e289e92575ee0cbfd9b8f1c10/webkit/webkit/src/main/java/androidx/webkit/internal/WebViewGlueCommunicator.java)
+
+## 切换工具（唯一部署路线，BOOTSTRAP §2）
+
+- AnyWebView v1.3（LSPosed 模块，包 `com.thinkdifferent.anywebview`；v1.4.x 需 libxposed API 101，本机 LSPosed v1.11.0 不支持）
+- LSPosed v1.11.0（zygisk）
 
 ## Chromium 文档（provider 机制参考）
 

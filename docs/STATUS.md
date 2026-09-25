@@ -2,9 +2,10 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-25 23:5x（P2 第四批：视觉面接线落地——GeckoViewHost
-> 子视图挂进 framework WebView + 截图像素证据 + uiautomator a11y 遍历
-> 证据，全量 harness **41 PASS** + P0 GLUE PASS、JVM **74 锁**）。
+> 更新时间：2026-09-26（部署路线收敛为 root + AnyWebView 开发者选项切换，
+> 见 §1q；代码现状：P2 第四批视觉面接线落地，全量 harness **41 PASS** +
+> P0 GLUE PASS、JVM **74 锁**——注意这些全是反射注入口径，master 尚未走过
+> 真实切换路径）。
 > 设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
@@ -568,7 +569,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
   确认）、JVM **66 锁**。
 - **0006 从此闭案**：download（§1m 已反转）+ SSL proceed 均闭。P2 剩余：
   framework 面 WebMessagePort（AOSP 决策点）、SW+拦截并存语义（储备）、
-  a11y、CTS 全量（Linux 宿主/ROM 阶段）。
+  a11y、CTS 全量（~~Linux 宿主/ROM 阶段~~ → 切换后设备直跑，见 §1q）。
 
 ## 1o. P2 第三批：framework 面 WebMessagePort 落地（2026-09-25 深夜，全量 harness 40 PASS / JVM 74 锁）
 
@@ -631,21 +632,52 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
 - **回归**：全量 harness **41 PASS + P0 GLUE PASS**（+visualSurface），
   既有 40 探针在子视图挂载后全部不变；JVM 74 锁、lint 门绿。
 
+## 1q. 部署路线收敛（2026-09-26，用户拍板）
+
+- **唯一目标**：已 root + LSPosed + AnyWebView 的现有手机上，经开发者选项
+  「WebView 实现」把 Sinytra 切成 system WebView 跑起来。**不刷机**：自建/测试
+  ROM、overlay、预装/系统签名、`aosp-patches/`、metadata 自声明正式路线、
+  `WebViewLibraryLoader` 分流、ROM 阶段 CTS、Linux tradefed 门槛——全部作废。
+  文档已同步（AGENTS 顶部/§5、BOOTSTRAP §2 重写、DEVICE §5、CTS、ROADMAP §4-10）。
+- **随之反转的硬规则**：`com.android.webview.chromium.
+  WebViewChromiumFactoryProviderForT` trampoline 从“只许进分支”变为
+  “必须进主分支”——Android 14 `WebViewFactory` 硬编码该类名，不改 framework
+  就没有第二个入口。约束：只做入口转发 + 描述符适配。
+- **已有实证（`poc/dev-option-switch`，2026-09-22，153 线，未合入）**：
+  - `ce86279`：manifest `WebViewLibrary=libxul.so` + versionCode 647900000
+    → AnyWebView v1.3（scope=system）列入 Valid；
+    `set-webview-implementation` Success，Current/Preferred 均为我方。
+  - `00d3559`：trampoline 用 Proxy 实现真实 `WebViewFactoryProvider`（stub
+    erase 导致直接 implements 报 AbstractMethodError）；保留 `PrivateAccess`
+    + `super_setLayoutParams`（Activity measure NPE）；WebStorage/Geolocation
+    `getInstance()↔Proxy` 自循环用重入标记断环；`FrameworkEntryActivity`
+    （真 `new WebView()` + `onPageFinished`）PASS；P0Glue 在切换后 PASS。
+  - applicationId 在分支上改成了 `firefox.bemly.moe`（master 仍是
+    `org.mozilla.geckowebview`）——主线化时需定一个。
+  - 分支比 master 落后整个 158 升级 + 0001–0007 + P2 第二至四批，不能直接合，
+    只能按上面三点在 master 上重做。
+- **设备现状（2026-09-26）**：AnyWebView 1.3 + LSPosed v1.11.0 在位、SELinux
+  Enforcing；Current = `org.bromite.webview`；master 的
+  `org.mozilla.geckowebview.debug` 已装但**不在候选列表**（无 `WebViewLibrary`）。
+
 ## 2. 下一步（按顺序，一次做一件）
 
-1. **a11y v2 深度对齐（小项，等反馈）**：v1 遍历链路已通（§1p）；
-   剩 framework 深度面——WebView 节点自身的
+1. **切换路线主线化**（BOOTSTRAP §2.3 清单）：master 补 `WebViewLibrary`
+   metadata + versionCode 编码方案 + 定 applicationId → trampoline（Proxy 转发、
+   PrivateAccess、storage/geo 断环）→ 真实路径探针（`FrameworkEntryActivity`
+   迁入 `src/debug`）。验收：Valid + Current 为我方 + 真实路径 PASS + 反射
+   harness 41 PASS 不退。
+2. **切换后全量回归**：真实路径下重跑 P0–P2 探针（单例族此时全是我方实现，
+   反射口径下 storage 单例是系统 Chromium 的——这是口径差的重点）+ 第三方 App
+   冒烟（先确认回滚命令，DEVICE §5）。
+3. **CTS Sinytra 对照轮**：切换后直跑 `CtsWebkitTestCases`（CTS.md §2），对照
+   Chromium 基线 98.6%，fail 逐条归因落档。a11y/视觉类用例一并汇入。
+4. **a11y v2 深度对齐（等反馈）**：v1 遍历链路已通（§1p）；剩 WebView 节点自身的
    AccessibilityNodeProvider/onProvideVirtualStructure 合并、焦点/
-   performAccessibilityAction 映射。**先拿 TalkBack 手测 + CTS a11y
-   用例（ROM 阶段）的失败清单再动手**——现在盲改反而可能打断已通的
-   子视图遍历。
-2. **SW + 拦截并存语义**（储备，显式决策点）：参考语义已建档
-   （`RELATED-PROJECTS.md` §2.1 ForceControl/SW-first/fallback）；SW
-   未被真实场景需要前不接线（AGENTS §5 不为以后可能用而接能力）。
-3. **CTS 全量**：等 Linux 宿主（路线 A）/ ROM 阶段 provider 预装切换
-   （BOOTSTRAP §2.1）；Chromium 基线参照系已锁（`CTS.md` §5，98.6%）。
-   a11y/视觉类验收（TalkBack、截图像素锁、`CtsWebViewTestCases` 视觉
-   用例）都汇入这一站。
+   performAccessibilityAction 映射。先拿 TalkBack 手测 + 第 3 步 CTS a11y 失败清单
+   再动手——盲改可能打断已通的子视图遍历。
+5. **SW + 拦截并存语义**（储备，显式决策点）：参考语义已建档
+   （`RELATED-PROJECTS.md` §2.1）；未被真实场景需要前不接线（AGENTS §5）。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 
@@ -720,7 +752,8 @@ HistoryList=0, SessionState=0         → Gecko 没 flush，再测 hidden GeckoV
   binds`；关总开关后两轮 `block` 计数 0、`successful binds` 全过、
   P0Render 完整渲染（progress 15→55→100）、P0Glue 连续两轮 PASS。
   **“必须重启”彻底证伪**：同一开机会话内从全失败到全 PASS。
-  注意：这是测试环境手段，量产 ROM 仍需 vendor 电源管理白名单（BOOTSTRAP）。
+  注意：切换成 system WebView 后所有 App 的 Gecko child 都受 DuraSpeed 影响——
+  总开关必须保持关闭（DEVICE §1）；不做 ROM，没有“vendor 白名单”这条路。
 - 调试纪律：保持亮屏解锁（Doze+锁屏冻心跳、截图全黑属正常）；
   先看 `am_proc_start ... :<child>` 是否出现，再看 denials；
   跑 harness 前先跑 `P0RenderActivity` 确认 child 起得来（金丝雀）。

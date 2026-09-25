@@ -137,7 +137,7 @@ toolkit/components/moz.build）、`04-remove-ml`、`05-remove-translations`
   （Attach/Transfer/GetNodeInfo/Pivot/ExploreByTouch/NavigateText/
   SetSelection/剪贴板…），P2 a11y 测试清单可参照。
 - pdfjs/ml/translations/HLS 裁剪与 AGENTS §5「不为不需要的能力接线」同向，
-  ROM 阶段（远期）体积优化可直接复用其 split 补丁。
+  provider APK 体积优化（远期）可直接复用其 split 补丁。
 
 ### 2.3 发布基建（略）
 
@@ -198,7 +198,8 @@ ABI 后缀 artifact（`geckoview-custom-arm64-v8a` / `-x86_64`）。starter 的
    （widget/android 两个 contract + components.conf）。
 5. **P2 语义储备**：SW+拦截并存优先级（§2.1 借鉴 2），届时再定是否移植
    ForceControlClient。
-6. **ROM 阶段（远期）**：slim/split 裁剪补丁按需取用（先 rebase 到当时 pin）。
+6. **APK 体积（远期）**：slim/split 裁剪补丁按需取用（先 rebase 到当时 pin）。
+   不做 ROM（AGENTS 顶部唯一部署目标）。
 
 ## 6. 取证与复现
 

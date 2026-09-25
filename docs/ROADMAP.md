@@ -51,13 +51,15 @@ geolocation、页内查找、打印。
 > nsICertOverrideService temporary override → 重载；设备 sslProceed
 > 探针）；0008 contentDisposition 透传（纯 provider 侧）。harness
 > **39 PASS** + P0 GLUE PASS、JVM 66 锁。P2 剩余：framework 面
-> WebMessagePort（AOSP 决策点）、SW+拦截并存语义（储备）、a11y、
-> CTS 全量。
+> WebMessagePort（已于第三批闭案，无需 AOSP patch）、SW+拦截并存语义（储备）、
+> a11y、切换主线化 + CTS（见 §4 第 10 项）。
 
 ## 4. P2 — 啃硬骨头（逐项建任务跟踪）
 
 1. **`evaluateJavascript`**：WebView 要求任意 JS 在当前页面执行并异步回传 JSON 结果；
    GeckoView 不是按 WebView 语义设计的，大概率要加 internal API（走 `firefox-patches/`）。
+   > **已落地（2026-09-23）**：预判被推翻——不需要 patch，内置 WebExtension
+   > `sinytra-js` + `SessionController.setMessageDelegate` 即可（STATUS §1d）。
 2. **`addJavascriptInterface`**：Chromium 那套 Java 反射 + `@JavascriptInterface` +
    线程/返回值/GC/对象生命周期的语义，GeckoView 没有天然对应实现，需自研
    `JavascriptBridge` + 可能的 GeckoView patch。
@@ -90,10 +92,23 @@ geolocation、页内查找、打印。
    > SessionAccessibility）随挂载免费连通（uiautomator 证据）；v2 深度
    > 对齐等 TalkBack/CTS 反馈。
 
+10. **System WebView 切换主线化（root + AnyWebView，唯一部署路线）**：
+   把 `poc/dev-option-switch` 的入口 trampoline + validity 约束搬进 master，
+   以真实 `new WebView()` 路径重验 P0–P2（`BOOTSTRAP.md` §2.3/§2.4）。
+   **这是 CTS 对照轮的前置条件。**
+
+> 其余硬点状态：2（JS interface）同 1 走 `sinytra-js` 已落地；4
+> （shouldInterceptRequest）经 firefox-patches 0001–0003 完整（body 替身/
+> 请求面保真/子帧子资源/流式无上限）；5（StateBridge）、6（顺序由 harness 锁）、
+> 7（Cookie 0007 / RenderProcess）、8（androidx glue 18 项）已落地——细节见
+> `STATUS.md` §1b–§1p。
+
 ## 5. 测试与验收
 
-- `tests/unit`：JUnit，覆盖每个 bridge 的映射逻辑与边界值。
-- `tests/integration`：真机/模拟器，覆盖 P0 验收场景与 P1 系统能力。
-- `tests/cts`：Android CTS WebView 相关用例全量通过是 P2 出货门槛；
-  不通过的用例逐项记录原因（Gecko 语义差异 / 未实现 / 上游 bug）。
+- `tests/unit`：JUnit（JVM），覆盖每个 bridge 的映射逻辑与边界值。
+- 设备集成：`provider/src/debug` harness（P0GlueActivity 编排 + P1/P2 探针），
+  反射注入口径做 bridge 级回归；切换后的真实路径探针做最终验收。
+- CTS：切换到 Sinytra 后在调试机上 `am instrument` 直跑 `CtsWebkitTestCases`
+  （`CTS.md`），以 Chromium 基线 98.6% 为参照，是 P2 出货门槛；不通过的用例
+  逐项记录原因（Gecko 语义差异 / 未实现 / 上游 bug）。
 - 回归红线：P0 验收脚本在每次提交后可重跑，通过率 100% 才允许合入 P1/P2 改动。

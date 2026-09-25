@@ -52,9 +52,12 @@ AOSP WebView API →（Sinytra glue）→ GeckoView → Gecko
                       ▼
             android.webkit.WebView（framework 代理类）
                       │
-                      │ AOSP hidden/System API
+                      │ AOSP hidden/System API（WebViewFactory 硬编码类名）
                       ▼
-            WebViewFactoryProvider
+   com.android.webview.chromium.WebViewChromiumFactoryProviderForT
+   （provider APK 内 trampoline：Proxy 实现真实接口，只转发）
+                      ▼
+            WebViewFactoryProvider（GeckoWebViewFactoryProvider）
                       │
             ┌─────────┴──────────┐
             ▼                    ▼
@@ -167,7 +170,7 @@ Java GeckoWebViewProvider
 | 位置 | 语言 | 说明 |
 |---|---|---|
 | `provider/src/...`（`provider/ session/ view/ settings/ storage/ compat/` 分包） | Java 17 | 全部 glue（含所有 bridge）；不许进 Kotlin |
-| `aosp-patches/`（`frameworks/base/.../webkit/*` patch） | Java | 与 AOSP 侧注解/签名对齐 |
+| `provider/src/main/java/{com/android/webview/chromium,android/webkit,org/chromium/support_lib_glue}` | Java 17 | framework 硬编码入口 / 同包子类 / androidx boundary 入口（不改 framework 的接入适配；不做 `aosp-patches/`） |
 | `firefox-patches/` → `mobile/android/geckoview/` | Java | 给 GeckoView 加 internal API 时用 |
 | `firefox-patches/` → `mobile/android/modules/` 等 | Gecko JavaScript | Module/Actor 层扩展（如 JS 执行、消息通道） |
 | `firefox-patches/` → `widget/android/` | C++ | 仅 Surface/compositor/生命周期等不得不下沉时用 |
@@ -185,8 +188,10 @@ Kotlin 0～5% / Rust ~0%`。**PoC 第一版甚至可以 95%+ Java**：
   **Framework ABI 兼容层**：`implements WebViewProvider` 用 Java 最直接，
   没有 `Companion / DefaultImpls / Intrinsics / synthetic methods / metadata /
   nullable ABI / Kotlin runtime 依赖` 这些对 system provider 零收益的东西。
-- provider 最终走 `Class.forName(providerClassName)` + 确定签名的静态工厂
-  （如 `create(WebViewDelegate)`）加载，系统边界代码用 Java 最省事。
+- provider 经 framework 硬编码的 `Class.forName("com.android.webview.chromium.
+  WebViewChromiumFactoryProviderForT")` + 确定签名的静态工厂
+  `create(WebViewDelegate)` 加载（Android 14 不读 provider 声明的类名，
+  见 `BOOTSTRAP.md` §2.1），系统边界代码用 Java 最省事。
 - 一旦混入 Kotlin，hidden API 反射、系统类加载、崩溃栈可读性都会变差。
 
 ### 6.3 为什么 C++ 不当主胶水

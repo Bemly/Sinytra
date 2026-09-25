@@ -132,6 +132,9 @@ TranslationsSession`。
 （visited 落盘、`WebViewDatabase` 表单/密码、`WebIconDatabase` 图标缓存）、
 Chromium 语义 Gecko 侧无对应（`addJavascriptInterface` 反射语义、
 `WebMessagePort` 通道语义、`saveState/Bundle` 转译）、
-AOSP framework 解耦（provider 类名可配 + engine 分流）。
+不改 framework 前提下的接入适配（硬编码类名 trampoline、framework 同包子类，
+见 `BOOTSTRAP.md` §2.3）；以及 `sinytra-js` 内置 WebExtension——eval /
+JS interface / WebMessage 的必需 transport（§3 “不接 WebExtension”的已登记例外，
+设计见 `JsBridge.java` 头注释）。
 例外项也必须先在代码注释写明“为什么现成 API 不够用 + 上游有无对应 bug”，
 否则按重复造轮子打回。
