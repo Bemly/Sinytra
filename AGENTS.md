@@ -153,7 +153,8 @@ P-1（bootstrap spike，最高优先级）→ P0（~20% API 跑起来）→ P1�
 
 ## 8. 目标与调试（细则见 `docs/DEVICE.md`）
 
-- `compileSdk / targetSdk = 34`；provider `targetSdkVersion ≥ 33`；
+- `targetSdk = 34`（对齐真机）；`compileSdk` 跟随 pin 的 GeckoView 构建链
+  要求（158 线 = 37.2）；provider `targetSdkVersion ≥ 33`；
   `minSdk` 不低于 pin 住的 GeckoView 版本要求。
 - adb 一律 `adb -s V885Q49L8TAMFEEE`；root 不用 `adb root`，用 `su -c`（Magisk）；
   读状态先 `dumpsys webviewupdate` 再看 logcat，不要猜。

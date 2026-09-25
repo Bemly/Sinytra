@@ -1,8 +1,10 @@
 # firefox-patches/0001 — response-body 拦截(v1:导航级 WebResponse)
 
-> 状态:设计定稿,patch 未落文件。纪律:一 patch 一件事、独立测试、
-> 冲突不解不升级(AGENTS.md §3/§5)。基线:`FIREFOX_153_0_RELEASE`
-> (f1b6c0f86b96b7e0688c26f65803576f27cdaf88)。
+> 状态:**已定稿落树**(2026-09-24;patch `0001-response-body-interception.patch`
+> 7 commits,153 线真机打通 29 PASS,158 重放 @ `e79d4c7e1362`——见 README
+> Stack 表)。纪律:一 patch 一件事、独立测试、冲突不解不升级
+> (AGENTS.md §3/§5)。原始基线:`FIREFOX_153_0_RELEASE`
+> (f1b6c0f86b96b7e0688c26f65803576f27cdaf88;现 158.0a1 线,见 README Pin 节)。
 
 ## 1. 解决哪个 WebView API
 
@@ -163,3 +165,10 @@ cd /Volumes//Projects/Sinytra
 ./gradlew :provider:assembleDebug -PsinytraLocalGecko=true
 adb install -r … && 跑金丝雀 + interceptBody 探针 + 全量 29 探针
 ```
+
+## 8. 树内踩坑记录(2026-09-24 实施期,自 STATUS §2 迁入)
+
+- AutoJSAPI 在 `mozilla/dom/ScriptSettings.h`;
+- 合成 API 是 `SynthesizeStatus/SynthesizeHeader`(无 Set 前缀);
+- xpidl 生成的 callback 是 `OnSuccess(数据, cx)`(cx 在尾);
+- moz.build 列表严格字母序;dom/serviceworkers 头要用 `mozilla/dom/` 限定路径。

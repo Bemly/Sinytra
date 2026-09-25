@@ -70,3 +70,19 @@ adb shell am instrument -w android.webkit.cts/androidx.test.runner.AndroidJUnitR
 2. Sinytra 对照轮等 ROM 阶段（BOOTSTRAP §2.1 overlay + provider 预装）；
 3. 路线 A 全量 = P2 出货门槛；fail 归因三条渠道
    （Gecko 语义差异 / 未实现 / 上游 bug）逐条落档。
+
+## 5. 路线 B 第一轮实测（2026-09-23 04:5x，Chromium 基线）
+
+`CtsWebkitTestCases`（14_r7 arm 包）直 `am instrument`：**285 用例 4 失败
+（98.6%）**，用时 ~10.4 分钟。4 条 fail 全部在系统 Chromium 上同样出现
+→ 环境归因，非 provider 语义：
+
+- `GeolocationTest.testSimpleGeolocationRequestAccept{Always,Once}`
+  （JS didn't get position ×2——真机定位服务未开）；
+- `WebViewTest.testSetNetworkAvailable`（ConnectivityManager 依赖超时）；
+- `WebViewTest.testCanInjectHeaders`（Referer 未达——CTS 本地测试
+  服务器/缓存行为，无 tradefed 设备准备的已知依赖）。
+
+**该 98.6% 就是 Sinytra 对照轮（ROM 阶段切 provider 后）的基线参照系**；
+4 条 fail 在 Sinytra 轮不计入回归。直接 `am instrument` 过渡跑法可用性
+实锤。

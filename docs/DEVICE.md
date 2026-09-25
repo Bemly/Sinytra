@@ -15,7 +15,8 @@
 
 ## 2. 目标 API（定稿）
 
-- `compileSdk / targetSdk = 34`（对齐这台调试机 Android 14）。
+- `targetSdk = 34`（对齐这台调试机 Android 14）；`compileSdk` 跟随 pin 的
+  GeckoView 构建链要求（158 线 = 37.2，见 §4）。
 - Provider APK 的 `targetSdkVersion` 必须 ≥ 33（TIRAMISU）：Android 14 的 AOSP
   `WebViewFactoryProvider.isCompatibleImplementationPackage()` 要求
   `targetSdkVersion >= MINIMUM_SUPPORTED_TARGET_SDK(33)`，实测机上
@@ -47,10 +48,11 @@ adb -s V885Q49L8TAMFEEE shell "su -c 'dumpsys webviewupdate'"
   && adb -s V885Q49L8TAMFEEE install -r provider/build/outputs/apk/debug/provider-debug.apk
 ```
 
-> 构建环境（2026-09-21 实测）：`JAVA_HOME=/opt/homebrew/opt/openjdk@17`，
+> 构建环境（2026-09-25 校准）：`JAVA_HOME=/opt/homebrew/opt/openjdk@17`，
 > Gradle wrapper 9.4.1 + AGP 9.2.0，`ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`
->（platforms 34/36/37.1 + build-tools 34.0.0）。
-> `compileSdk = 36` 纯为满足 GeckoView 153 的构建链；`targetSdk = 34` 不变（对齐本机）。
+>（platforms 34/36/37.0–37.2 + build-tools 34–36）。
+> `compileSdk = 37.2` 跟随 GeckoView 158 构建链（android-components/.config.yml）；
+> `targetSdk = 34` 不变（对齐本机）。
 
 - 本机是 `user` build（非 `userdebug/eng`），没有 emulator 那种“忽略 provider
   签名检查”的便利；要进“开发者选项 → WebView 实现”切换，

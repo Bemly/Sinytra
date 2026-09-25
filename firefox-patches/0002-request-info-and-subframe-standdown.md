@@ -1,7 +1,9 @@
 # firefox-patches/0002 — 请求信息保真(method/headers) + 子帧 DENY 让位
 
-> 状态:设计定稿,patch 未落文件。纪律:一 patch 一件事、独立测试、
-> 冲突不解不升级(AGENTS.md §3/§5)。基线:`FIREFOX_153_0_RELEASE`
+> 状态:**已定稿落树**(2026-09-24;patch
+> `0002-request-info-and-subframe-standdown.patch`,158 重放 @
+> `2985d67b9eaa`——见 README Stack 表)。纪律:一 patch 一件事、独立测试、
+> 冲突不解不升级(AGENTS.md §3/§5)。原始基线:`FIREFOX_153_0_RELEASE`
 > (f1b6c0f86b96b7e0688c26f65803576f27cdaf88)+ 0001 stack(@ 59aa103b6d50)。
 
 ## 1. 解决哪个 WebView API

@@ -572,55 +572,25 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
 
 ## 2. 下一步（按顺序，一次做一件）
 
-1. ~~等 mach build + 替换校准~~ ✅（§1g）。
-2. **firefox-patches/0001：response-body 拦截——设计修订 + Group 1 落地**
-   （设计文档 `firefox-patches/0001-response-body-interception.md`）：
-   - **架构修订（d3b6818）**：实测钉死子帧导航决策也在 parent 进程 →
-     docshell 层替身方案全部保不住 URL 身份 → v1 改走 **necko 层
-     nsIInterceptedChannel 路线**（天然覆盖子资源 + 保 URL 身份）。
-   - **Group 1 已进树（sinytra-pin @ a76774863e81，compileDebug 绿）**：
-     Java 侧原语——`WebRequestInfo`（v1: uri+isNavigation）+
-     `GeckoSession.ResponseDelegate`（可选 delegate，onRequestResponse
-     返回 WebResponse 或 null）+ `GeckoViewResponse` 模块处理器（应答
-     child 侧 `GeckoView:OnRequestResponse` 查询：排干 body→base64
-     （16MB 上限，超限拒绝+loud log），headers 拍平成 name:value 数组）。
-     无消费端时惰性。
-   - **Group 3 已进树（sinytra-pin @ 6ef2cc7dc4be，build binaries 绿 +
-     真机回归不变）**：`GeckoViewResponseController`（parent 进程，
-     nsINetworkInterceptController：前缀命中→接管 channel，经注入的
-     EventDispatcher 发 `GeckoView:OnRequestResponse` 查询 Group 1 的
-     Java 处理器，`SynthesizeStatus/Header + StartSynthesizedResponse`
-     合成响应——URL 身份由内部重定向保持）；nsDocShell 在 Android 上用
-     它包装 SW controller；未注册 filters 时完全惰性（真机 29 探针
-     验证行为不变）。
-   - **树内踩坑记录**：AutoJSAPI 在 `mozilla/dom/ScriptSettings.h`；
-     合成 API 是 `SynthesizeStatus/SynthesizeHeader`（无 Set 前缀）；
-     xpidl 生成的 callback 是 `OnSuccess(数据, cx)`（cx 在尾）；
-     moz.build 列表严格字母序；dom/serviceworkers 头要用
-     `mozilla/dom/` 限定路径。
-   - **待做（接线 + 验证）**：~~① 下发 filters~~ ~~② InterceptBridge
-     绑定 ResponseDelegate~~ ~~③ interceptBody 探针~~ **全部完成**
-     （2026-09-24，见 §1h：真机端到端 body 替身 + URL 身份，
-     全量 harness 29 PASS）。剩定稿动作见 §1h 收尾清单。
-     framework 面 WebMessagePort 仍等 AOSP patch（决策点
-     `ProviderAdapters.WebMessagePortFactory`）。
-3. **CTS 过渡第一轮已跑（2026-09-23 04:5x，Chromium 基线）**：
-   `CtsWebkitTestCases`（14_r7 arm 包）直 `am instrument`，**285 用例
-   4 失败（98.6%）**，用时 ~10.4 分钟。4 条 fail 全部在系统 Chromium 上
-   出现 → 环境归因，非 provider 语义：
-   - `GeolocationTest.testSimpleGeolocationRequestAccept{Always,Once}`
-     （JS didn't get position ×2——真机定位服务未开）；
-   - `WebViewTest.testSetNetworkAvailable`（ConnectivityManager 依赖超时）；
-   - `WebViewTest.testCanInjectHeaders`（Referer 未达——CTS 本地测试
-     服务器/缓存行为，无 tradefed 设备准备的已知依赖）。
-   **该 98.6% 就是 Sinytra 对照轮（ROM 阶段切 provider 后）的基线参照系**；
-   4 条 fail 在 Sinytra 轮不计入回归。直接 `am instrument` 过渡跑法可用性
-   实锤。
-2. **unit 测试扩面（43 锁，见 §1e）**：可 JVM 测的 bridge 已基本覆盖
-   （MessageBridge/JavascriptBridge/SupportedFeatures/GeckoBackForwardList/
-   GeckoWebSettings/ErrorBridge/InterceptBridge）；StateBridge Bundle 面、
-   deny 值、页面 round-trip 归设备 harness（deny 值探针已补，02:50）。
-   接下来排 **CTS** 全量。
+> 0001-0007 patch 线、P1 开工、unit 扩面、copy=0 诊断（§2a）、生态比对
+> 等历史待办已全部闭案——过程与踩坑记录保留在本文件各节与对应设计文档
+> （0001 树内踩坑迁入其设计文档 §8；CTS 基线迁入 `CTS.md` §5）。本节只列
+> 当前真实的下一步。
+
+1. **P2 剩余（§1n 末清单，逐项独立验收）**：
+   - **framework 面 `WebMessagePort`**：唯一硬堵点等 AOSP 决策——
+     `ProviderAdapters.WebMessagePortFactory`（AOSP patch 放开
+     package-private ctor vs framework factory hook）；boundary 面
+     （androidx.webkit）已全功能（§1d）。
+   - **SW + 拦截并存语义**（储备）：参考语义已建档
+     （`RELATED-PROJECTS.md` §2.1 ForceControl/SW-first/fallback），
+     届时再定是否移植。
+   - **a11y**：JNI 面清单可参照 `RELATED-PROJECTS.md` §2.2 的
+     a11y-disable 反向地图。
+   - **CTS 全量**：等 Linux 宿主（路线 A）/ ROM 阶段 provider 预装切换
+     （BOOTSTRAP §2.1）；Chromium 基线参照系已锁（`CTS.md` §5，98.6%）。
+2. **收尾卫生**：`GeckoWebViewProvider.java` 816 行逼近 900 拆分线，
+   下次加功能前先拆（先例：§1e harness 拆分）。
 
 ## 2a. copy=0 诊断矩阵（先 flush，后 hidden-View A/B）
 
@@ -651,17 +621,8 @@ HistoryList=0, SessionState=0         → Gecko 没 flush，再测 hidden GeckoV
  （`urls=[example.com/, example.org/]`），post-flush 三路全 `size=2 index=0`。
   定性：**HistoryList=0 + SessionState=0 → flush 后全 2 = Gecko 有 history
   只是 headless 没及时 flush**；HistoryDelegate wiring 正常（flush 后立刻收到），
-  不是 bridge/cache bug。hidden-View A/B 不必做。生产修复：在
-  `onPageStop(success)` 后自动 flush（见 §2 下一步 1）。
-3. **P1 开工**：按 `ROADMAP.md` §3 逐项认领（CookieManager 落地 P2 patch 前先保持
-   honest-default；权限/文件选择/下载/SSL/HTTP Auth/WebStorage/geolocation/
-   查找/打印）。
-4. **相关生态比对已建档（2026-09-25）**：`docs/RELATED-PROJECTS.md`——
-   wszgrcy/capacitor-geckoview 四仓库（同题独立实现）与 0001-0003 拦截线的
-   逐项对照 + `git apply --check` 实测（13/17 通过，冲突全为同列表追加/156
-   版本漂移）。借鉴候选见其 §5：ORB tainting 加固（升级窗口）、SW 并存
-   语义（P2 储备）、Range 降级为 app 侧闭环（0003 §4 待修订）、嵌入式
-   prefs 卫生（P1 候选）、打印/a11y 反向地图（P1 认领用）。
+  不是 bridge/cache bug。hidden-View A/B 不必做。生产修复已落地：
+  `onPageFinished(success)` 后自动 flush（`GeckoSessionBridge.onPageFinished`）。
 
 ## 3. 已知阻塞：vendor launch 故障（测试环境问题，非 glue bug）
 
@@ -714,23 +675,34 @@ HistoryList=0, SessionState=0         → Gecko 没 flush，再测 hidden GeckoV
 ```text
 provider/src/main/java/org/mozilla/geckowebview/
 ├── provider/
-│   ├── GeckoWebViewFactoryProvider.java  # WebViewFactoryProvider 实现 + Statics
-│   ├── GeckoWebViewProvider.java         # WebViewProvider 实现（P0 导航 live，其余 loud-todo）
-│   ├── GeckoRuntimeHolder.java           # 宿主进程级 GeckoRuntime 单例（UI 线程 create）
+│   ├── GeckoWebViewFactoryProvider.java  # WebViewFactoryProvider 实现 + Statics 单例族
+│   ├── GeckoWebViewProvider.java         # WebViewProvider 实现（P0-P2 接线，扇出到下两行）
+│   ├── ClientFanOut.java                 # app 回调扇出（WebViewClient/WebChromeClient 分发）
+│   ├── ProviderAdapters.java / FrameworkTokens.java  # framework token 注册表 + adapters
+│   ├── GeckoRuntimeHolder.java           # 宿主进程级 GeckoRuntime 单例（UI 线程 create；peek() 诚实降级）
 │   ├── GeckoBackForwardList.java         # SessionState/HistoryList → WebBackForwardList 转译
-│   ├── CompatWebSettings.java            # android.webkit.WebSettings facade
-│   ├── P0GlueActivity.java               # P0 E2E harness（反射注入 WebView+PrivateAccess）
-│   ├── P0RenderActivity.java             # P0 渲染探针（GeckoView + loadUri，直显）
-│   ├── BootstrapProbe.java / BootstrapProbeActivity.java  # P-1 六项探针
-├── session/  (GeckoSessionBridge + NavigationBridge + ProgressBridge)
+│   └── CompatWebSettings.java            # android.webkit.WebSettings facade
+├── session/  # GeckoSessionBridge + 专职 bridge（Navigation/Progress/Content/Error/Find/
+│             #   Intercept/Js/Message/Permission/Prompt/Print/RenderProcess/Response/State…）
 ├── settings/ (GeckoWebSettings 纯状态 + toSessionSettings)
-├── storage/  (GeckoCookieManager honest-default + GeckoWebStorage→StorageController)
-├── view/     (GeckoViewHost：bind/release，不进 session 依赖)
+├── storage/  # 单例族实现：CookieManager（0007 真 cookie jar）、WebStorage、Geolocation、
+│             #   ServiceWorker、Tracing、WebIconDatabase、WebViewDatabase
+├── compat/   # androidx.webkit boundary glue（P2-8；18 项诚实 feature 集 + LiveMessagePort）
+└── view/     (GeckoViewHost：bind/release，不进 session 依赖)
+provider/src/main/assets/sinytra-js/  # 内置 WebExtension（JS transport：eval / interface /
+                                      #   WebMessage 端口；协议见 content.js 头注释）
+provider/src/debug/  # 探针与 harness（release dexdump 0 引用）：P0GlueActivity（编排）+
+                     #   P2TransportProbes / P1SystemProbes / P0RenderActivity /
+                     #   BootstrapProbe + BootstrapProbeActivity
 framework-stubs/  # compileOnly 的 android14 hidden API stubs（WebViewFactoryProvider/
                   # WebViewProvider/WebViewDelegate/WebViewFactory/PacProcessor/
-                  # TokenBindingService；createWebView 参数 erase 到 Object，见其 README 注释）
+                  # TokenBindingService；createWebView 参数 erase 到 Object，缘由见
+                  # WebViewFactoryProvider.java 注释）
 ```
 
-构建：Java 17 + Gradle wrapper 9.4.1 + AGP 9.2.0，`compileSdk=36`（GeckoView 153
-构建链要求）/`targetSdk=34`（对齐真机），GV 153 stable 已 pin（`155+` 要
-compileSdk 37.1，本地 SDK 快照未暴露，暂不升）。详见 `DEVICE.md` §4。
+构建：Java 17 + Gradle wrapper 9.4.1 + AGP 9.2.0，`compileSdk 37.2`（GV 158
+构建链要求，android-components/.config.yml）/`targetSdk=34` `minSdk=26`（对齐
+真机），GV `geckoview-nightly:158.0.20260924093433` 已 pin（mozilla-central
+158.0a1 最后一刻 `34ed69f16167`，见 AGENTS.md 顶部）。master 默认构建红属
+预期（引用 0001-0007 patch 注入的 GeckoView 类型），一切构建/测试须
+`-PsinytraLocalGecko=true`（§1k）。详见 `DEVICE.md` §4。
