@@ -41,13 +41,37 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
                 "onExternalResponse uri=" + response.uri);
         try {
             String url = response.uri != null ? response.uri : "";
-            String mimeType = response.headers != null
-                    ? response.headers.get("Content-Type") : null;
-            mHost.onDownloadStart(url, null, null,
+            // The C++ StreamListener visits ALL response headers into the
+            // bundle (and synthesizes a content-disposition entry with the
+            // suggested filename), so the download contract fields are all
+            // here. Chromium passes Content-Disposition through verbatim.
+            String mimeType = headerValue(response.headers, "Content-Type");
+            String disposition =
+                    headerValue(response.headers, "Content-Disposition");
+            mHost.onDownloadStart(url, null, disposition,
                     mimeType != null ? mimeType : "application/octet-stream", -1);
         } catch (Throwable t) {
             android.util.Log.w("Sinytra/content", "Host.onDownloadStart threw", t);
         }
+    }
+
+    /**
+     * Case-insensitive header lookup (header names arrive as the server sent
+     * them). Visible for JVM locks. Null-safe: a null map yields null.
+     */
+    @Nullable
+    static String headerValue(
+            @Nullable java.util.Map<String, String> headers,
+            @NonNull String name) {
+        if (headers == null) {
+            return null;
+        }
+        for (java.util.Map.Entry<String, String> entry : headers.entrySet()) {
+            if (entry.getKey() != null && name.equalsIgnoreCase(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     @Override
