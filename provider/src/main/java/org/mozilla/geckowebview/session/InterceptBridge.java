@@ -216,7 +216,20 @@ public final class InterceptBridge {
                 if (sep <= 0) {
                     continue;
                 }
-                headers.put(pair.substring(0, sep), pair.substring(sep + 1));
+                String name = pair.substring(0, sep);
+                // Chromium parity (decision recorded in STATUS P2 section):
+                // the app-visible header set excludes credentials. Cookie is
+                // attached by the network stack after Chromium's interception
+                // point, so apps never see it there — the supported route is
+                // CookieManager.getCookie(url), which firefox-patches/0007
+                // makes real for us. Authorization is likewise not exposed.
+                // 0002 still ships the full header set internally; this
+                // strip lives only at the app boundary.
+                if ("cookie".equalsIgnoreCase(name)
+                        || "authorization".equalsIgnoreCase(name)) {
+                    continue;
+                }
+                headers.put(name, pair.substring(sep + 1));
             }
             return headers;
         }

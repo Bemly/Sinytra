@@ -243,4 +243,39 @@ public final class InterceptBridgeTest {
         assertEquals(1, headers.size());
         assertEquals("1", headers.get("OK"));
     }
+
+    // --- Chromium parity: credentials never reach the app-visible header
+    // set (Cookie joins post-interception; Authorization is not exposed).
+    // The supported cookie route is CookieManager.getCookie (0007). ---
+
+    @Test
+    public void requestHeaders_sensitiveNamesStripped() throws Exception {
+        RecordingHost host = new RecordingHost();
+        InterceptBridge bridge = new InterceptBridge(host);
+        bridge.queryApp("https://example.org/", false, false, false, "GET",
+                new String[] {"Cookie:a=1; b=2",
+                              "Authorization:Bearer tok",
+                              "Accept:text/html",
+                              "Cookie:session=xyz"});
+        java.util.Map<String, String> headers =
+                host.lastRequest.getRequestHeaders();
+        assertEquals(1, headers.size());
+        assertEquals("text/html", headers.get("Accept"));
+        assertFalse(headers.containsKey("Cookie"));
+        assertFalse(headers.containsKey("Authorization"));
+    }
+
+    @Test
+    public void requestHeaders_sensitiveStripIsCaseInsensitive()
+            throws Exception {
+        RecordingHost host = new RecordingHost();
+        InterceptBridge bridge = new InterceptBridge(host);
+        bridge.queryApp("https://example.org/", false, false, false, "GET",
+                new String[] {"COOKIE:a=1", "authorization:Basic zzz",
+                              "X-Ok:1"});
+        java.util.Map<String, String> headers =
+                host.lastRequest.getRequestHeaders();
+        assertEquals(1, headers.size());
+        assertEquals("1", headers.get("X-Ok"));
+    }
 }
