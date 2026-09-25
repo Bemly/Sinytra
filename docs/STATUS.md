@@ -2,7 +2,10 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-25 07:4x（P1 收尾完成：SSL/permission/print 三接线修复 + 四探针，全量 harness 37 PASS、JVM 53 锁）。设备：MOONDROP MD-PH-001 / Android 14 / API 34。
+> 更新时间：2026-09-25 11:2x（P2 第一批收口：CookieManager 真实化（0007）+
+> 敏感头收窄 + provider 卫生 prefs + download 判决反转并恢复探针，全量
+> harness **38 PASS** + P0 GLUE PASS、JVM **62 锁**）。设备：MOONDROP
+> MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
 
@@ -478,15 +481,63 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n o
   →页面 rejected 双侧观测）/geolocationPrompt（deny 路径，摆脱设备
   定位依赖）。全量 harness **37 PASS + P0 GLUE PASS**，JVM **53 锁**。
 - **download 事件：Java 接线正确但 Gecko 未分派 → 0006 候选**：
-  blob+download 请求到达我方 onLoadRequest（blob: URL 可见）后
-  Gecko 侧 helper-app（GeckoViewExternalAppService）分派未发生；
-  上游 download 测试自身 debug-gated（assumeThat(isDebugBuild)），
-  bug 1543355 仅环境超时缓解非根因。排查点：DocumentLoadListener →
-  helper-app 分派链在 opt/lite 构建的差异。
+  ~~（本条结论被 §1m 反转：分派链在 opt 构建正常，真因是探针把
+  setDownloadListener 调在绑定 Chromium 的 framework WebView 上；确定性
+  attachment 探针已恢复，38 PASS。）~~
 - **fileChooser**：接线完整（params→intent→confirm/dismiss）但无法
   无手势触发（Gecko 激活检查），无设备探针——CTS/手测覆盖，非缺口。
-- **P1 状态：完成**。遗留决策点：SSL proceed 语义（0006 一并查）；
-  download 分派（0006）；fileChooser e2e 归 CTS。
+- **P1 状态：完成**。遗留决策点：SSL proceed 语义（0006）；~~download
+  分派~~（§1m 已反转闭案）；fileChooser e2e 归 CTS。
+
+## 1m. P2 第一批收口（2026-09-25，全量 harness 38 PASS / JVM 62 锁）
+
+- **CookieManager 真实化（firefox-patches/0007 @ `dfcc04709482`）**：
+  GV 无任何逐 cookie API（AAR javap 确认），patch 在 `StorageController`
+  加四原语（GetCookie/SetCookie/RemoveSessionCookies/HasCookies，全局
+  dispatcher + `GeckoViewStorageController.sys.mjs` 直控
+  `nsICookieManager`）。provider 侧 `GeckoCookieManager` 重写：策略旗标
+  映射 `ContentBlocking.setCookieBehavior`（**引擎现实与 facade 报告一致**：
+  第三方未设/optOut → ACCEPT_FIRST_PARTY = WebView targetSdk≥21 默认）；
+  同步 API 统一在 `Sinytra-cookie` HandlerThread 发起 + 有界 latch（UI
+  调用者无死锁；`GeckoRuntime.getStorageController()` 断主线程 →
+  controller 惰性取一次缓存，顺带修掉 removeAllCookies 的同款潜在雷）；
+  `flush()` 保持 no-op（Gecko 自动落盘，无原语）。**真机定位两个坑记死**：
+  ① `add()` 对 session cookie 也执行 expiry（"更 restrictive 者生效"），
+  `expiry=0` 即存即死 → 默认 400 天（引擎 cap 同值）；② cenum 的 JS 访问
+  是平的（`Ci.nsICookie.SCHEME_HTTPS`），写 `schemeType.` 嵌套即 TypeError
+  → sendError → false。探针 `cookieJar`（set→get→removeSessionCookies→
+  gone）。设计文档 `firefox-patches/0007-cookie-jar.md`；0006 编号改留给
+  SSL-proceed。`GeckoRuntimeHolder.peek()` 新增（外部可在 runtime 缺席时
+  诚实降级，不强制 UI 线程 create）。
+- **敏感请求头收窄（Chromium 对齐）**：Chromium 的
+  `shouldInterceptRequest` 本就不给 app 看 `Cookie`（拦截点之后由网络栈
+  挂上）与 `Authorization`——官方路由是 `CookieManager.getCookie(url)`
+  （0007 使其为真）。`SinytraResourceRequest.getRequestHeaders()` 在
+  app 边界剥离两者（大小写无关；0002 内部面保持全量），+2 JVM 锁。
+- **provider 卫生 prefs**：`src/main/assets/geckoview-config.yaml`
+  （全构建）：connectivity-service / captive-portal-service 关闭、
+  `services.settings.server` 钉黑洞（系统 WebView 不自主联网探测/拉
+  Mozilla 远端配置）；debug 变体覆盖同文件追加 `sinytra.log.enabled`
+  （0005 门不变）。走公开 `configFilePath` 机制，无 patch。
+- **download 判决反转（0006 排查）**：P1 的"Gecko 未分派
+  onExternalResponse"**是观察假象**。MOZ_LOG（DocumentChannel/
+  URILoader/HelperAppService，`logging.*` prefs 在 opt 构建可用）实证：
+  attachment 顶层加载 `forceExternalHandling: yes` →
+  `GeckoViewExternalAppService.CreateListener rv=0` → Java
+  `onExternalResponse` 全链**在 opt 构建上正常**；"PageStop success=true"
+  在文档通道被接管时也照发，P1 探针把它误读为"当页面渲染"。**真 bug 是
+  探针自己**：harness 的 framework `WebView` 绑定的是系统 Chromium
+  provider（反射注入不换 mProvider），探针把 `setDownloadListener` 调在
+  framework 对象上——全 harness 惯例是直调 `provider.*`，只有这一处
+  例外。恢复的探针为**确定性**版本（进程内 ServerSocket 伺服
+  Content-Disposition: attachment，无 blob/无手势/无上游 debug-gate）。
+  P0RenderActivity 顺带加 `url` extra + onExternalResponse 观测（debug
+  复现工具）。分派链残留决策点：`contentDisposition` 字符串上游 C++
+  未透传（只提取 filename），Chromium 会给——记入 0006 残留。
+- **0006 现状**：download 部分已闭（无需 patch）；剩余候选 = SSL
+  proceed 语义（需 cert-override 原语）+ contentDisposition 透传。
+- 回归：全量 harness **38 PASS + P0 GLUE PASS**，JVM **62 锁**全绿
+  （53 + cookie 7 + 敏感头 2）。
 
 ## 2. 下一步（按顺序，一次做一件）
 

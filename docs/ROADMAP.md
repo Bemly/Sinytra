@@ -37,6 +37,14 @@ geolocation、页内查找、打印。
 > 有实装+探针。已登记遗留：download 的 onExternalResponse 在 opt 构建
 > 未分派（0006 排查候选）；SSL proceed 语义（同查）；fileChooser e2e
 > 归 CTS/手测（无手势无法自动化）。
+>
+> **补充（2026-09-25 晚，P2 第一批）**：download 判决反转——分派链在
+> opt 构建正常（原探针把 setDownloadListener 调在 harness 中绑定系统
+> Chromium 的 framework WebView 上），确定性 attachment 探针恢复，
+> harness 38 PASS + P0 GLUE PASS；CookieManager 经 firefox-patches/0007
+> 真实化（逐 cookie get/set/removeSessionCookies/hasCookies + 策略映射
+> cookieBehavior）。0006 剩余候选：SSL proceed（cert-override 原语）、
+> contentDisposition 透传。
 
 ## 4. P2 — 啃硬骨头（逐项建任务跟踪）
 
