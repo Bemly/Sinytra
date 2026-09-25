@@ -462,6 +462,9 @@ final class ClientFanOut
             @Nullable String contentDisposition, @NonNull String mimeType,
             long contentLength) {
         DownloadListener listener = mOwner.downloadListener();
+        android.util.Log.d(TAG, "onDownloadStart url=" + url
+                + " listener=" + (listener != null)
+                + " owner=" + Integer.toHexString(mOwner.hashCode()));
         if (listener == null) {
             return;
         }

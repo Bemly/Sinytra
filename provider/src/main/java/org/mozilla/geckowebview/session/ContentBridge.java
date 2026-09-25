@@ -37,6 +37,8 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
     @Override
     public void onExternalResponse(@NonNull GeckoSession session,
             @NonNull WebResponse response) {
+        android.util.Log.d("Sinytra/content",
+                "onExternalResponse uri=" + response.uri);
         try {
             String url = response.uri != null ? response.uri : "";
             String mimeType = response.headers != null

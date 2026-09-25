@@ -11,6 +11,7 @@ import android.net.http.SslCertificate;
 import android.os.Bundle;
 import android.os.Message;
 import android.print.PrintDocumentAdapter;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.ClientCertRequest;
@@ -376,6 +377,8 @@ public final class GeckoWebViewProvider
 
     @Override
     public void setDownloadListener(DownloadListener listener) {
+        Log.d(TAG, "setDownloadListener " + (listener != null)
+                + " this=" + Integer.toHexString(hashCode()));
         mDownloadListener = listener;
     }
 

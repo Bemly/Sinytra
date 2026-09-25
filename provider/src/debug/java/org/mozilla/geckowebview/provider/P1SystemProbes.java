@@ -18,7 +18,8 @@ import java.util.concurrent.atomic.AtomicReference;
 // P1 system-capability probes: cookie policy flags, cookie jar round-trip
 // (Gecko jar via firefox-patches/0007), print (PDF round-trip through the
 // destination fd), media permission prompt + decision routing, geolocation
-// prompt (deny path — deterministic without location services).
+// prompt (deny path — deterministic without location services), download
+// (in-process attachment server; no blob/gesture/debug-build gating).
 //
 // Same harness contract as P0/P2 sections: every probe appends a PASS
 // line or throws. Clients/listeners installed here are restored in each
@@ -308,15 +309,71 @@ final class P1SystemProbes {
         }
         out.append("PASS geolocationPrompt origin=").append(geoOrigin.get())
                 .append(" page=").append(geoPage.get()).append('\n');
-        // --- P1 download: REMOVED from the deterministic run (2026-09-25).
-        // The Java wiring is verified by inspection (ContentBridge
-        // .onExternalResponse -> DownloadListener.onDownloadStart) and the
-        // Gecko-side blob request reaches our onLoadRequest, but Gecko
-        // never dispatches onExternalResponse on this opt build — the
-        // upstream download tests are debug-build-gated themselves
-        // (assumeThat(isDebugBuild)) and bug 1543355 documents env-only
-        // mitigation. Helper-app dispatch investigation =
-        // firefox-patches 0006 candidate; see STATUS.md P1 section.
+        // --- P1 download: deterministic attachment-server path (0006
+        // verdict, 2026-09-25). Gecko's helper-app dispatch WORKS on this
+        // opt build: forceExternalHandling →
+        // GeckoViewExternalAppService.CreateListener →
+        // ContentDelegate.onExternalResponse (verified at the GeckoView
+        // level with the canary; the earlier "no dispatch" verdict misread
+        // PageStop success=true, which also fires when the document channel
+        // is claimed for external handling). No blob, no gesture — none of
+        // the debug-build gating the upstream tests need. ---
+        try (java.net.ServerSocket server = new java.net.ServerSocket(0, 1,
+                java.net.InetAddress.getByName("127.0.0.1"))) {
+            final AtomicReference<String> dlUrl = new AtomicReference<>();
+            final CountDownLatch dlDone = new CountDownLatch(1);
+            Thread serverThread = new Thread(() -> {
+                try (java.net.Socket socket = server.accept()) {
+                    socket.getInputStream().read(new byte[4096]);
+                    byte[] body = "sinytra-0006-attachment"
+                            .getBytes("UTF-8");
+                    String head = "HTTP/1.1 200 OK\r\n"
+                            + "Content-Type: application/octet-stream\r\n"
+                            + "Content-Disposition: attachment; "
+                            + "filename=\"sinytra-0006.bin\"\r\n"
+                            + "Content-Length: " + body.length + "\r\n"
+                            + "Connection: close\r\n\r\n";
+                    java.io.OutputStream os = socket.getOutputStream();
+                    os.write(head.getBytes("UTF-8"));
+                    os.write(body);
+                    os.flush();
+                } catch (Throwable t) {
+                    android.util.Log.w("Sinytra/p1",
+                            "attachment server ended", t);
+                }
+            }, "sinytra-dl-server");
+            serverThread.start();
+            // Harness idiom: the framework WebView binds the SYSTEM
+            // (Chromium) provider — setters must go through our provider
+            // instance directly (the only provider.* exception that the
+            // probes had been routing through the framework WebView).
+            activity.runOnUiThread(() -> provider.setDownloadListener(
+                    (url, ua, disposition, mimetype, length) -> {
+                        dlUrl.set(url);
+                        dlDone.countDown();
+                    }));
+            try {
+                activity.runOnUiThread(() -> provider.loadUrl(
+                        "http://127.0.0.1:" + server.getLocalPort()
+                                + "/att"));
+                if (!dlDone.await(30, TimeUnit.SECONDS)
+                        || dlUrl.get() == null) {
+                    throw new IllegalStateException(
+                            "download never dispatched: " + dlUrl.get());
+                }
+                if (!dlUrl.get().startsWith("http://127.0.0.1:")) {
+                    throw new IllegalStateException(
+                            "download dispatched to the wrong url: "
+                                    + dlUrl.get());
+                }
+                out.append("PASS download url=").append(dlUrl.get())
+                        .append('\n');
+            } finally {
+                activity.runOnUiThread(
+                        () -> provider.setDownloadListener(null));
+                serverThread.join(2000);
+            }
+        }
     }
 
     private static org.mozilla.geckowebview.session.PrintBridge
