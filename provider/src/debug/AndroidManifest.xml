@@ -18,5 +18,9 @@
         <activity
             android:name="org.mozilla.geckowebview.provider.P0GlueActivity"
             android:exported="true" />
+        <!-- Real-path acceptance (switched device only, BOOTSTRAP §2.4). -->
+        <activity
+            android:name="org.mozilla.geckowebview.provider.FrameworkEntryActivity"
+            android:exported="true" />
     </application>
 </manifest>
