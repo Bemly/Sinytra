@@ -178,21 +178,44 @@ public final class GeckoWebViewProvider
         // must be AbsoluteLayout.LayoutParams — its onLayout casts them).
         // The child's own view lifecycle owns surface attach/detach/freeze;
         // the provider never manages pixels itself (ARCHITECTURE §3: the
-        // view hosts the session surface). Failure degrades to headless
-        // operation with a loud log — every non-visual path keeps working.
+        // view hosts the session surface). Real-path timing: the framework
+        // constructs the provider from inside WebView's View.<init>
+        // (setOverScrollMode -> ensureProviderCreated), where the WebView's
+        // own ViewGroup state (mChildren) is not initialized yet — addView
+        // NPEs there (framework-entry probe, 2026-09-26). bind() (setSession)
+        // is safe at construction time; only addView defers, retried from
+        // ViewDelegate.onAttachedToWindow.
         GeckoViewHost host = null;
         try {
             host = new GeckoViewHost(webView.getContext());
-            webView.addView(host, new android.widget.AbsoluteLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 0));
             host.bind(webView.getContext(), mBridge);
         } catch (Throwable t) {
             android.util.Log.w(TAG,
-                    "GeckoViewHost attach threw (headless fallback)", t);
-            host = null;
+                    "GeckoViewHost bind threw (headless fallback)", t);
         }
         mViewHost = host;
+        attachViewHost();
+    }
+
+    // Adds the GeckoViewHost as the WebView's child. Idempotent: no-op once
+    // the child has a parent, or when the host fell back to headless (never
+    // bound). Called from the constructor and, when the ctor-time addView hit
+    // the WebView's own View.<init>, retried from the framework's
+    // ViewDelegate.onAttachedToWindow (first moment the WebView ViewGroup is
+    // fully constructed).
+    void attachViewHost() {
+        if (mViewHost == null || mViewHost.getParent() != null) {
+            return;
+        }
+        try {
+            mWebView.addView(mViewHost,
+                    new android.widget.AbsoluteLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT, 0, 0));
+        } catch (Throwable t) {
+            android.util.Log.w(TAG,
+                    "GeckoViewHost addView failed; deferred to onAttachedToWindow", t);
+        }
     }
 
     // Test seam: JsBridge bound to this provider's session.

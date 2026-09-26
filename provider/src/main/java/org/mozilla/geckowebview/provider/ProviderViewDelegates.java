@@ -18,7 +18,12 @@ import androidx.annotation.NonNull;
 // so almost every hook here is a harmless default. Live branches:
 // setLayoutParams (the framework WebView makes NO super call — the params
 // must be written through PrivateAccess.super_setLayoutParams, see
-// FrameworkPrivateAccess) and onActivityResult (file chooser routing).
+// FrameworkPrivateAccess), setFrame / requestFocus / dispatchKeyEvent /
+// hover / generic motion / performLongClick (same delegate-without-super
+// set, forwarded for Chromium parity — setFrame is the switched-path layout
+// blocker), onActivityResult (file chooser routing) and onAttachedToWindow
+// (deferred GeckoViewHost child attach — the ctor-time addView runs inside
+// WebView's View.<init>, where its ViewGroup state is not initialized yet).
 final class ProviderViewDelegates {
     private static final String TAG = "Sinytra/session";
 
@@ -53,7 +58,9 @@ final class ProviderViewDelegates {
                     provider.privateAccess().superSetLayoutParams(layoutParams);
                 }
             }
-            @Override public boolean performLongClick() { return false; }
+            @Override public boolean performLongClick() {
+                return provider.privateAccess().superPerformLongClick();
+            }
             @Override public void onConfigurationChanged(
                     android.content.res.Configuration newConfig) {}
             @Override public android.view.inputmethod.InputConnection onCreateInputConnection(
@@ -67,32 +74,37 @@ final class ProviderViewDelegates {
             @Override public boolean onKeyUp(int keyCode, android.view.KeyEvent event) {
                 return false;
             }
-            @Override public void onAttachedToWindow() {}
+            @Override public void onAttachedToWindow() {
+                provider.attachViewHost();
+            }
             @Override public void onDetachedFromWindow() {}
             @Override public void onVisibilityChanged(View changedView, int visibility) {}
             @Override public void onWindowFocusChanged(boolean hasWindowFocus) {}
             @Override public void onFocusChanged(boolean focused, int direction,
                     android.graphics.Rect previouslyFocusedRect) {}
             @Override public boolean setFrame(int left, int top, int right, int bottom) {
-                return false;
+                return provider.privateAccess().superSetFrame(left, top, right, bottom);
             }
             @Override public void onSizeChanged(int w, int h, int ow, int oh) {}
             @Override public void onScrollChanged(int l, int t, int oldl, int oldt) {}
             @Override public boolean dispatchKeyEvent(android.view.KeyEvent event) {
-                return false;
+                return provider.privateAccess().superDispatchKeyEvent(event);
             }
             @Override public boolean onTouchEvent(android.view.MotionEvent ev) { return false; }
             @Override public boolean onHoverEvent(android.view.MotionEvent event) {
-                return false;
+                return provider.privateAccess().superOnHoverEvent(event);
             }
             @Override public boolean onGenericMotionEvent(android.view.MotionEvent event) {
-                return false;
+                return provider.privateAccess().superOnGenericMotionEvent(event);
             }
             @Override public boolean onTrackballEvent(android.view.MotionEvent ev) {
                 return false;
             }
             @Override public boolean requestFocus(int direction,
-                    android.graphics.Rect previouslyFocusedRect) { return false; }
+                    android.graphics.Rect previouslyFocusedRect) {
+                return provider.privateAccess().superRequestFocus(
+                        direction, previouslyFocusedRect);
+            }
             @Override public void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {}
             @Override public boolean requestChildRectangleOnScreen(View child,
                     android.graphics.Rect rect, boolean immediate) { return false; }
