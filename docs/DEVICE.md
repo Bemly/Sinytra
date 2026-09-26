@@ -33,15 +33,16 @@
 - `minSdk` 按 GeckoView 要求定（GeckoView 底线 Java 17），
   不许低于 GeckoView nightly pin 版本的 minSdk。
 
-## 3. 机上现有 WebView（2026-09-26 `dumpsys webviewupdate` 实测）
+## 3. 机上现有 WebView（2026-09-26 深夜切换后 `dumpsys webviewupdate` 实测）
 
-- Current / Preferred：`org.bromite.webview` 108.0.5359.156（经 AnyWebView 放行）。
-- Valid：`org.bromite.webview`、`com.google.android.webview.canary` 156.0.8072.0、
+- Current / Preferred：`moe.bemly.geckowebview.debug` 0.2.0-gv158
+  （versionCode 999158001；切换验收见 `STATUS.md` §1s）。回滚：
+  `cmd webviewupdate set-webview-implementation com.google.android.webview`。
+- Valid：我方 debug 包、`org.bromite.webview` 108.0.5359.156、
+  `com.google.android.webview.canary` 156.0.8072.0、
   `com.android.webview` 126.0.6478.246、`com.google.android.webview` 155.0.8059.4。
 - Invalid：`com.huawei.webview` 12.1.3.373（Version code too low）。
-- 已装 `org.mozilla.geckowebview.debug`（旧 applicationId 的 master 构建）但**不在列表里**
-  ——manifest 还没有 `WebViewLibrary` metadata（切换路线尚未主线化，`STATUS.md` §2）。
-  现行 applicationId 为 `moe.bemly.geckowebview`（debug `.debug`），旧包可卸。
+- 旧 applicationId 的 `org.mozilla.geckowebview.debug` 可卸载。
 
 ## 4. 构建与 adb 固定流程
 

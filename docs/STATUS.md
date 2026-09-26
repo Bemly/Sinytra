@@ -2,10 +2,10 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-26（部署路线收敛为 root + AnyWebView 开发者选项切换，
-> 见 §1q；代码现状：P2 第四批视觉面接线落地，全量 harness **41 PASS** +
-> P0 GLUE PASS、JVM **74 锁**——注意这些全是反射注入口径，master 尚未走过
-> 真实切换路径）。
+> 更新时间：2026-09-26 深夜（**切换已完成**：设备 Current/Preferred =
+> `moe.bemly.geckowebview.debug`，真实路径 `FRAMEWORK ENTRY PASS`
+> （§1s），反射 harness **41 PASS + P0 GLUE PASS** 切换后复验不退，
+> JVM **78 锁**）。
 > 设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
@@ -658,9 +658,10 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
     Java 包/namespace 不变）。
   - 分支比 master 落后整个 158 升级 + 0001–0007 + P2 第二至四批，不能直接合，
     只能按上面三点在 master 上重做。
-- **设备现状（2026-09-26）**：AnyWebView 1.3 + LSPosed v1.11.0 在位、SELinux
-  Enforcing；Current = `org.bromite.webview`；旧 applicationId 的
-  `org.mozilla.geckowebview.debug` 已装但**不在候选列表**（无 `WebViewLibrary`）。
+- **设备现状（2026-09-26 深夜，切换后）**：AnyWebView 1.3 + LSPosed v1.11.0 在位、
+  SELinux Enforcing；Current/Preferred = `moe.bemly.geckowebview.debug`
+  0.2.0-gv158（验收见 §1s）；旧 applicationId 的
+  `org.mozilla.geckowebview.debug` 可卸载。
 
 ## 1r. 硬规则收口（2026-09-26，全量 harness 41 PASS + P0 GLUE PASS / JVM 74 锁）
 
@@ -676,12 +677,51 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **行数**：`P2TransportProbes` 869 → 590，拦截类探针（0001–0003 + P2-4 deny）拆到
   `P2InterceptProbes`（304），编排层紧接调用、顺序不变。
 
+## 1s. 切换验收 + 真实路径两条根因（2026-09-26 深夜，FRAMEWORK ENTRY PASS）
+
+- **切换事实**：装新版（versionCode 999_158_001 + `WebViewLibrary` metadata）
+  后 `install -r` 即在 Valid 列表（候选列表在本轮 system_server 启动时已含
+  我方包名，无需再重启）；`cmd webviewupdate set-webview-implementation
+  moe.bemly.geckowebview.debug` Success，Current/Preferred 即为我方。回滚
+  目标 `com.google.android.webview` Valid 在册（DEVICE §5）。
+- **验收四件全过**：① 金丝雀 P0Render 完整渲染 example.com（0 次
+  `duraspeed block`、gpu+tab child 全起）；② 真实路径探针
+  `FrameworkEntryActivity` **FRAMEWORK ENTRY PASS**（`getCurrentWebViewPackage`
+  为我方 / `new WebView()` 经 trampoline / LayoutParams / pageFinished
+  title=Example Domain / Gecko 子视图 attached / eval=3 / 单例 storage+geo
+  provider-owned / CookieManager 往返）+ screencap 像素证据；③ 反射 harness
+  **41 PASS + P0 GLUE PASS** 切换后复验不退；④ lint + JVM **78 锁**全绿
+  （§1r 后 storage 单例 +4）。系统面冒烟：切换后无非 Sinytra 进程崩溃。
+- **根因①（ctor 期子视图挂载必炸，仅真实路径）**：framework 在
+  `View.<init>` 内部经 `setOverScrollMode → ensureProviderCreated` 构造
+  provider（反射 harness 在 WebView 构造完成后才调 createWebView，永远踩
+  不到）——此时 WebView 自身 ViewGroup 的 mChildren 未初始化，ctor 里
+  `webView.addView(host)` NPE（"Attempt to get length of null array"）→
+  旧代码 catch 后降级 headless。修复：`bind()`（setSession，无视图树操作）
+  留在 ctor；`addView` 抽出 `attachViewHost()`（`getParent()` 幂等守卫），
+  失败由 `ViewDelegate.onAttachedToWindow`（attach 时首个可靠时点）重试；
+  headless 语义不变（永不 attach 即永不重试）。
+- **根因②（setFrame 完全委托无 super）**：android14 `WebView.java` 里
+  onMeasure/onSizeChanged/onScrollChanged 等框架自己先调 super，但
+  `setFrame / requestFocus / dispatchKeyEvent / onHoverEvent /
+  onGenericMotionEvent / performLongClick` 是**完全委托**——Chromium glue
+  经 `PrivateAccess.super_*` 转发，我方 no-op 等于 frame 永远 (0,0,0,0)：
+  子视图测量/布局照常（AbsoluteLayout 用测量值，surface 尺寸 1080x2112
+  正确）但 surface 位置按断裂的父链定位 + 不透明窗口背景全遮 → 全屏空白
+  （uiautomator 树无文本 + screencap 全粉定位的）。修复：
+  `FrameworkPrivateAccess` 增六枚 super 转发（沿用既有反射模式），
+  ViewDelegate 接线；`onCreateInputConnection` 仍 honest null（IME 归
+  GeckoView 子视图聚焦路径，P2 语义）。
+- **探针修正记死**：session 初始 about:blank 的 `onPageFinished` 会抢先
+  放行 latch——必须按 url 过滤（`about:` 前缀不算，页面才计数）。
+
 ## 2. 下一步（按顺序，一次做一件）
 
-1. **切换路线主线化**（BOOTSTRAP §2.3 清单）：master 补 `WebViewLibrary`
-   metadata + versionCode 编码方案（applicationId 已定）→ trampoline（Proxy 转发、
-   PrivateAccess、storage/geo 断环）→ 真实路径探针（`FrameworkEntryActivity`
-   迁入 `src/debug`）。验收：Valid + Current 为我方 + 真实路径 PASS + 反射
+1. ~~**切换路线主线化**~~（2026-09-26 完成，§1s）：metadata + versionCode
+   （`4ca8c58`）→ trampoline（`4ca8c58`，Proxy 转发；PoC 的 storage/geo
+   断环不再需要——单例已 provider-owned）→ `FrameworkEntryActivity` 迁入
+   `src/debug`（`f2a830c`）+ 真实路径视图接线修复（`2ea2713`）。
+   验收四件全过：Valid + Current 为我方、FRAMEWORK ENTRY PASS、反射
    harness 41 PASS 不退。
 2. **切换后全量回归**：真实路径下重跑 P0–P2 探针（单例族此时全是我方实现，
    反射口径下 storage 单例是系统 Chromium 的——这是口径差的重点）+ 第三方 App
@@ -797,6 +837,7 @@ provider/src/main/assets/sinytra-js/  # 内置 WebExtension（JS transport：eva
                                       #   WebMessage 端口；协议见 content.js 头注释）
 provider/src/debug/  # 探针与 harness（release dexdump 0 引用）：P0GlueActivity（编排）+
                      #   P2TransportProbes / P2InterceptProbes / P1SystemProbes / P0RenderActivity /
+                     #   FrameworkEntryActivity（切换后真实路径验收，§1s）/
                      #   BootstrapProbe + BootstrapProbeActivity
 framework-stubs/  # compileOnly 的 android14 hidden API stubs（WebViewFactoryProvider/
                   # WebViewProvider/WebViewDelegate/WebViewFactory/PacProcessor/

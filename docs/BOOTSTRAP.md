@@ -115,7 +115,8 @@ process bootstrap（这是 P2 之外的前置 patch，优先级高于一切 brid
 ### 2.4 切换后验收
 
 - `dumpsys webviewupdate`：Sinytra 在 `Valid package` 里、Current/Preferred 均为我方。
-- 真实路径探针（PoC 的 `FrameworkEntryActivity`）：`new WebView(context)` →
+- 真实路径探针（`FrameworkEntryActivity`，已迁入 `src/debug`，验收实录
+  `STATUS.md` §1s）：`new WebView(context)` →
   framework `WebViewFactory` → trampoline → Sinytra，`onPageFinished` 到达。
   这取代“反射注入 harness”成为 P0–P2 的最终验收口径；反射 harness 继续做
   bridge 级回归。
