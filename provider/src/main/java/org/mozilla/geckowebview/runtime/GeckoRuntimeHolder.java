@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.runtime;
 
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -72,7 +73,7 @@ public final class GeckoRuntimeHolder {
 
     @Nullable
     private static File installConfig(@NonNull Context app) {
-        try (InputStream in = app.getAssets().open("geckoview-config.yaml")) {
+        try (InputStream in = openConfigAsset(app)) {
             File out = new File(app.getFilesDir(), "geckoview-config.yaml");
             try (OutputStream os = new FileOutputStream(out)) {
                 byte[] buf = new byte[4096];
@@ -82,9 +83,32 @@ public final class GeckoRuntimeHolder {
                 }
             }
             return out;
-        } catch (IOException e) {
+        } catch (IOException | PackageManager.NameNotFoundException e) {
             Log.w(TAG, "geckoview-config.yaml missing/unreadable", e);
             return null;
+        }
+    }
+
+    // The config asset ships in the PROVIDER apk; the host app's AssetManager
+    // cannot see it (third-party hosts, framework-entry finding 2026-09-27 —
+    // the hygiene prefs silently didn't apply there). The provider package is
+    // the framework's current-webview-package answer; its package context
+    // reads our own assets. Host-app assets still win (our own debug app and
+    // the reflection harness carry the asset in the app apk).
+    @NonNull
+    private static InputStream openConfigAsset(@NonNull Context app)
+            throws IOException, PackageManager.NameNotFoundException {
+        try {
+            return app.getAssets().open("geckoview-config.yaml");
+        } catch (IOException hostAppMiss) {
+            android.content.pm.PackageInfo current =
+                    android.webkit.WebView.getCurrentWebViewPackage();
+            if (current == null) {
+                throw hostAppMiss;
+            }
+            Context provider = app.createPackageContext(current.packageName,
+                    Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY);
+            return provider.getAssets().open("geckoview-config.yaml");
         }
     }
 }
