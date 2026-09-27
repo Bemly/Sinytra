@@ -1,0 +1,49 @@
+From 1ddf48b43e234c5c81ea551c1a78997f360c3d38 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sun, 27 Sep 2026 12:57:56 +0800
+Subject: [PATCH 3/3] Sinytra patch 0010: degrade network state when
+ ACCESS_NETWORK_STATE is missing
+
+A host app without ACCESS_NETWORK_STATE (WebView does not require it)
+got a main-thread SecurityException from getActiveNetworkInfo during
+GeckoNetworkManager startup - fatal to the host (device-verified on the
+mywebview host). Chromium degrades silently; report UNKNOWN/NONE and
+warn once instead of crashing.
+---
+ .../mozilla/gecko/GeckoNetworkManager.java    | 21 +++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoNetworkManager.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoNetworkManager.java
+index dc8cbeb4d7c4..a2b4eb45d850 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoNetworkManager.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoNetworkManager.java
+@@ -363,8 +363,29 @@ public class GeckoNetworkManager extends BroadcastReceiver {
+     }
+   }
+ 
++  private static boolean sNetworkPermissionWarned = false;
++
+   /** Update current network state and connection types. */
+   private void updateNetworkStateAndConnectionType(final Context context) {
++    // Sinytra patch 0010 (2026-09-27): a System-WebView host may not hold
++    // ACCESS_NETWORK_STATE (WebView does not require it). Querying
++    // ConnectivityManager then throws SecurityException on the main thread
++    // and kills the host app (NetworkUtils.getConnectionType ->
++    // getActiveNetworkInfo). Chromium degrades silently in this case; report
++    // UNKNOWN/NONE instead of crashing.
++    if (context.checkSelfPermission(android.Manifest.permission.ACCESS_NETWORK_STATE)
++        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
++      if (!sNetworkPermissionWarned) {
++        Log.w(
++            LOGTAG,
++            "ACCESS_NETWORK_STATE not granted by the host app; network state reporting disabled.");
++        sNetworkPermissionWarned = true;
++      }
++      mCurrentConnectionType = ConnectionType.NONE;
++      mCurrentConnectionSubtype = ConnectionSubType.UNKNOWN;
++      mCurrentNetworkStatus = NetworkStatus.UNKNOWN;
++      return;
++    }
+     final ConnectivityManager connectivityManager =
+         (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+     // Type/status getters below all have a defined behaviour for when connectivityManager == null

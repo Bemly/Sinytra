@@ -1,0 +1,76 @@
+From ae2e75763a03fe41becba620977d2201318ca2f0 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sun, 27 Sep 2026 12:57:32 +0800
+Subject: [PATCH 1/3] Sinytra patch 0008: point -greomni at the APK that ships
+ omni.ja
+
+A System-WebView provider's GeckoView classes live in the provider APK
+while the startup context is the host app. getMainProcessArgs built
+-greomni from the host APK, which carries no omni.ja: XRE could not read
+the static component manifests, the preferences service was never
+created, and XRE_main SEGVed at Preferences::InitializeUserPrefs
+(sPImpl null; device-verified on mywebview and Obsidian hosts, fault
+addr 0x8 in the Gecko thread).
+
+The provider APK is derived from the classloader-resolved mozglue path
+(mirrors GeckoLoader.getLibraryPath); every failure mode falls back to
+the context APK, so regular embedders are unaffected.
+---
+ .../java/org/mozilla/gecko/GeckoThread.java   | 37 ++++++++++++++++++-
+ 1 file changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoThread.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoThread.java
+index a72bfa1bfdf4..52201f6fbbeb 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoThread.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoThread.java
+@@ -338,7 +338,7 @@ public class GeckoThread extends Thread {
+ 
+     if (!mInitInfo.xpcshell) {
+       args.add("-greomni");
+-      args.add(context.getPackageResourcePath());
++      args.add(getOmnijarApk(context));
+     }
+ 
+     if (mInitInfo.args != null) {
+@@ -363,6 +363,41 @@ public class GeckoThread extends Thread {
+     return args.toArray(new String[0]);
+   }
+ 
++  // Sinytra patch 0008 (2026-09-27): -greomni must name the APK that ships
++  // omni.ja. GeckoView assumes the host APK and the GeckoView APK are the
++  // same file; a System-WebView provider (org.mozilla.geckowebview loaded by
++  // the framework's WebViewFactory) runs inside a third-party host whose APK
++  // carries no omni.ja — XRE then cannot read the static component manifests
++  // ("Could not read chrome manifest 'jar:<host-apk>!/chrome.manifest'"),
++  // the preferences service is never instantiated, and XRE_main SEGVs at
++  // Preferences::InitializeUserPrefs (sPImpl null). Derive the provider APK
++  // from the classloader-resolved mozglue path the same way GeckoLoader
++  // derives its library base (…base.apk!/lib/<abi>/libmozglue.so). Regular
++  // embedders are unaffected: their classloader resolves into the context
++  // APK (or an extracted dir, which falls back), and every failure mode
++  // returns the context APK unchanged.
++  private static String getOmnijarApk(final Context context) {
++    final String resourcePath = context.getPackageResourcePath();
++    try {
++      final String mozglue =
++          ((dalvik.system.BaseDexClassLoader) GeckoAppShell.class.getClassLoader())
++              .findLibrary("mozglue");
++      if (mozglue != null) {
++        final int apkSplit = mozglue.lastIndexOf("!/");
++        if (apkSplit > 0) {
++          final String apk = mozglue.substring(0, apkSplit);
++          if (!apk.equals(resourcePath)) {
++            Log.w(LOGTAG, "greomni: using provider apk " + apk);
++            return apk;
++          }
++        }
++      }
++    } catch (final Throwable t) {
++      Log.w(LOGTAG, "greomni: context apk fallback", t);
++    }
++    return resourcePath;
++  }
++
+   public static @Nullable Bundle getActiveExtras() {
+     synchronized (INSTANCE) {
+       if (!INSTANCE.mInitialized) {

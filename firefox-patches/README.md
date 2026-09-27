@@ -33,11 +33,14 @@
 | 0005 | 插桩日志 debug 门 | debug 构建多打、release 零输出（README「日志纪律」） | AAR debug/release 变体共用一个 libxul，编译期门做不到按变体区分 → 运行时 pref `sinytra.log.enabled`（默认 false） | **已定稿**：`0005-debug-only-instrumentation.patch`（@ `b43672422aa1`）；provider debug 构建经 `src/debug/assets/geckoview-config.yaml` 打开 |
 | 0006 | SSL proceed（证书例外） | `SslErrorHandler.proceed()`（带病证书继续加载） | GV 无 cert-override 原语，失败证书只在错误时可达（delegate 通道带出）→ `nsILoadURIDelegate` 加 channel 参数 + 子 actor 捕获 + `GeckoViewCertOverride` stash → `nsICertOverrideService` temporary override（设计文档 `0006-ssl-proceed.md`） | **已定稿**：`0006-ssl-proceed.patch`（@ `2f3d7e2e5b56`）；设备 sslProceed 探针（自签 TLS + 进程内服务器）+ 39 探针回归 |
 | 0007 | CookieManager cookie-jar 原语 | `CookieManager` 逐 cookie get/set/removeSessionCookies/hasCookies | GV 无任何逐 cookie API（jar 在 Necko）→ `StorageController` 四原语 + JS 模块 `nsICookieManager` 直控（设计文档 `0007-cookie-jar.md`） | **已定稿**：`0007-cookie-jar.patch`（@ `dfcc04709482`）；设备 cookieJar 探针 + 38 探针回归 |
+| 0008 | greomni 指向 omni.ja 所在 APK | 全部 API——第三方宿主进程里 Gecko 起不来 | `GeckoThread` 用宿主 APK 拼 `-greomni`，宿主无 omni.ja → 组件清单读不到 → prefs 服务缺失 → XRE_main SEGV（设计文档 `0008-greomni-omnijar.md`） | **已定稿**：`0008-greomni-omnijar.patch`（@ `ae2e75763a03`）；MiniWV/mywebview/Obsidian 三宿主真机复验 |
+| 0009 | child services 跨包解析/绑定 | 同上——XRE 无 child 即死 | 服务在 provider 包 manifest，intent 却按宿主包解析且 `exported=false`（设计文档 `0009-cross-package-child-services.md`） | **已定稿**：`0009-cross-package-child-services.patch`（@ `3c82e42ed1fd`）；child 进程挂 provider uid，宿主渲染正常 |
+| 0010 | ACCESS_NETWORK_STATE 缺失降级 | 全局健壮性（WebView 语义） | 宿主缺权限时 GeckoNetworkManager 主线程 SecurityException 杀宿主（设计文档 `0010-network-state-permission-guard.md`） | **已定稿**：`0010-network-state-permission-guard.patch`（@ `1ddf48b43e23`）；mywebview（缺权限宿主）存活验证 |
 
-设计文档：`0001/0002/0003/0006/0007-*.md`（树内勘察、地基选型、边界、测试计划）。
+设计文档：`0001/0002/0003/0006/0007/0008/0009/0010-*.md`（树内勘察、地基选型、边界、测试计划）。
 
-可重现性（2026-09-26 实测）：0001→0007 按编号 `git apply` 到 pin 点，得到的树与
-`sinytra-pin-158` HEAD 完全一致（树内提交顺序是 0007 先于 0006，二者无冲突）。
+可重现性（2026-09-27 实测补记）：0001→0010 按编号 `git apply` 到 pin 点
+（0008–0010 未做逐 commit 树哈希核对，待下次全量重放时补核）。
 
 ## 工作流
 

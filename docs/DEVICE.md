@@ -70,6 +70,9 @@ adb -s V885Q49L8TAMFEEE shell "su -c 'dumpsys webviewupdate'"
 
 - 需要读 framework 侧状态一律先 `dumpsys webviewupdate`，再看 logcat
   （tag 前缀 `Sinytra/<模块>`），不要猜。
+- **截图纪律（2026-09-27 拍板）**：判断设备画面必须间隔多截几张
+  （≥3 张、间隔 4–5s），首帧加载/child 慢启动时单张截图必误判；
+  首次页面加载等 30s+ 再核对回调日志。
 
 ## 5. 切换 / 回滚流程（唯一部署路线）
 

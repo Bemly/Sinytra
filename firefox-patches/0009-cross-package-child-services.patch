@@ -1,0 +1,227 @@
+From 3c82e42ed1fd0c05bd794e78c69ec3216f04a9bd Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sun, 27 Sep 2026 12:57:53 +0800
+Subject: [PATCH 2/3] Sinytra patch 0009: make child-process services bindable
+ cross-package
+
+The Gecko child services (tab/gpu/socket/...) ship in the webview
+provider package, but GeckoProcessManager/ServiceUtils resolved them
+against the host app package: intents targeted a package without the
+services (NameNotFoundException) and the services themselves were
+exported=false (bind denied). Either failure leaves XRE without children
+(native SEGV in the launcher thread on spawn failure).
+
+- ServiceUtils.getComponentPackage: resolves the package that actually
+  carries the GeckoView classes (classloader mozglue path, verified
+  against WebView.getCurrentWebViewPackage sourceDir), cached; regular
+  embedders hit the context-APK fast path unchanged.
+- DefaultBindDelegate/IsolatedBindDelegate + getServiceFlags/
+  getServiceList use it for ComponentName/Intent/package lookups.
+- Child services exported=true in the overlay manifest so another app
+  may bind them.
+---
+ .../src/main/AndroidManifest_overlay.jinja    | 22 ++++----
+ .../gecko/process/ServiceAllocator.java       |  8 ++-
+ .../mozilla/gecko/process/ServiceUtils.java   | 53 ++++++++++++++++++-
+ 3 files changed, 68 insertions(+), 15 deletions(-)
+
+diff --git a/mobile/android/geckoview/src/main/AndroidManifest_overlay.jinja b/mobile/android/geckoview/src/main/AndroidManifest_overlay.jinja
+index 0f29086eb4c7..b4c94339470a 100644
+--- a/mobile/android/geckoview/src/main/AndroidManifest_overlay.jinja
++++ b/mobile/android/geckoview/src/main/AndroidManifest_overlay.jinja
+@@ -15,7 +15,7 @@
+         <service
+                 android:name="org.mozilla.gecko.crashhelper.CrashHelper"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="false"
+                 android:process=":crashhelper{{ tag }}"
+                 android:stopWithTask="true">
+@@ -23,49 +23,49 @@
+         <service
+                 android:name="org.mozilla.gecko.media.MediaManager"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="false"
+                 android:process=":media">
+         </service>
+         <service
+                 android:name="org.mozilla.gecko.process.GeckoChildProcessServices$gmplugin"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="false"
+                 android:process=":gmplugin{{ tag }}">
+         </service>
+         <service
+                 android:name="org.mozilla.gecko.process.GeckoChildProcessServices$socket"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="false"
+                 android:process=":socket{{ tag }}">
+         </service>
+         <service
+                 android:name="org.mozilla.gecko.process.GeckoChildProcessServices$gpu"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="false"
+                 android:process=":gpu{{ tag }}">
+         </service>
+         <service
+                 android:name="org.mozilla.gecko.process.GeckoChildProcessServices$rdd"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="false"
+                 android:process=":rdd{{ tag }}">
+         </service>
+         <service
+                 android:name="org.mozilla.gecko.process.GeckoChildProcessServices$utility"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="false"
+                 android:process=":utility{{ tag }}">
+         </service>
+         <service
+                 android:name="org.mozilla.gecko.process.GeckoChildProcessServices$ipdlunittest"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="false"
+                 android:process=":ipdlunittest{{ tag }}">
+         </service>
+@@ -73,14 +73,14 @@
+         <service
+                 android:name="org.mozilla.gecko.process.GeckoChildProcessServices$tab{{ id }}"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="false"
+                 android:process=":tab{{ tag }}{{ id }}">
+         </service>
+         <service
+                 android:name="org.mozilla.gecko.process.GeckoChildProcessServices$isolatedTab{{ id }}"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="true"
+                 android:process=":isolatedTab{{ tag }}{{ id }}">
+         </service>
+@@ -88,7 +88,7 @@
+         <service
+                 android:name="org.mozilla.gecko.process.GeckoChildProcessServices$zygoteTab"
+                 android:enabled="true"
+-                android:exported="false"
++                android:exported="true"
+                 android:isolatedProcess="true"
+                 android:useAppZygote="true"
+                 android:process=":zygoteTab{{ tag }}">
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceAllocator.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceAllocator.java
+index c160105f4397..76232b16f9d8 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceAllocator.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceAllocator.java
+@@ -109,7 +109,9 @@ import org.mozilla.gecko.util.XPCOMEventTarget;
+           @NonNull final ServiceConnection binding, @NonNull final PriorityLevel priority) {
+         final Context context = GeckoAppShell.getApplicationContext();
+         final Intent intent = new Intent();
+-        intent.setClassName(context, getServiceName());
++        // Sinytra patch 0009: services live in the webview provider package,
++        // not the host app's (see ServiceUtils.getComponentPackage).
++        intent.setClassName(ServiceUtils.getComponentPackage(context), getServiceName());
+         return bindServiceDefault(context, intent, binding, getAndroidFlags(priority));
+       }
+ 
+@@ -126,7 +128,9 @@ import org.mozilla.gecko.util.XPCOMEventTarget;
+           @NonNull final ServiceConnection binding, @NonNull final PriorityLevel priority) {
+         final Context context = GeckoAppShell.getApplicationContext();
+         final Intent intent = new Intent();
+-        intent.setClassName(context, getServiceName());
++        // Sinytra patch 0009: services live in the webview provider package,
++        // not the host app's (see ServiceUtils.getComponentPackage).
++        intent.setClassName(ServiceUtils.getComponentPackage(context), getServiceName());
+         return bindServiceIsolated(
+             context, intent, getAndroidFlags(priority), getIdInternal(), binding);
+       }
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java
+index 2027f90489ed..2dabc7990f22 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java
+@@ -83,7 +83,8 @@ import androidx.annotation.NonNull;
+    */
+   public static int getServiceFlags(
+       @NonNull final Context context, @NonNull final GeckoProcessType type) {
+-    final ComponentName component = new ComponentName(context, buildIsolatedSvcName(type));
++    final ComponentName component =
++        new ComponentName(getComponentPackage(context), buildIsolatedSvcName(type));
+     final PackageManager pkgMgr = context.getPackageManager();
+ 
+     try {
+@@ -95,6 +96,54 @@ import androidx.annotation.NonNull;
+     }
+   }
+ 
++
++  // Sinytra patch 0009 (2026-09-27): the child-process services ship in the
++  // webview provider package, not the host app's. When GeckoView classes are
++  // loaded by the framework from a provider APK (System-WebView provider),
++  // ComponentName/Intent/package-info lookups against the host package find
++  // nothing (NameNotFoundException -> child spawn fails -> native SEGV).
++  // The provider package is resolved once: derive the APK carrying GeckoView
++  // classes from the mozglue library path (mirrors GeckoLoader.getLibraryPath),
++  // then name the installed package whose sourceDir matches. Regular
++  // embedders hit the fast path (classloader APK == context APK) and keep
++  // the historical behavior exactly.
++  private static String sComponentPackage;
++
++  /* package */ static String getComponentPackage(@NonNull final Context context) {
++    if (sComponentPackage != null) {
++      return sComponentPackage;
++    }
++    String resolved = context.getPackageName();
++    try {
++      final String mozglue =
++          ((dalvik.system.BaseDexClassLoader) ServiceUtils.class.getClassLoader())
++              .findLibrary("mozglue");
++      final String contextApk = context.getPackageResourcePath();
++      final String providerApk;
++      if (mozglue != null && mozglue.lastIndexOf("!/") > 0) {
++        providerApk = mozglue.substring(0, mozglue.lastIndexOf("!/"));
++      } else {
++        providerApk = contextApk;
++      }
++      if (providerApk.equals(contextApk)) {
++        // Fast path: classes and services live in the context APK.
++        resolved = context.getPackageName();
++      } else {
++        final PackageInfo pi = android.webkit.WebView.getCurrentWebViewPackage();
++        if (pi != null
++            && pi.applicationInfo != null
++            && (providerApk.equals(pi.applicationInfo.sourceDir)
++                || providerApk.equals(pi.applicationInfo.publicSourceDir))) {
++          resolved = pi.packageName;
++        }
++      }
++    } catch (final Throwable t) {
++      resolved = context.getPackageName();
++    }
++    sComponentPackage = resolved;
++    return sComponentPackage;
++  }
++
+   /** Obtain the list of all services defined for |context|. */
+   private static ServiceInfo[] getServiceList(@NonNull final Context context) {
+     final PackageInfo packageInfo;
+@@ -102,7 +151,7 @@ import androidx.annotation.NonNull;
+       packageInfo =
+           context
+               .getPackageManager()
+-              .getPackageInfo(context.getPackageName(), PackageManager.GET_SERVICES);
++              .getPackageInfo(getComponentPackage(context), PackageManager.GET_SERVICES);
+     } catch (final PackageManager.NameNotFoundException e) {
+       throw new AssertionError("Should not happen: Can't get package info of own package");
+     }

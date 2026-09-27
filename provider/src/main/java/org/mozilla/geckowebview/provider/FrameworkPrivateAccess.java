@@ -101,7 +101,14 @@ final class FrameworkPrivateAccess {
             return false;
         }
         try {
-            return (Boolean) method(name, types).invoke(access, args);
+            Method m = method(name, types);
+            // void super_* methods (super_setLayoutParams) reflect back null —
+            // success, not an unboxing NPE.
+            if (m.getReturnType() == void.class) {
+                m.invoke(access, args);
+                return true;
+            }
+            return (Boolean) m.invoke(access, args);
         } catch (Throwable t) {
             Log.w(TAG, "PrivateAccess." + name + " failed", t);
             return false;

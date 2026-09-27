@@ -2,10 +2,10 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
-> 更新时间：2026-09-26 深夜（**切换已完成**：设备 Current/Preferred =
-> `moe.bemly.geckowebview.debug`，真实路径 `FRAMEWORK ENTRY PASS`
-> （§1s），反射 harness **41 PASS + P0 GLUE PASS** 切换后复验不退，
-> JVM **78 锁**）。
+> 更新时间：2026-09-27（**第三方宿主跑通**：patch 栈 0008–0010 落地，
+> 自建 MiniWV 最小宿主真机渲染 example.com、child 进程挂 provider uid，
+> 反射 harness **41 PASS + P0 GLUE PASS** 不退，JVM **78 锁**；切换态
+> Current = `moe.bemly.geckowebview.debug`）。
 > 设备：MOONDROP MD-PH-001 / Android 14 / API 34。
 
 ## 1. 当前位置
@@ -715,6 +715,56 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **探针修正记死**：session 初始 about:blank 的 `onPageFinished` 会抢先
   放行 latch——必须按 url 过滤（`about:` 前缀不算，页面才计数）。
 
+## 1t. 切换后第三方冒烟 + 真实宿主三个 patch（2026-09-27，0010 全绿）
+
+- **结论**：第三方宿主 App 从"创建 WebView 即 SEGV"修到"example.com 完整
+  渲染 + 回调链完整 + 41 PASS 不退"。0008/0009/0010 三个 Gecko patch
+  落栈（全部真机实证），加上 provider 侧两修（`FrameworkPrivateAccess`
+  void 拆箱 NPE、config assets 跨包安装）。
+- **排查利器**：自建最小宿主 **MiniWV**（`moe.bemly.minimalwv`，
+  /tmp 下 aapt2+javac+d8+apksigner 手工构建，纯 `android.webkit.WebView`
+  + example.com + 状态栏打日志，targetSdk 34 独立 uid）——
+  Obsidian 会跳默认浏览器、mywebview 自带行为噪音，最小宿主才是干净
+  的真实路径探针。
+- **0008（greomni）**：`GeckoThread.getMainProcessArgs` 用宿主 APK 拼
+  `-greomni`，宿主没有 omni.ja → 组件清单读不到（"Could not read chrome
+  manifest jar:<host>!/..."）→ prefs 服务缺失 → `sPImpl=null` →
+  `Preferences::InitializeUserPrefs` SEGV（fault addr 0x8，tombstone +
+  objdir libxul llvm-symbolizer 定位；宿主 APK==provider APK 时不可见）。
+  修：greomni 经 classloader mozglue 路径推导 provider APK（0008.md §2
+  排除记录：hidden API denied 警告两边一致属良性、webview zygote 无
+  libxul、无双映射）。
+- **0009（child services 跨包）**：0008 后 XRE 走到 RUNNING，但
+  `ServiceAllocator`/`ServiceUtils` 按宿主包解析 child services 且服务
+  `exported=false` → SecurityException → spawn 失败 native SEGV。修：
+  `getComponentPackage`（classloader 推导 + getCurrentWebViewPackage
+  sourceDir 验证 + 快路径回退）+ jinja 全部服务 `exported=true`。
+  **踩坑**：jinja 是 GENERATED_FILE，`mach build binaries/export` 都不
+  重生成，必须 `mach build` 增量全量触发；管道后 `echo $?` 是 tail 的
+  退出码（README 纪律再次应验）；MOZCONFIG 忘设会打到 objdir-opt。
+- **0010（ACCESS_NETWORK_STATE 守卫）**：宿主缺权限时
+  `GeckoNetworkManager` 主线程 `getActiveNetworkInfo` SecurityException
+  杀宿主（mywebview/MiniWV v1 实测）。修：权限守卫 + 降级
+  UNKNOWN/NONE + warn 一次（Chromium 同语义）。
+- **provider 侧两修**：① `FrameworkPrivateAccess.invoke` 对 void 型
+  super_*（如 `super_setLayoutParams`）拆箱 NPE 误报失败；②
+  `installConfig` 用宿主 `getAssets()` 读不到 provider APK 的 assets，
+  第三方宿主卫生 prefs（联网探测/Remote Settings）静默失效——经
+  `WebView.getCurrentWebViewPackage` 包上下文回退安装（`320f32f`）。
+- **真机证据**：MiniWV（第三方宿主）example.com 完整渲染（screencap）、
+  onPageFinished title=Example Domain、child 进程挂 provider uid
+  （`moe.bemly.geckowebview.debug:gpu/tab…` 5 个）、`3 successful binds`；
+  mywebview 缺权限宿主存活（0010 守卫日志）；Obsidian 不再 SEGV；
+  反射 harness **41 PASS + P0 GLUE PASS** 不退。
+- **记死（截图纪律，2026-09-27 用户拍板）**：设备画面判断必须**间隔多截
+  几张**（≥3 张、间隔 4–5s），首帧加载/child 慢启动时单张截图必误判；
+  首次加载可等 30s+ 再看回调日志。
+- **安全记录**：child services exported=true 后，任何 App 可 bind 出
+  provider uid 的 Gecko child（资源记账归 provider）。唯一部署形态是
+  个人设备 root 环境，接受并记录。
+- **MiniWV 残留观察**：首跳 `evaluateJavascript` 在第三方宿主里仍可能
+  honest-null（transport 竞争，与 harness 同口径，重试即达）。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~**切换路线主线化**~~（2026-09-26 完成，§1s）：metadata + versionCode
@@ -723,9 +773,12 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
    `src/debug`（`f2a830c`）+ 真实路径视图接线修复（`2ea2713`）。
    验收四件全过：Valid + Current 为我方、FRAMEWORK ENTRY PASS、反射
    harness 41 PASS 不退。
-2. **切换后全量回归**：真实路径下重跑 P0–P2 探针（单例族此时全是我方实现，
-   反射口径下 storage 单例是系统 Chromium 的——这是口径差的重点）+ 第三方 App
-   冒烟（先确认回滚命令，DEVICE §5）。
+2. ~~**切换后全量回归**~~（2026-09-27 完成，§1t）：切换态真实路径探针
+   （FRAMEWORK ENTRY PASS）+ 反射 harness 41 PASS 复验；第三方冒烟从
+   "创建即 SEGV"修至渲染可用——自建 MiniWV 最小宿主（干净探针）+
+   mywebview + Obsidian，根因 = Gecko 侧三个部署形态缺口，patch
+   0008/0009/0010 落栈 + provider 侧两修。残留：更广的日常重度 App
+   矩阵按需扩测（MiniWV 已是可复用的最小真实路径探针）。
 3. **CTS Sinytra 对照轮**：切换后直跑 `CtsWebkitTestCases`（CTS.md §2），对照
    Chromium 基线 98.6%，fail 逐条归因落档。a11y/视觉类用例一并汇入。
 4. **a11y v2 深度对齐（等反馈）**：v1 遍历链路已通（§1p）；剩 WebView 节点自身的
