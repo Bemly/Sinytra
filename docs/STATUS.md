@@ -779,8 +779,26 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
    mywebview + Obsidian，根因 = Gecko 侧三个部署形态缺口，patch
    0008/0009/0010 落栈 + provider 侧两修。残留：更广的日常重度 App
    矩阵按需扩测（MiniWV 已是可复用的最小真实路径探针）。
-3. **CTS Sinytra 对照轮**：切换后直跑 `CtsWebkitTestCases`（CTS.md §2），对照
-   Chromium 基线 98.6%，fail 逐条归因落档。a11y/视觉类用例一并汇入。
+3. **CTS Sinytra 对照轮**（2026-09-30 在跑）：切换后直跑 `CtsWebkitTestCases`
+   （CTS.md §2），对照 Chromium 基线 98.6%，fail 逐条归因落档。a11y/视觉类用例一并汇入。
+   - 首轮全量（Picture 合成前）：CookieManagerTest 即卡死——`WebViewSyncLoader`
+     以 `mLoaded/mNewPicture/mProgress` 三条件门加载完成，我方 `setPictureListener`
+     空实现致 `mNewPicture` 永假。修：`b9ed3c1` 按成功 onPageFinished 合成
+     onNewPicture + capturePicture() 返回空 Picture（mid-load 失效通知诚实缺口）。
+   - 次轮全量（Picture 合成后，`PostMessageTest.testSimpleMessageToMainFrame`
+     `loadDataWithBaseURL: P1/P2` 抛崩进程止，跑完 7 类）：A–G 共 26 fail +
+     1 崩溃点（loadDataWithBaseURL 未实现）。失败面：CookieManager 11
+     （set/get/remove/SameSite/第三方；`getCookie` 返 `""` 而 CTS 要 null，
+     `setCookie("name=test")` 落 jar 失败，`removeSessionCookies` 回调无应答）/
+     CookieTest 5（Domain/Path/空值；同 jar 落盘面）/ Geolocation 4（2 超时 +
+     insecure-origin 仍给位置 + reject 无 prompt）/ HttpAuth 3（load 超时）/
+     PacProcessor 3（trampoline `createPacProcessor: Not implemented`）。
+     DateSorter/MimeTypeMap 全绿。WebView 主体类尚未跑到（崩溃点之后）。
+   - 关键发现记死：Gecko 报 `blocking all storage access requests`（localhost
+     页 cookie 被拦截）——默认 cookieBehavior（ACCEPT_FIRST_PARTY）下 CTS 本地
+     测试服务器场景疑被当第三方存储掐掉；`setCookie("name=test")` 这类无属性
+     裸 cookie 落 jar 失败与此同源候选。下一步：先定点复现裸 setCookie +
+     核 cookieBehavior 在 CTS 进程的实际值，再动 0007/策略。
 4. **a11y v2 深度对齐（等反馈）**：v1 遍历链路已通（§1p）；剩 WebView 节点自身的
    AccessibilityNodeProvider/onProvideVirtualStructure 合并、焦点/
    performAccessibilityAction 映射。先拿 TalkBack 手测 + 第 3 步 CTS a11y 失败清单
