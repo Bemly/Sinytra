@@ -102,6 +102,13 @@ public final class GeckoWebViewProvider
     private WebViewClient mWebViewClient;
     private WebChromeClient mWebChromeClient;
     private DownloadListener mDownloadListener;
+    // Deprecated PictureListener (Chromium fires onNewPicture on every
+    // invalidation; CTS WebViewSyncLoader gates load completion on it).
+    // Gecko has no picture-invalidation signal, so synthesize: fire once per
+    // successful page finish on the UI thread. Honest gap: mid-load
+    // invalidations never fire, only the post-load synthetic one.
+    @Nullable
+    private volatile WebView.PictureListener mPictureListener;
     @Nullable
     private ValueCallback<Uri[]> mFileChooserCallback;
     private volatile boolean mDestroyed;
@@ -286,6 +293,27 @@ public final class GeckoWebViewProvider
     @Override
     public void fireVisualState() {
         firePendingVisualState();
+        firePictureListener();
+    }
+
+    // Synthetic onNewPicture: the deprecated PictureListener has no Gecko
+    // source signal; fire it once per successful page finish so CTS-style
+    // waiters (WebViewSyncLoader gates completion on mNewPicture) unblock.
+    // Always posted to the UI thread — the delegate contract runs there.
+    private void firePictureListener() {
+        WebView.PictureListener listener = mPictureListener;
+        if (listener == null) {
+            return;
+        }
+        android.os.Handler main =
+                new android.os.Handler(android.os.Looper.getMainLooper());
+        main.post(() -> {
+            try {
+                listener.onNewPicture(mWebView, capturePicture());
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "PictureListener.onNewPicture threw", t);
+            }
+        });
     }
 
     @Override
@@ -645,7 +673,10 @@ public final class GeckoWebViewProvider
                         boundary, null));
     }
     @Override public void clearView() {}
-    @Override public Picture capturePicture() { return null; }
+    // Deprecated picture capture (Chromium returns the last-composited
+    // picture). Gecko has no such surface here — synthesize an empty Picture
+    // so registered PictureListeners still get a non-null argument.
+    @Override public Picture capturePicture() { return new Picture(); }
     @Override public PrintDocumentAdapter createPrintDocumentAdapter(String documentName) {
         try {
             return mPrint.createAdapter(mWebView.getContext(), documentName);
@@ -747,7 +778,9 @@ public final class GeckoWebViewProvider
     @Override public WebViewRenderProcessClient getWebViewRenderProcessClient() {
         return mRenderProcess.getClient();
     }
-    @Override public void setPictureListener(WebView.PictureListener listener) {}
+    @Override public void setPictureListener(WebView.PictureListener listener) {
+        mPictureListener = listener;
+    }
     @Override public void addJavascriptInterface(Object obj, String interfaceName) {
         try {
             mJsInterfaces.addInterface(obj, interfaceName);
