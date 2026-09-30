@@ -64,12 +64,15 @@ public final class GeckoCookieManagerImpl extends CookieManager {
         mDelegate.setCookie(url, value, callback);
     }
 
+    // Chromium returns null when no cookie applies; Gecko's primitive
+    // yields "" — translate so CTS assertNull(getCookie) passes.
     @Override
     public String getCookie(String url) {
         if (url == null) {
-            return "";
+            return null;
         }
-        return mDelegate.getCookie(url);
+        String cookie = mDelegate.getCookie(url);
+        return cookie != null && !cookie.isEmpty() ? cookie : null;
     }
 
     @Override

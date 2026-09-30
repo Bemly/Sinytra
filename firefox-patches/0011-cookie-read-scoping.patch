@@ -1,0 +1,77 @@
+From faef43c743fc1c69feb1c71320adf92a4c8a8f91 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Wed, 30 Sep 2026 16:08:52 +0800
+Subject: [PATCH] Sinytra patch 0011: scope GetCookie to exact host+path
+
+---
+ .../GeckoViewStorageController.sys.mjs        | 45 ++++++++++++++++++-
+ 1 file changed, 43 insertions(+), 2 deletions(-)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+index be1c525c716d..03249a786e77 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+@@ -294,6 +294,9 @@ export const GeckoViewStorageController = {
+ 
+   // Sinytra: Cookie header string for the URI, ordered per RFC 6265
+   // (aSorted). Native-level read: HttpOnly included, Secure only for https.
++  // Matches CookieService::GetCookiesForURI filtering (domain + path +
++  // secure + expiry); getCookiesFromHost alone is base-domain-wide and
++  // would leak sibling-subdomain cookies.
+   getCookieString(aUriSpec) {
+     let uri;
+     try {
+@@ -306,10 +309,48 @@ export const GeckoViewStorageController = {
+       // file:// and friends have no cookie jar.
+       return "";
+     }
+-    const secureOnly = uri.schemeIs("https");
++    const path = uri.pathQueryRef || "/";
++    const secureOrigin = uri.schemeIs("https");
++    const nowMs = Date.now();
++    // Host cookies match only their exact host; domain cookies (leading
++    // dot) match the cookie domain and its subdomains.
++    const hostMatches = (cookieHost, reqHost) => {
++      if (!cookieHost) {
++        return false;
++      }
++      if (cookieHost.startsWith(".")) {
++        const domain = cookieHost.slice(1).toLowerCase();
++        const lower = reqHost.toLowerCase();
++        return lower === domain || lower.endsWith("." + domain);
++      }
++      return cookieHost.toLowerCase() === reqHost.toLowerCase();
++    };
++    // RFC 6265 §5.1.4 path-match: identical, or cookie-path is a prefix
++    // ending in "/", or the next request-path char after the prefix is "/".
++    const pathMatches = (cookiePath, reqPath) => {
++      const cp = cookiePath || "/";
++      if (reqPath === cp) {
++        return true;
++      }
++      if (reqPath.startsWith(cp)) {
++        if (cp.endsWith("/")) {
++          return true;
++        }
++        if (reqPath.length > cp.length && reqPath[cp.length] === "/") {
++          return true;
++        }
++      }
++      return false;
++    };
+     const cookies = Services.cookies.getCookiesFromHost(host, {}, true);
+     return cookies
+-      .filter(c => secureOnly || !c.isSecure)
++      .filter(
++        c =>
++          hostMatches(c.host, host) &&
++          pathMatches(c.path, path) &&
++          (secureOrigin || !c.isSecure) &&
++          (!c.expiry || c.expiry * 1000 > nowMs)
++      )
+       .map(c => `${c.name}=${c.value}`)
+       .join("; ");
+   },
+-- 
+2.56.0
+
