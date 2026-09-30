@@ -245,9 +245,58 @@ final class ClientFanOut
 
     // --- PermissionBridge.Host ---
 
+    // Chromium parity: geolocation is a secure-context API. Insecure
+    // origins are denied WITHOUT prompting (the app client is never
+    // consulted) — prompting there then honoring "allow" leaks position
+    // to http. Secure = https scheme, or loopback host (Secure Contexts
+    // §3.1 trustworthy loopback, so the CTS http://localhost harness
+    // keeps prompting). Visible for JVM locks; pure string parsing so it
+    // stays off android.net.Uri (mockable-jar hostile).
+    static boolean isSecureOriginForGeolocation(@Nullable String origin) {
+        if (origin == null) {
+            return false;
+        }
+        int schemeEnd = origin.indexOf("://");
+        if (schemeEnd < 0) {
+            return false;
+        }
+        String scheme = origin.substring(0, schemeEnd);
+        if ("https".equalsIgnoreCase(scheme) || "wss".equalsIgnoreCase(scheme)) {
+            return true;
+        }
+        String rest = origin.substring(schemeEnd + 3);
+        String host;
+        if (rest.startsWith("[")) {
+            // Bracketed IPv6 literal: colons inside are not port separators.
+            int close = rest.indexOf(']');
+            host = close < 0 ? "" : rest.substring(0, close + 1);
+        } else {
+            int hostEnd = rest.length();
+            for (int i = 0; i < rest.length(); i++) {
+                char c = rest.charAt(i);
+                if (c == '/' || c == '?' || c == '#' || c == ':') {
+                    hostEnd = i;
+                    break;
+                }
+            }
+            host = rest.substring(0, hostEnd);
+        }
+        return "localhost".equalsIgnoreCase(host)
+                || "127.0.0.1".equals(host)
+                || "[::1]".equals(host)
+                || "::1".equals(host);
+    }
+
     @Override
     public void onGeolocationPrompt(@NonNull String origin,
             @NonNull PermissionBridge.Decision decision) {
+        if (!isSecureOriginForGeolocation(origin)) {
+            android.util.Log.w(TAG,
+                    "geolocation denied without prompt: insecure origin "
+                            + origin);
+            decision.deny();
+            return;
+        }
         WebChromeClient chrome = mOwner.webChromeClient();
         if (chrome == null) {
             decision.deny();
