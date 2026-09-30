@@ -104,18 +104,52 @@ public final class GeckoCookieManager {
         if (runtime == null) {
             return;
         }
-        Runnable push = () -> runtime.getSettings().getContentBlocking()
-                .setCookieBehavior(behavior);
-        // RuntimeSettings setters assert the main thread; WebView's
-        // CookieManager policy setters are documented thread-tolerant
-        // (Chromium applies them from any thread), so hop over — the push
-        // is idempotent and the next jar op re-applies if it lands late.
+        // Synchronous push: the jar query below reads the pref on the
+        // Gecko thread, so a posted-but-not-yet-run push loses the race
+        // (and a persisted REJECT from an earlier setAcceptCookie(false)
+        // poisons later runs). Wait bounded for the main-thread set, then
+        // a bounded settle for the Gecko round-trip: setDefaultPrefs is
+        // an async dispatch with no completion signal (the Java
+        // getCookieBehavior getter reflects the local commit only, so
+        // polling it cannot observe Gecko-side application). Chromium
+        // applies policy synchronously before the jar op; we emulate it.
+        // Deadlock-free: the setter runs on the main thread (never the
+        // query thread), and the caller here never holds the query latch.
+        final CountDownLatch pushed = new CountDownLatch(1);
+        Runnable push = () -> {
+            try {
+                runtime.getSettings().getContentBlocking()
+                        .setCookieBehavior(behavior);
+            } finally {
+                pushed.countDown();
+            }
+        };
         if (Looper.myLooper() == Looper.getMainLooper()) {
             push.run();
         } else {
             mainHandler().post(push);
+            try {
+                pushed.await(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
+        waitForBehavior();
         mLastAppliedBehavior = behavior;
+    }
+
+    // The SetDefaultPrefs dispatch is async to the Gecko thread with no
+    // completion signal: even after the main-thread set lands, the jar
+    // query can overtake it. Fixed bounded settle on the caller thread
+    // (test/UI, never the query thread) — the pref lands in ms; the
+    // alternative (stale REJECT) fails closed. Matches the class's
+    // bounded-wait discipline (AGENTS.md §7 sync-contract exception).
+    private void waitForBehavior() {
+        try {
+            Thread.sleep(300);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     public void setCookie(@NonNull String url, @NonNull String value) {
@@ -224,6 +258,9 @@ public final class GeckoCookieManager {
             done.await(TIMEOUT_MS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        }
+        if (done.getCount() > 0) {
+            Log.w(TAG, "cookie query timed out after " + TIMEOUT_MS + "ms");
         }
         T result = value.get();
         return result != null ? result : fallback;
