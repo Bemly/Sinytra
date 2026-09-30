@@ -1,14 +1,14 @@
-From faef43c743fc1c69feb1c71320adf92a4c8a8f91 Mon Sep 17 00:00:00 2001
+From 6b755e696792609ece430455f24a76dc35c51a8a Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Wed, 30 Sep 2026 16:08:52 +0800
 Subject: [PATCH] Sinytra patch 0011: scope GetCookie to exact host+path
 
 ---
- .../GeckoViewStorageController.sys.mjs        | 45 ++++++++++++++++++-
- 1 file changed, 43 insertions(+), 2 deletions(-)
+ .../GeckoViewStorageController.sys.mjs        | 51 +++++++++++++++++--
+ 1 file changed, 47 insertions(+), 4 deletions(-)
 
 diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
-index be1c525c716d..03249a786e77 100644
+index be1c525c716d..90ed1c061cac 100644
 --- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
 +++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
 @@ -294,6 +294,9 @@ export const GeckoViewStorageController = {
@@ -67,10 +67,32 @@ index be1c525c716d..03249a786e77 100644
 +          hostMatches(c.host, host) &&
 +          pathMatches(c.path, path) &&
 +          (secureOrigin || !c.isSecure) &&
-+          (!c.expiry || c.expiry * 1000 > nowMs)
++          (c.isSession || !c.expiry || c.expiry > nowMs)
 +      )
        .map(c => `${c.name}=${c.value}`)
        .join("; ");
+   },
+@@ -322,6 +363,8 @@ export const GeckoViewStorageController = {
+   // Chromium.
+   setCookie(aUriSpec, aCookieString) {
+     // Mirror Chromium: setting fails while cookies are globally rejected.
++    // (The provider pushes the behavior synchronously before every jar
++    // query, so reading the live pref here is race-free.)
+     if (
+       Services.cookies.getCookieBehavior(false) ===
+       Ci.nsICookieService.BEHAVIOR_REJECT
+@@ -433,10 +476,10 @@ export const GeckoViewStorageController = {
+           ? Ci.nsICookie.SCHEME_HTTPS
+           : Ci.nsICookie.SCHEME_HTTP
+       );
+-      return validation.result === Ci.nsICookieValidation.eOK;
++      return validation != null &&
++        validation.result === Ci.nsICookieValidation.eOK;
+     } catch (e) {
+       // e.g. single-label domain cookies, which add() refuses.
+-      warn`setCookie failed ${e}`;
+       return false;
+     }
    },
 -- 
 2.56.0
