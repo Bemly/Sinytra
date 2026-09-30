@@ -12,7 +12,9 @@ public class PromptBridge implements GeckoSession.PromptDelegate {
         void onFileChooserRequest(
                 @NonNull GeckoSession.PromptDelegate.FilePrompt prompt);
         void onHttpAuthRequest(
-                @NonNull GeckoSession.PromptDelegate.AuthPrompt prompt);
+                @NonNull GeckoSession.PromptDelegate.AuthPrompt prompt,
+                @NonNull
+                GeckoResult<GeckoSession.PromptDelegate.PromptResponse> pending);
         void onJsAlert(@NonNull String title, @NonNull String message);
         boolean onJsConfirm(@NonNull String title, @NonNull String message);
         @Nullable
@@ -44,12 +46,18 @@ public class PromptBridge implements GeckoSession.PromptDelegate {
     public GeckoResult<GeckoSession.PromptDelegate.PromptResponse> onAuthPrompt(
             @NonNull GeckoSession session,
             @NonNull GeckoSession.PromptDelegate.AuthPrompt prompt) {
+        // The app's proceed()/cancel() on the handler completes THIS
+        // prompt: hold the GeckoResult open until the app answers. The
+        // handler posts confirm/dismiss to the UI thread itself.
+        final GeckoResult<GeckoSession.PromptDelegate.PromptResponse> pending =
+                new GeckoResult<>();
         try {
-            mHost.onHttpAuthRequest(prompt);
+            mHost.onHttpAuthRequest(prompt, pending);
         } catch (Throwable t) {
             android.util.Log.w("Sinytra/prompt", "Host.onHttpAuthRequest threw", t);
+            pending.complete(prompt.dismiss());
         }
-        return null;
+        return pending;
     }
 
     @Nullable

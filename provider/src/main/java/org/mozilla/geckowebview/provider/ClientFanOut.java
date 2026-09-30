@@ -16,6 +16,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckowebview.session.ContentBridge;
 import org.mozilla.geckowebview.session.InterceptBridge;
@@ -374,11 +375,40 @@ final class ClientFanOut
 
     @Override
     public void onHttpAuthRequest(
-            @NonNull GeckoSession.PromptDelegate.AuthPrompt prompt) {
+            @NonNull GeckoSession.PromptDelegate.AuthPrompt prompt,
+            @NonNull GeckoResult<GeckoSession.PromptDelegate.PromptResponse> pending) {
         String uri = prompt.authOptions != null && prompt.authOptions.uri != null
                 ? prompt.authOptions.uri : "";
         String host = hostOf(uri);
         String realm = prompt.message != null ? prompt.message : "";
+        // The app's proceed()/cancel() on the handler must complete the
+        // delegate GeckoResult (PromptBridge holds it open). The Decision
+        // posts prompt.confirm/dismiss to the UI thread AND completes
+        // pending with the same answer (GeckoResult tolerates exactly one
+        // completion; the handler guards duplicates first).
+        android.webkit.SinytraHttpAuthHandler.Decision decision =
+                new android.webkit.SinytraHttpAuthHandler.Decision() {
+                    @Override
+                    public void proceed(@NonNull String username,
+                            @NonNull String password) {
+                        mainPostAuth(pending, prompt, username, password,
+                                false);
+                    }
+
+                    @Override
+                    public void cancel() {
+                        mainPostAuth(pending, prompt, "", "", true);
+                    }
+                };
+        HttpAuthHandler handler =
+                FrameworkTokens.newAuthHandler(decision, false);
+        if (handler == null) {
+            try {
+                pending.complete(prompt.dismiss());
+            } catch (Throwable ignored) {
+            }
+            return;
+        }
         String[] stored = null;
         try {
             stored = mOwner.factory().webViewDatabase(mOwner.webView().getContext())
@@ -387,28 +417,29 @@ final class ClientFanOut
             android.util.Log.w(TAG, "webViewDatabase get threw", t);
         }
         if (stored != null && stored.length == 2) {
+            // Stored credentials: answer without consulting the app
+            // (Chromium auto-fill path; useHttpAuthUsernamePassword=true
+            // reported to any later handler — none here since answered).
             try {
-                prompt.confirm(stored[0] != null ? stored[0] : "",
-                        stored[1] != null ? stored[1] : "");
+                pending.complete(prompt.confirm(
+                        stored[0] != null ? stored[0] : "",
+                        stored[1] != null ? stored[1] : ""));
                 return;
             } catch (Throwable t) {
                 android.util.Log.w(TAG, "auth confirm stored threw", t);
+                try {
+                    pending.complete(prompt.dismiss());
+                } catch (Throwable ignored) {
+                }
+                return;
             }
         }
         WebViewClient client = mOwner.webViewClient();
         if (client == null) {
             try {
-                prompt.dismiss();
+                pending.complete(prompt.dismiss());
             } catch (Throwable t) {
                 android.util.Log.w(TAG, "auth prompt dismiss threw", t);
-            }
-            return;
-        }
-        HttpAuthHandler handler = FrameworkTokens.newAuthHandler();
-        if (handler == null) {
-            try {
-                prompt.dismiss();
-            } catch (Throwable ignored) {
             }
             return;
         }
@@ -417,10 +448,28 @@ final class ClientFanOut
         } catch (Throwable t) {
             android.util.Log.w(TAG, "WebViewClient.onReceivedHttpAuthRequest threw", t);
             try {
-                prompt.dismiss();
+                pending.complete(prompt.dismiss());
             } catch (Throwable ignored) {
             }
         }
+    }
+
+    private static void mainPostAuth(
+            @NonNull GeckoResult<GeckoSession.PromptDelegate.PromptResponse> pending,
+            @NonNull GeckoSession.PromptDelegate.AuthPrompt prompt,
+            @NonNull String username, @NonNull String password,
+            boolean dismiss) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            try {
+                if (dismiss) {
+                    pending.complete(prompt.dismiss());
+                } else {
+                    pending.complete(prompt.confirm(username, password));
+                }
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "auth pending complete threw", t);
+            }
+        });
     }
 
     private static String hostOf(@NonNull String uri) {
