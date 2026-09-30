@@ -207,6 +207,47 @@ public final class GeckoWebViewFactoryProvider
         return serviceWorkerController();
     }
 
+    // PAC: each createPacProcessor() returns a fresh evaluator-bound
+    // instance (CTS asserts distinct objects). Needs a live GeckoSession
+    // for script eval — served from the most recent live provider backend,
+    // else an inert instance whose queries answer null (never throw: the
+    // framework default is "Not implemented", which kills the CTS process).
+    @Override
+    @NonNull
+    public android.webkit.PacProcessor createPacProcessor() {
+        return new android.webkit.SinytraPacProcessor((script, callback) -> {
+            GeckoWebViewProvider backend = latestBackend();
+            if (backend != null) {
+                try {
+                    backend.evaluateJavascriptBridge(script, callback);
+                    return;
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG, "pac eval threw", t);
+                }
+            }
+            callback.onReceiveValue(null);
+        });
+    }
+
+    @Override
+    @NonNull
+    public android.webkit.PacProcessor getPacProcessor() {
+        return createPacProcessor();
+    }
+
+    @Nullable
+    private GeckoWebViewProvider latestBackend() {
+        synchronized (mWebViews) {
+            java.util.Iterator<GeckoWebViewProvider> it =
+                    mWebViews.values().iterator();
+            GeckoWebViewProvider last = null;
+            while (it.hasNext()) {
+                last = it.next();
+            }
+            return last;
+        }
+    }
+
     @Override
     @Nullable
     public org.mozilla.geckowebview.storage.GeckoServiceWorkerController

@@ -640,6 +640,12 @@ public final class GeckoWebViewProvider
     @Override public void evaluateJavaScript(String script, ValueCallback<String> resultCallback) {
         mJs.evaluate(script, resultCallback);
     }
+
+    // Test seam + PAC evaluator entry: raw JsBridge eval surface.
+    void evaluateJavascriptBridge(@NonNull String script,
+            @NonNull ValueCallback<String> callback) {
+        mJs.evaluate(script, callback);
+    }
     @Override public void saveWebArchive(String filename) { throw todo("saveWebArchive"); }
     @Override public void saveWebArchive(String basename, boolean autoname,
             ValueCallback<String> callback) {
