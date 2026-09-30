@@ -570,12 +570,72 @@ public final class GeckoWebViewProvider
         return new GeckoBackForwardList(mBridge.historySnapshot());
     }
     @Override public void postUrl(String url, byte[] postData) { throw todo("postUrl"); }
+    // Chromium semantics: data is loaded as-is; baseUrl only resolves
+    // relative URLs inside it; historyUrl (when non-null) is shown in the
+    // address bar / history INSTEAD of the data: URL. Gecko's Loader has
+    // no base/history split — it produces one data: URI — so baseUrl is
+    // honored by injecting a <base href> (first 2MB: DATA_URI_MAX_LENGTH),
+    // and historyUrl is an honest gap (Gecko history records the data: URI).
+    // encoding is Chromium's legacy charset label ("base64" or text charset);
+    // unknown encodings fall back to UTF-8 percent-encoding, never throw.
     @Override public void loadData(String data, String mimeType, String encoding) {
-        throw todo("loadData");
+        loadDataWithBaseURL(null, data, mimeType, encoding, null);
     }
     @Override public void loadDataWithBaseURL(String baseUrl, String data, String mimeType,
             String encoding, String historyUrl) {
-        throw todo("loadDataWithBaseURL");
+        try {
+            String body = data != null ? data : "";
+            String type = mimeType != null && !mimeType.isEmpty()
+                    ? mimeType : "text/html";
+            String html = body;
+            if (baseUrl != null && !baseUrl.isEmpty()
+                    && type.startsWith("text/html")) {
+                html = "<base href=\"" + baseUrl.replace("\"", "%22") + "\">"
+                        + body;
+            }
+            String payload;
+            if ("base64".equalsIgnoreCase(encoding)) {
+                try {
+                    payload = android.util.Base64.encodeToString(
+                            html.getBytes("UTF-8"),
+                            android.util.Base64.NO_WRAP);
+                } catch (java.io.UnsupportedEncodingException e) {
+                    payload = android.util.Base64.encodeToString(
+                            html.getBytes(), android.util.Base64.NO_WRAP);
+                }
+                mBridge.session().load(
+                        new GeckoSession.Loader().data(
+                                android.util.Base64.decode(payload,
+                                        android.util.Base64.DEFAULT),
+                                type));
+            } else {
+                String charset = encoding != null && !encoding.isEmpty()
+                        ? encoding : "UTF-8";
+                try {
+                    payload = java.net.URLEncoder.encode(html, charset)
+                            .replace("+", "%20");
+                } catch (java.io.UnsupportedEncodingException e) {
+                    android.util.Log.w(TAG,
+                            "loadDataWithBaseURL: unknown encoding "
+                                    + encoding + ", falling back to UTF-8");
+                    try {
+                        payload = java.net.URLEncoder.encode(html, "UTF-8")
+                                .replace("+", "%20");
+                    } catch (java.io.UnsupportedEncodingException impossible) {
+                        payload = html;
+                    }
+                }
+                mBridge.session().load(
+                        new GeckoSession.Loader().data(payload, type));
+            }
+            if (historyUrl != null && !historyUrl.isEmpty()) {
+                android.util.Log.d(TAG, "loadDataWithBaseURL: historyUrl "
+                        + historyUrl + " has no Gecko primitive; history "
+                        + "records the data: URI");
+            }
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "loadDataWithBaseURL threw", t);
+        }
     }
     @Override public void evaluateJavaScript(String script, ValueCallback<String> resultCallback) {
         mJs.evaluate(script, resultCallback);
