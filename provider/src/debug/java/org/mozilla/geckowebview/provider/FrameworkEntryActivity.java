@@ -108,8 +108,13 @@ public final class FrameworkEntryActivity extends Activity {
             }
             out.append("PASS layoutParams via PrivateAccess\n");
 
-            // 3) Load + title through the framework API surface.
+            // 3) Load + title through the framework API surface. JS is
+            // off by default (Chromium parity, pushed live since the
+            // settings-push fix) — and our own page-world transport
+            // needs it too. Any real app showing interactive pages
+            // enables it; so does this probe.
             onUi(() -> {
+                webView.getSettings().setJavaScriptEnabled(true);
                 webView.loadUrl("https://example.com/");
                 return null;
             });
