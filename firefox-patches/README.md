@@ -38,6 +38,7 @@
 | 0010 | ACCESS_NETWORK_STATE 缺失降级 | 全局健壮性（WebView 语义） | 宿主缺权限时 GeckoNetworkManager 主线程 SecurityException 杀宿主（设计文档 `0010-network-state-permission-guard.md`） | **已定稿**：`0010-network-state-permission-guard.patch`（@ `1ddf48b43e23`）；mywebview（缺权限宿主）存活验证 |
 | 0011 | Cookie 读写域收敛 | `getCookie` 域/path 精确 + `setCookie` RFC 默认 path | getCookiesFromHost 是 base-domain 级（漏 sibling 域），读缺 path/secure/expiry 过滤；写缺 Path 属性时硬编码 "/" 与服务端/JS 设的 cookie 分键导致同名重复（设计见 patch 头注释；ms 单位依据 nsICookie.idl） | **已定稿**：`0011-cookie-read-scoping.patch`（squash 两 commits 为一）；设备 bareCookie/CTS-exact 双探针 + harness 回归 |
 | 0012 | 响应问询资源面 | `shouldInterceptRequest` 的资源类型/触发页（图片/混合内容/文件策略执行） | 0002 问询面只有 uri/method/headers：policy 执行（blockNetworkImage、mixed-content、file-access）无从判断 subresource 类型与所属页面，只能嗅 URL（设计见 patch 头注释） | **已定稿**：`0012-response-resource-face.patch`（C++ bundle 加 contentPolicyType + triggerUri；WebRequestInfo 加同名字段；nsIContentPolicy TYPE_* 值为准） |
+| 0013 | resource://android 指向 provider APK | `evaluateJavascript` / `addJavascriptInterface` / `postMessage` / console / 一切依赖内置 sinytra-js 扩展的 API | `GeckoAppShell.getPackageResourcePath()` 返回宿主 APK 路径 → `resource://android/assets/sinytra-js/manifest.json` 在宿主包内不存在 → 扩展加载失败（NS_ERROR_FILE_NOT_FOUND）→ JS transport 死 → PostMessage 8 全灭 + console/beforeunload/Geo 用例失败（CTS pid 20099 logcat 实锤） | **已定稿**：`0013-resource-android-provider-apk.patch`（与 0008 同逻辑：classloader-derived provider APK 路径；`nsResProtocolHandler::GetApkURI` 经 JNI 调此方法）；待 AAR-44 重构建验证 |
 
 设计文档：`0001/0002/0003/0006/0007/0008/0009/0010-*.md`（树内勘察、地基选型、边界、测试计划）。
 

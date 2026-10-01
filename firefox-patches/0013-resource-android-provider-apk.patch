@@ -1,0 +1,69 @@
+From 9202aa4ffce7a8d8ed07cd0b3f324a6aff23983e Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Thu, 1 Oct 2026 15:33:42 +0800
+Subject: [PATCH] Sinytra patch 0013: resource://android resolves to provider
+ APK
+
+In a System-WebView provider context, getApplicationContext() returns
+the host app's context, so getPackageResourcePath() would return the
+host APK path. This breaks resource://android/assets/... URIs (used by
+the internal sinytra-js WebExtension): nsResProtocolHandler::GetApkURI
+calls GeckoAppShell::getPackageResourcePath via JNI, constructs
+jar:file://<host-apk>!/..., and file-not-found kills the extension load.
+
+Symptom: PostMessage 8 fail + console/beforeunload/Geo-accept failures
+in CTS (pid 20099 logcat shows 'Error while loading manifest.json
+(NS_ERROR_FILE_NOT_FOUND)').
+
+Solution: Use the same classloader-derived provider APK resolution as
+GeckoThread.getOmnijarApk (patch 0008). Regular embedders unaffected:
+their classloader resolves to the context APK, fallback returns it.
+---
+ .../java/org/mozilla/gecko/GeckoAppShell.java | 29 ++++++++++++++++++-
+ 1 file changed, 28 insertions(+), 1 deletion(-)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoAppShell.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoAppShell.java
+index be91e2d312e8..17e44131b0e6 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoAppShell.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/GeckoAppShell.java
+@@ -1457,9 +1457,36 @@ public class GeckoAppShell {
+     }
+   }
+ 
++  // Sinytra patch 0013 (2026-10-01): resource://android must resolve to the
++  // provider APK, not the host APK. This is the C++ side of the resource protocol
++  // (nsResProtocolHandler::GetApkURI calls this via JNI). In a System-WebView
++  // provider context, getApplicationContext() returns the host app's context,
++  // so resource://android/assets/sinytra-js/manifest.json would resolve to
++  // jar:file://<host-apk>!/assets/sinytra-js/manifest.json (which does not exist).
++  // The internal WebExtension then fails to load, killing eval/postMessage/console.
++  // Use the same classloader-derived logic as GeckoThread.getOmnijarApk (0008).
+   @WrapForJNI
+   public static String getPackageResourcePath() {
+-    return getApplicationContext().getPackageResourcePath();
++    final Context context = getApplicationContext();
++    final String resourcePath = context.getPackageResourcePath();
++    try {
++      final String mozglue =
++          ((dalvik.system.BaseDexClassLoader) GeckoAppShell.class.getClassLoader())
++              .findLibrary("mozglue");
++      if (mozglue != null) {
++        final int apkSplit = mozglue.lastIndexOf("!/");
++        if (apkSplit > 0) {
++          final String apk = mozglue.substring(0, apkSplit);
++          if (!apk.equals(resourcePath)) {
++            Log.w(LOGTAG, "resource://android: using provider apk " + apk);
++            return apk;
++          }
++        }
++      }
++    } catch (final Throwable t) {
++      Log.w(LOGTAG, "resource://android: context apk fallback", t);
++    }
++    return resourcePath;
+   }
+ 
+   @WrapForJNI(calledFrom = "any")
+-- 
+2.56.0
+
