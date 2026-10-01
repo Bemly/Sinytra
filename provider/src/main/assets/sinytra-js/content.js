@@ -170,7 +170,7 @@ function onPollAnswer(raw) {
   }
   const req = {id: msg.id, kind: msg.kind};
   for (const k of ["script", "iface", "method", "args", "port", "data",
-    "origin", "methods", "callId", "ok", "value", "error"]) {
+    "origin", "methods", "callId", "ok", "value", "error", "ports"]) {
     if (msg[k] !== undefined) {
       req[k] = msg[k];
     }
@@ -336,7 +336,8 @@ function routeShimMessage(d) {
   }
   if (d.portDeliver === true) {
     sendToApp({kind: "event", name: "port-deliver",
-      payload: {port: d.port, data: d.data, origin: d.origin || ""}});
+      payload: {port: d.port, data: d.data, origin: d.origin || "",
+        stub: d.stub === true}});
   }
 }
 

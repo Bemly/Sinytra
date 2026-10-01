@@ -278,11 +278,26 @@ public final class JsBridge {
 
     public void postToPage(@NonNull String portId, @NonNull String data,
             @Nullable String origin) {
+        postToPage(portId, data, origin,
+                java.util.Collections.emptyList());
+    }
+
+    // Transferred ports (app-to-page MessagePort transfer): Java port ids
+    // the shim exposes as stub ports on the delivered MessageEvent.
+    public void postToPage(@NonNull String portId, @NonNull String data,
+            @Nullable String origin, @NonNull java.util.List<String> transferred) {
         try {
             JSONObject payload = new JSONObject();
             payload.put("port", portId);
             payload.put("data", data);
             payload.put("origin", origin != null ? origin : JSONObject.NULL);
+            org.json.JSONArray ports = new org.json.JSONArray();
+            for (String id : transferred) {
+                if (id != null) {
+                    ports.put(id);
+                }
+            }
+            payload.put("ports", ports);
             postRequest("port", payload, value -> {
             });
         } catch (Throwable t) {

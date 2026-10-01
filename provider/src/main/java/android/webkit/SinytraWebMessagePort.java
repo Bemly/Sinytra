@@ -35,9 +35,10 @@ import androidx.annotation.Nullable;
 //   the receiving port; MessageBridge's bare callback surface passes null,
 //   so the wrapper below substitutes `this`).
 //
-// Honest gap: WebMessage port transfer is not routed — the JsBridge
-// transport has no transferable-port primitive (MessageBridge header
-// records the same gap). Message data rides the transport.
+// Honest gap: page-created port transfer is not routed — the JsBridge
+// transport has no transferable-port primitive at the Gecko level.
+// App-to-page transfer IS supported (shim-side stub ports carrying the
+// Java port id; Message data rides the transport).
 public final class SinytraWebMessagePort extends WebMessagePort {
 
     // Route surface injected by the provider — keeps this class free of

@@ -25,12 +25,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 //   verified by boundary round-trip).
 //
 // Honest gaps (never silently wrong):
-// - MessagePorts are logical endpoints, not transferable: the ENTANGLED
-//   pair in createWebMessageChannel shares nothing (the JsBridge
-//   transport has no transferable-port primitive — a transport gap, not
-//   a subclass gap); setCallback/postMessage on a port work end-to-end
-//   (page MessageEvent <-> callback) via both surfaces, transfer between
-//   frames does not.
+// - Page-created ports (page.postMessage with transfer, or a port the
+//   page itself news up) cannot be entangled: the transport has no
+//   transferable-port primitive at the Gecko level (needs MessagePort
+//   IPDL plumbing — a P2 firefox-patch). App-to-page transfer IS
+//   supported (shim-side stub ports, see handlePort); page-to-app
+//   transfer and getPorts stay unimplemented.
 // - postToMainFrame fans out to every open port with a callback (Chromium
 //   delivers to the page; without frame addressing this is the closest
 //   honest mapping). Target-origin filtering is recorded, not enforced —
@@ -55,6 +55,27 @@ public final class MessageBridge {
     private final AtomicInteger mNextId = new AtomicInteger(1);
     private final Map<String, Port> mPorts = new ConcurrentHashMap<>();
     private final Map<String, String> mPending = new ConcurrentHashMap<>();
+    // Entangled pairs (createChannel links both ids) + per-port queues:
+    // a page round-trip answer routes to the PAIR (Chromium entanglement),
+    // queued while the pair has no callback (Chromium queues port
+    // messages; setCallback drains in order). The no-transport local
+    // fallback below intentionally keeps same-port delivery (unit-locked
+    // honest behavior when no page exists at all).
+    private final Map<String, String> mPairs = new ConcurrentHashMap<>();
+    private final Map<String, java.util.List<Queued>> mQueues =
+            new ConcurrentHashMap<>();
+
+    private static final class Queued {
+        @NonNull
+        final String data;
+        @Nullable
+        final String origin;
+
+        Queued(@NonNull String data, @Nullable String origin) {
+            this.data = data;
+            this.origin = origin;
+        }
+    }
     @Nullable
     private final Host mHost;
     @Nullable
@@ -83,12 +104,17 @@ public final class MessageBridge {
         Port b = new Port("sinytra-port-" + mNextId.getAndIncrement());
         mPorts.put(a.id, a);
         mPorts.put(b.id, b);
+        mPairs.put(a.id, b.id);
+        mPairs.put(b.id, a.id);
         return new Port[] {a, b};
     }
 
     public void setCallback(@NonNull Port port,
             @Nullable android.webkit.WebMessagePort.WebMessageCallback callback) {
         port.callback = callback;
+        if (callback != null) {
+            drainQueue(port);
+        }
     }
 
     public void postMessage(@NonNull Port port, @NonNull String data,
@@ -105,9 +131,22 @@ public final class MessageBridge {
     }
 
     public void postToMainFrame(@NonNull String data, @Nullable String targetOrigin) {
+        postToMainFrame(data, targetOrigin,
+                java.util.Collections.emptyList());
+    }
+
+    public void postToMainFrame(@NonNull String data,
+            @Nullable String targetOrigin,
+            @NonNull java.util.List<Port> transferred) {
         JsBridge bridge = mTransport;
         if (bridge != null && bridge.isReady()) {
-            bridge.postToPage("__main__", data, targetOrigin);
+            java.util.List<String> ids = new java.util.ArrayList<>();
+            for (Port port : transferred) {
+                if (port != null && mPorts.containsKey(port.id)) {
+                    ids.add(port.id);
+                }
+            }
+            bridge.postToPage("__main__", data, targetOrigin, ids);
         }
         for (Port port : mPorts.values()) {
             if (port.callback != null) {
@@ -121,6 +160,11 @@ public final class MessageBridge {
     public void close(@NonNull Port port) {
         mPorts.remove(port.id);
         mPending.remove(port.id);
+        mQueues.remove(port.id);
+        String pair = mPairs.remove(port.id);
+        if (pair != null) {
+            mPairs.remove(pair);
+        }
         port.callback = null;
     }
 
@@ -133,8 +177,11 @@ public final class MessageBridge {
         return mPorts.size();
     }
 
-    // Page replied on a port (shim re-broadcast it as port-deliver):
-    // deliver to the matching port's callback + Host fan-out.
+    // Page round-trip answer (shim port-deliver event): route to the
+    // ENTANGLED pair (Chromium), queued while the pair has no callback.
+    // Direct-post acks land here with the sender id and park on the pair
+    // (never loop back to the sender); page-stub posts carry the Java
+    // port id whose pair owns the callback. Host fan-out preserved.
     private void onPortDeliver(@Nullable org.json.JSONObject payload) {
         if (payload == null) {
             return;
@@ -143,6 +190,21 @@ public final class MessageBridge {
         String data = payload.optString("data", null);
         String origin = payload.optString("origin", null);
         if (portId == null || data == null) {
+            return;
+        }
+        String pairId = mPairs.get(portId);
+        Port target = pairId != null ? mPorts.get(pairId) : null;
+        if (target != null && target.callback != null) {
+            deliverLocal(target, data, origin);
+            return;
+        }
+        if (target != null) {
+            java.util.List<Queued> queue = mQueues.get(pairId);
+            if (queue == null) {
+                queue = new java.util.ArrayList<>();
+                mQueues.put(pairId, queue);
+            }
+            queue.add(new Queued(data, origin));
             return;
         }
         Port port = mPorts.get(portId);
@@ -154,6 +216,16 @@ public final class MessageBridge {
             } catch (Throwable t) {
                 android.util.Log.w("Sinytra/message", "host onMessage threw", t);
             }
+        }
+    }
+
+    private void drainQueue(@NonNull Port port) {
+        java.util.List<Queued> queue = mQueues.remove(port.id);
+        if (queue == null) {
+            return;
+        }
+        for (Queued queued : queue) {
+            deliverLocal(port, queued.data, queued.origin);
         }
     }
 

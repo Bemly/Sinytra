@@ -350,7 +350,10 @@ final class P2TransportProbes {
                                 throw new UnsupportedOperationException(
                                         "boundary callback: " + method.getName());
                             };
-                    ports[1].invoke(null, setCallbackM, new Object[] {callback});
+                    // Entangled-pair shape (Chromium): post on ports[1],
+                    // listen on ports[0]. The echo trips the page and the
+                    // bridge routes it to the pair.
+                    ports[0].invoke(null, setCallbackM, new Object[] {callback});
                     java.lang.reflect.Method postMessageM =
                             org.chromium.support_lib_boundary
                                     .WebMessagePortBoundaryInterface.class
@@ -424,11 +427,12 @@ final class P2TransportProbes {
                     .append('\n');
 
             // --- P2-3 framework-typed port round-trip (SinytraWebMessagePort)
-            // The framework face rides the same MessageBridge/JsBridge page
-            // transport as the boundary probe above: post on ports[1], the
-            // shim loops it back to the same port id, the callback fires.
-            // Chromium parity locked here: onMessage receives the port
-            // ITSELF (not null), and closed ports throw IllegalStateException.
+            // Entangled-pair shape (Chromium): post on ports[1], listen on
+            // ports[0]. The echo trips the same MessageBridge/JsBridge page
+            // transport as the boundary probe above; the bridge routes the
+            // page round-trip to the entangled pair. Chromium parity locked
+            // here: onMessage receives the port ITSELF (not null), and
+            // closed ports throw IllegalStateException.
             final WebMessagePort[][] fwPorts = new WebMessagePort[1][];
             final String[] fwData = new String[1];
             final Throwable[] fwError = new Throwable[1];
@@ -442,12 +446,12 @@ final class P2TransportProbes {
                                         + (ports == null ? "null" : ports.length));
                     }
                     fwPorts[0] = ports;
-                    ports[1].setWebMessageCallback(
+                    ports[0].setWebMessageCallback(
                             new WebMessagePort.WebMessageCallback() {
                                 @Override
                                 public void onMessage(WebMessagePort port,
                                         WebMessage message) {
-                                    if (port != fwPorts[0][1]) {
+                                    if (port != fwPorts[0][0]) {
                                         fwError[0] = new IllegalStateException(
                                                 "onMessage port != receiver");
                                     }
@@ -473,23 +477,25 @@ final class P2TransportProbes {
             }
             // Closed-port + callback-once semantics (Chromium parity):
             // close drops exactly one bridge port; postMessage after close
-            // and a second setWebMessageCallback both throw ISE.
+            // and a second setWebMessageCallback both throw ISE. The
+            // listener lives on ports[0] now (pair shape above), so close
+            // the poster half and re-set on the listener half.
             final int fwPortsBeforeClose = provider.messagePortCount();
             final Throwable[] fwCloseError = new Throwable[1];
             final CountDownLatch fwCloseDone = new CountDownLatch(1);
             activity.runOnUiThread(() -> {
                 try {
                     WebMessagePort[] ports = fwPorts[0];
-                    ports[0].close();
+                    ports[1].close();
                     try {
-                        ports[0].postMessage(new WebMessage("after-close"));
+                        ports[1].postMessage(new WebMessage("after-close"));
                         fwCloseError[0] = new IllegalStateException(
                                 "postMessage after close did not throw");
                     } catch (IllegalStateException expected) {
                         // Chromium parity
                     }
                     try {
-                        ports[1].setWebMessageCallback(
+                        ports[0].setWebMessageCallback(
                                 new WebMessagePort.WebMessageCallback() { });
                         fwCloseError[0] = new IllegalStateException(
                                 "second setWebMessageCallback did not throw");

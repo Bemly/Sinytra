@@ -229,14 +229,26 @@
 
   function handlePort(msg) {
     // postWebMessage from the app: deliver to page listeners as a
-    // MessageEvent, like Chromium's postMessageToMainFrame.
+    // MessageEvent, like Chromium's postMessageToMainFrame. Transferred
+    // Java ports (msg.ports: bridge port ids) surface as stub ports on
+    // the event: page posts on them route back into MessageBridge and
+    // fan out to the entangled Java callback. Stubs support postMessage
+    // (+close/onmessage-property for shape); page-created transfer and
+    // addEventListener on stubs stay unsupported (honest gaps).
     try {
+      const stubs = [];
+      for (const javaId of msg.ports || []) {
+        if (typeof javaId !== "string") {
+          continue;
+        }
+        stubs.push(makeStubPort(javaId));
+      }
       const event = new MessageEvent("message", {
         data: msg.data,
         origin: msg.origin || "",
       });
       try {
-        Object.defineProperty(event, "ports", {value: []});
+        Object.defineProperty(event, "ports", {value: stubs});
       } catch (e) {
       }
       window.dispatchEvent(event);
@@ -246,6 +258,19 @@
     } catch (e) {
       reply(msg.id, false, null, String((e && e.message) || e));
     }
+  }
+
+  function makeStubPort(javaId) {
+    return {
+      postMessage: function (data) {
+        queueWrite({portDeliver: true, stub: true, port: javaId,
+          data: String(data === undefined || data === null ? "" : data),
+          origin: ""});
+      },
+      close: function () {
+      },
+      onmessage: null,
+    };
   }
 
   // Content-script requests arrive through the DOM attribute mailbox
