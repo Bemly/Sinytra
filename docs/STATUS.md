@@ -780,6 +780,9 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   GV153 勘察依据（结论在 158 上依然成立）。
 - 待用户决策（sibling 内，不可逆，未动手）：删 `sinytra-pin` 分支
   与否、删 `objdir-opt`（~20G 级）与否。
+  → **已执行（2026-10-01，用户拍板）**：`sinytra-pin` 分支已删（原
+  `62b7b46e280e`；153 版 patch 历史以本仓 `firefox-patches/` 文件为准，
+  无丢失）、`objdir-opt`（22G）已删。158 线是唯一线。
 
 ## 2. 下一步（按顺序，一次做一件）
 
