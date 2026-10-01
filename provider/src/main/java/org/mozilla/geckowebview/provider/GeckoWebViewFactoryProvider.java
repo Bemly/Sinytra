@@ -402,7 +402,7 @@ public final class GeckoWebViewFactoryProvider
 
         @Override
         public String getDefaultUserAgent(Context context) {
-            return System.getProperty("http.agent", "Mozilla/5.0 (Linux; Android 14)");
+            return ChromiumUa.forDevice();
         }
 
         @Override

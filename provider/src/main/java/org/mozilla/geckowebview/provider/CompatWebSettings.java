@@ -1,6 +1,7 @@
 package org.mozilla.geckowebview.provider;
 
 import android.webkit.WebSettings;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import org.mozilla.geckowebview.settings.GeckoWebSettings;
 
@@ -294,8 +295,15 @@ final class CompatWebSettings extends WebSettings {
     }
 
     @Override public String getUserAgentString() {
+        // Unset means the Chromium-shaped default (user拍板: compat
+        // surface, see ChromiumUa) — never "" and never null.
         String ua = mDelegate.getUserAgentString();
-        return ua != null ? ua : "";
+        return ua != null ? ua : ChromiumUa.forDevice();
+    }
+
+    @NonNull
+    String resolvedUserAgentString() {
+        return getUserAgentString();
     }
 
     @Override public void setNeedInitialFocus(boolean flag) {

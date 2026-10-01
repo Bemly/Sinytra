@@ -438,9 +438,12 @@ public final class GeckoWebViewProvider
         try {
             org.mozilla.geckowebview.settings.GeckoWebSettings state =
                     mSettings.gecko();
+            // Resolved UA is never null: custom verbatim, else the
+            // Chromium-shaped default — so the wire UA equals the
+            // settings default (CTS testAccessUserAgentString echoes it).
             mBridge.applyWebSettings(state.getJavaScriptEnabled(),
-                    state.getUserAgentString(), state.getDesktopMode(),
-                    state.getUseWideViewPort());
+                    mSettings.resolvedUserAgentString(),
+                    state.getDesktopMode(), state.getUseWideViewPort());
         } catch (Throwable t) {
             android.util.Log.w(TAG, "pushSettings threw", t);
         }
