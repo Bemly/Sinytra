@@ -1,0 +1,123 @@
+From a7a9cbd4cb338172d8a563caf4e27420e1a55479 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Thu, 1 Oct 2026 09:16:05 +0800
+Subject: [PATCH] Sinytra patch 0012: resource type + trigger URI on the
+ response query
+
+The embedder cannot enforce WebSettings image/block/mixed-content
+policy from uri/method/headers alone (no resource type, no page URL).
+Plumb the nsILoadInfo content-policy type and the loading principal
+URI through the 0001 query bundle into WebRequestInfo fields.
+---
+ .../geckoview/GeckoViewResponseController.cpp | 30 +++++++++++++++++++
+ .../org/mozilla/geckoview/WebRequestInfo.java | 21 +++++++++++--
+ 2 files changed, 49 insertions(+), 2 deletions(-)
+
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.cpp b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+index d02b2cce1bed..3b1cb4b2bb10 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.cpp
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+@@ -18,6 +18,7 @@
+ #include "nsIHttpChannel.h"
+ #include "nsIHttpHeaderVisitor.h"
+ #include "nsILoadInfo.h"
++#include "nsIPrincipal.h"
+ #include "nsNetUtil.h"
+ #include "nsIObserverService.h"
+ #include "mozilla/dom/ServiceWorkerInterceptController.h"
+@@ -493,6 +494,35 @@ GeckoViewResponseController::ChannelIntercepted(
+                       policyType == ExtContentPolicy::TYPE_SUBDOCUMENT;
+   bool isTopLevel = policyType == ExtContentPolicy::TYPE_DOCUMENT;
+ 
++  // 0012: resource-type fidelity — the raw content-policy type (image vs
++  // script vs ...) plus the triggering principal URI (the page, for
++  // mixed-content checks). The embedder needs both to enforce
++  // WebSettings image/block/mixed-content policy without sniffing URLs.
++  nsAutoCString triggerSpec;
++  if (intercepted) {
++    nsCOMPtr<nsILoadInfo> info = intercepted->LoadInfo();
++    if (info) {
++      nsCOMPtr<nsIPrincipal> principal;
++      if (NS_SUCCEEDED(info->GetLoadingPrincipal(getter_AddRefs(principal))) &&
++          principal) {
++        nsCOMPtr<nsIURI> triggerUri;
++        if (NS_SUCCEEDED(principal->GetURI(getter_AddRefs(triggerUri))) &&
++            triggerUri) {
++          triggerUri->GetSpec(triggerSpec);
++        }
++      }
++    }
++  }
++  JS::Rooted<JS::Value> policyValue(
++      cx, JS::Int32Value(static_cast<int32_t>(policyType)));
++  JS_SetProperty(cx, data, "contentPolicyType", policyValue);
++  JS::Rooted<JS::Value> triggerValue(
++      cx, JS::StringValue(JS_NewStringCopyN(cx, triggerSpec.get(),
++                                            triggerSpec.Length())));
++  if (triggerValue.isString()) {
++    JS_SetProperty(cx, data, "triggerUri", triggerValue);
++  }
++
+   JS_SetProperty(cx, data, "isNavigation",
+                  isNavigation ? JS::TrueHandleValue
+                               : JS::FalseHandleValue);
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java
+index 7396664c7979..3c8f3089fb81 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/WebRequestInfo.java
+@@ -12,6 +12,8 @@ import org.mozilla.gecko.util.GeckoBundle;
+  *
+  * Sinytra firefox-patches/0001: v1 carried uri + isNavigation. 0002 adds the
+  * request surface: method, request headers and the top-level distinction.
++ * 0012 adds the resource type (nsIContentPolicy TYPE_* int) and the
++ * triggering principal URI (the loading page, "" when unavailable).
+  */
+ public final class WebRequestInfo {
+   /** The URI being loaded. */
+@@ -33,6 +35,16 @@ public final class WebRequestInfo {
+   /** The request method (GET, POST, ...). */
+   public final @NonNull String method;
+ 
++  /**
++   * The nsIContentPolicy content type (TYPE_DOCUMENT=6, TYPE_SUBDOCUMENT=7,
++   * TYPE_IMAGE=3, TYPE_SCRIPT=2, ...; 0 when unknown). Lets the embedder
++   * enforce image/script policy without sniffing URL extensions.
++   */
++  public final int contentPolicyType;
++
++  /** The triggering principal URI (the page); "" when unavailable. */
++  public final @NonNull String triggerUri;
++
+   /**
+    * Request headers flattened to "name:value" pairs (values may contain
+    * ':', split on the FIRST colon). Passed through in full for v2 —
+@@ -42,12 +54,15 @@ public final class WebRequestInfo {
+ 
+   /* package */ WebRequestInfo(final @NonNull String uri,
+       final boolean isNavigation, final boolean isTopLevel,
+-      final @NonNull String method, final @NonNull String[] requestHeaders) {
++      final @NonNull String method, final @NonNull String[] requestHeaders,
++      final int contentPolicyType, final @NonNull String triggerUri) {
+     this.uri = uri;
+     this.isNavigation = isNavigation;
+     this.isTopLevel = isTopLevel;
+     this.method = method;
+     this.requestHeaders = requestHeaders;
++    this.contentPolicyType = contentPolicyType;
++    this.triggerUri = triggerUri;
+   }
+ 
+   /* package */ static WebRequestInfo fromBundle(final GeckoBundle message) {
+@@ -57,6 +72,8 @@ public final class WebRequestInfo {
+         message.getBoolean("isNavigation", false),
+         message.getBoolean("isTopLevel", false),
+         message.getString("method", "GET"),
+-        headers != null ? headers : new String[0]);
++        headers != null ? headers : new String[0],
++        message.getInt("contentPolicyType", 0),
++        message.getString("triggerUri", ""));
+   }
+ }
+-- 
+2.56.0
+

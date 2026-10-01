@@ -36,6 +36,8 @@
 | 0008 | greomni 指向 omni.ja 所在 APK | 全部 API——第三方宿主进程里 Gecko 起不来 | `GeckoThread` 用宿主 APK 拼 `-greomni`，宿主无 omni.ja → 组件清单读不到 → prefs 服务缺失 → XRE_main SEGV（设计文档 `0008-greomni-omnijar.md`） | **已定稿**：`0008-greomni-omnijar.patch`（@ `ae2e75763a03`）；MiniWV/mywebview/Obsidian 三宿主真机复验 |
 | 0009 | child services 跨包解析/绑定 | 同上——XRE 无 child 即死 | 服务在 provider 包 manifest，intent 却按宿主包解析且 `exported=false`（设计文档 `0009-cross-package-child-services.md`） | **已定稿**：`0009-cross-package-child-services.patch`（@ `3c82e42ed1fd`）；child 进程挂 provider uid，宿主渲染正常 |
 | 0010 | ACCESS_NETWORK_STATE 缺失降级 | 全局健壮性（WebView 语义） | 宿主缺权限时 GeckoNetworkManager 主线程 SecurityException 杀宿主（设计文档 `0010-network-state-permission-guard.md`） | **已定稿**：`0010-network-state-permission-guard.patch`（@ `1ddf48b43e23`）；mywebview（缺权限宿主）存活验证 |
+| 0011 | Cookie 读写域收敛 | `getCookie` 域/path 精确 + `setCookie` RFC 默认 path | getCookiesFromHost 是 base-domain 级（漏 sibling 域），读缺 path/secure/expiry 过滤；写缺 Path 属性时硬编码 "/" 与服务端/JS 设的 cookie 分键导致同名重复（设计见 patch 头注释；ms 单位依据 nsICookie.idl） | **已定稿**：`0011-cookie-read-scoping.patch`（squash 两 commits 为一）；设备 bareCookie/CTS-exact 双探针 + harness 回归 |
+| 0012 | 响应问询资源面 | `shouldInterceptRequest` 的资源类型/触发页（图片/混合内容/文件策略执行） | 0002 问询面只有 uri/method/headers：policy 执行（blockNetworkImage、mixed-content、file-access）无从判断 subresource 类型与所属页面，只能嗅 URL（设计见 patch 头注释） | **已定稿**：`0012-response-resource-face.patch`（C++ bundle 加 contentPolicyType + triggerUri；WebRequestInfo 加同名字段；nsIContentPolicy TYPE_* 值为准） |
 
 设计文档：`0001/0002/0003/0006/0007/0008/0009/0010-*.md`（树内勘察、地基选型、边界、测试计划）。
 

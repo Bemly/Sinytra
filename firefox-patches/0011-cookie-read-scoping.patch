@@ -1,14 +1,21 @@
-From 6b755e696792609ece430455f24a76dc35c51a8a Mon Sep 17 00:00:00 2001
+From 7b05f1ff89c7312760ecc7329705dd3f39bb64f6 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
-Date: Wed, 30 Sep 2026 16:08:52 +0800
+Date: Thu, 1 Oct 2026 09:13:32 +0800
 Subject: [PATCH] Sinytra patch 0011: scope GetCookie to exact host+path
 
+- Filter getCookieString by host (exact vs leading-dot domain),
+  RFC 6265 path, secure and expiry (ms units per nsICookie.idl),
+  mirroring CookieService::GetCookiesForURI; getCookiesFromHost
+  alone is base-domain-wide and leaks sibling-subdomain cookies.
+- RFC 6265 5.3 default cookie-path from the request URI (not a
+  hardcoded slash): same-name cookies must replace, not duplicate.
+- Null-guard the add() validation result; drop the warn() spam.
 ---
- .../GeckoViewStorageController.sys.mjs        | 51 +++++++++++++++++--
- 1 file changed, 47 insertions(+), 4 deletions(-)
+ .../GeckoViewStorageController.sys.mjs        | 80 +++++++++++++++++--
+ 1 file changed, 75 insertions(+), 5 deletions(-)
 
 diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
-index be1c525c716d..90ed1c061cac 100644
+index be1c525c716d..5032697d50f1 100644
 --- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
 +++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
 @@ -294,6 +294,9 @@ export const GeckoViewStorageController = {
@@ -21,7 +28,7 @@ index be1c525c716d..90ed1c061cac 100644
    getCookieString(aUriSpec) {
      let uri;
      try {
-@@ -306,10 +309,48 @@ export const GeckoViewStorageController = {
+@@ -306,14 +309,74 @@ export const GeckoViewStorageController = {
        // file:// and friends have no cookie jar.
        return "";
      }
@@ -72,7 +79,33 @@ index be1c525c716d..90ed1c061cac 100644
        .map(c => `${c.name}=${c.value}`)
        .join("; ");
    },
-@@ -322,6 +363,8 @@ export const GeckoViewStorageController = {
+ 
++  // RFC 6265 §5.3 default cookie-path from the request URI.
++  defaultCookiePath(aUri) {
++    let uriPath = "";
++    try {
++      uriPath = aUri.pathQueryRef || "";
++    } catch (e) {
++      return "/";
++    }
++    const q = uriPath.indexOf("?");
++    if (q >= 0) {
++      uriPath = uriPath.slice(0, q);
++    }
++    if (!uriPath.startsWith("/")) {
++      return "/";
++    }
++    const last = uriPath.lastIndexOf("/");
++    if (last <= 0) {
++      return "/";
++    }
++    return uriPath.slice(0, last);
++  },
++
+   // Sinytra: store a Set-Cookie-shaped string. nsICookieService's own
+   // Set-Cookie parser (setCookieStringFromHttp) requires a channel, which a
+   // programmatic set does not have, so parse the common attributes here and
+@@ -322,6 +385,8 @@ export const GeckoViewStorageController = {
    // Chromium.
    setCookie(aUriSpec, aCookieString) {
      // Mirror Chromium: setting fails while cookies are globally rejected.
@@ -81,7 +114,21 @@ index be1c525c716d..90ed1c061cac 100644
      if (
        Services.cookies.getCookieBehavior(false) ===
        Ci.nsICookieService.BEHAVIOR_REJECT
-@@ -433,10 +476,10 @@ export const GeckoViewStorageController = {
+@@ -347,7 +412,12 @@ export const GeckoViewStorageController = {
+     const name = pieces[0].slice(0, eq).trim();
+     const value = pieces[0].slice(eq + 1).trim();
+     let cookieHost = host;
+-    let path = "/";
++    // RFC 6265 §5.3 default-path (Chromium parity): no Path attribute
++    // means the uri-path up to (not including) the right-most "/", or "/"
++    // when there is none. A hardcoded "/" creates a second key next to
++    // server/JS-set cookies and duplicates same-name cookies instead of
++    // replacing them (CTS CookieManagerTest.testAcceptCookie).
++    let path = defaultCookiePath(uri);
+     let isSecure = uri.schemeIs("https");
+     let isHttpOnly = false;
+     let isSession = true;
+@@ -433,10 +503,10 @@ export const GeckoViewStorageController = {
            ? Ci.nsICookie.SCHEME_HTTPS
            : Ci.nsICookie.SCHEME_HTTP
        );
