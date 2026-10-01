@@ -830,6 +830,11 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   flakes 另计）。共同特征：只发生在 CTS 式高频启停/多 tab 堆积下；
   单 WebView 稳态（harness/MiniWV/FrameworkEntry）从未复现。收敛策略：
   串行单测 + fresh-everything 取证，不追 Gecko 原生层。
+- **设备卫生（2026-10-02 实测）**：久测后 load 飙到 15+、MemAvailable
+  掉到 1.4G、thermal 74℃，tab 连 LAUNCHED 都到不了（连带 AMS attach
+  忽略）。`install -r` 之间必清：双 force-stop + `su -c 'echo 3 >
+  /proc/sys/vm/drop_caches'`（实测 1.4G→4.7G），静置数分钟等 load 回落
+  再跑；同版本连续跑不清 child（热复用稳，冷 burst 抖）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
