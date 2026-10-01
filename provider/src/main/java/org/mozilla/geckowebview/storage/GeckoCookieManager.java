@@ -174,10 +174,24 @@ public final class GeckoCookieManager {
         applyPolicy();
         if (callback == null) {
             // Synchronous contract: the op must have landed when we return.
-            blockingOp(() -> controller.setCookie(url, value), Boolean.FALSE);
+            Boolean landed =
+                    blockingOp(() -> controller.setCookie(url, value), Boolean.FALSE);
+            if (!Boolean.TRUE.equals(landed)) {
+                // The jar refused (behavior gate / add() validation) — loud,
+                // or CTS-style set-then-get goes hunting a ghost.
+                Log.w(TAG, "setCookie refused url=" + url + " value=" + value);
+            }
             return;
         }
-        asyncOp(() -> controller.setCookie(url, value), callback);
+        asyncOp(
+                () -> controller.setCookie(url, value),
+                accepted -> {
+                    if (!accepted) {
+                        Log.w(TAG, "setCookie refused url=" + url + " value="
+                                + value);
+                    }
+                    callback.onReceiveValue(accepted);
+                });
     }
 
     @NonNull
@@ -200,7 +214,14 @@ public final class GeckoCookieManager {
             callbackOrDefault(callback, Boolean.FALSE);
             return;
         }
-        asyncOp(controller::removeSessionCookies, callback);
+        // Ordered like Chromium's cookie queue: the clear must have landed
+        // before this returns (a bare clearData dispatch is async inside
+        // Gecko and could otherwise overtake a later set). The app
+        // callback still fires on the UI thread.
+        Boolean removed =
+                blockingOp(controller::removeSessionCookies, Boolean.FALSE);
+        Handler main = mainHandler();
+        main.post(() -> callbackOrDefault(callback, removed));
     }
 
     public void removeAllCookies(@Nullable ValueCallback<Boolean> callback) {
@@ -342,8 +363,12 @@ public final class GeckoCookieManager {
             callbackOrDefault(callback, Boolean.FALSE);
             return;
         }
-        asyncOp(() -> controller.clearData(flags).map(v -> Boolean.TRUE),
-                callback);
+        // Same ordering contract as removeSessionCookies above.
+        Boolean cleared = blockingOp(
+                () -> controller.clearData(flags).map(v -> Boolean.TRUE),
+                Boolean.FALSE);
+        Handler main = mainHandler();
+        main.post(() -> callbackOrDefault(callback, cleared));
     }
 
     @NonNull
