@@ -84,6 +84,8 @@ final class ClientFanOut
 
     private final Owner mOwner;
     private boolean mFiltersRepushed;
+    @Nullable
+    private String mLastTitle;
 
     ClientFanOut(@NonNull Owner owner) {
         mOwner = owner;
@@ -123,6 +125,9 @@ final class ClientFanOut
 
     @Override
     public void onPageStarted(@NonNull String url) {
+        // New navigation: title dedupe restarts (same title on a new
+        // document still reports).
+        mLastTitle = null;
         if (!mFiltersRepushed) {
             mFiltersRepushed = true;
             try {
@@ -195,6 +200,15 @@ final class ClientFanOut
 
     @Override
     public void onTitleChanged(@Nullable String title) {
+        // Gecko reports the title on parse and again on commit (same value
+        // twice for one load); Chromium reports real changes only. Forward
+        // on change (CTS WebChromeClientTest title queues assert exact
+        // sequences — a duplicate static title breaks them). Provider-layer
+        // last-value bookkeeping (bridge stays stateless per AGENTS.md).
+        if (title != null && title.equals(mLastTitle)) {
+            return;
+        }
+        mLastTitle = title;
         WebChromeClient chrome = mOwner.webChromeClient();
         if (chrome == null) {
             return;
