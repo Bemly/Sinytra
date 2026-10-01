@@ -108,6 +108,35 @@ public final class FrameworkEntryActivity extends Activity {
             }
             out.append("PASS layoutParams via PrivateAccess\n");
 
+            // Fresh-history parity (CTS WebBackForwardListTest /
+            // WebHistoryItemTest): a never-navigated WebView reports an
+            // empty list (Gecko seeds a pristine about:blank document that
+            // Chromium never surfaces).
+            String fresh = onUi(() -> {
+                android.webkit.WebBackForwardList list =
+                        webView.copyBackForwardList();
+                Object currentItem = list.getCurrentItem();
+                String first;
+                try {
+                    first = list.getSize() > 0
+                            ? String.valueOf(list.getItemAtIndex(0).getUrl())
+                            : "(empty)";
+                } catch (Throwable t) {
+                    first = "(threw " + t.getClass().getSimpleName() + ")";
+                }
+                return "size=" + list.getSize() + " index="
+                        + list.getCurrentIndex() + " current="
+                        + (currentItem != null ? "non-null" : "null")
+                        + " first=" + first;
+            });
+            out.append("freshHistory ").append(fresh).append('\n');
+            if (!fresh.startsWith("size=0 index=-1")
+                    || !fresh.contains("current=null")) {
+                throw new IllegalStateException(
+                        "fresh history not Chromium-empty: " + fresh);
+            }
+            out.append("PASS freshHistory empty\n");
+
             // 3) Load + title through the framework API surface. JS is
             // off by default (Chromium parity, pushed live since the
             // settings-push fix) — and our own page-world transport
