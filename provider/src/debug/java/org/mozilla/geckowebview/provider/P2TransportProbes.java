@@ -5,6 +5,7 @@ import android.view.View;
 import android.webkit.WebMessage;
 import android.webkit.WebMessagePort;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import java.lang.reflect.InvocationHandler;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -586,5 +587,72 @@ final class P2TransportProbes {
             }
             out.append("PASS visualSurface child=GeckoView attached=true ")
                     .append("session=live\n");
+
+            // --- loadData one-shot: loadDataWithBaseURL navigates to the
+            // base URL for real (origin-faithful path, not an opaque
+            // data: URI), so getUrl/title/eval all observe the base
+            // identity (CTS PostMessageTest family depends on it).
+            final CountDownLatch ldDone = new CountDownLatch(1);
+            final Throwable[] ldError = new Throwable[1];
+            final WebViewClient[] ldPrevBox = new WebViewClient[1];
+            activity.runOnUiThread(() -> {
+                try {
+                    ldPrevBox[0] = provider.getWebViewClient();
+                    provider.setWebViewClient(new WebViewClient() {
+                        @Override
+                        public void onPageFinished(WebView view, String url) {
+                            if (url != null && url.startsWith("https://")) {
+                                ldDone.countDown();
+                            }
+                        }
+                    });
+                    provider.loadDataWithBaseURL("https://example.com/",
+                            "<html><head><title>Sinytra LoadData</title></head>"
+                                    + "<body>one-shot</body></html>",
+                            "text/html", "UTF-8", null);
+                } catch (Throwable t) {
+                    ldError[0] = t;
+                    ldDone.countDown();
+                }
+            });
+            if (!ldDone.await(60, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("loadData one-shot timeout");
+            }
+            if (ldError[0] != null) {
+                throw new IllegalStateException("loadData one-shot failed",
+                        ldError[0]);
+            }
+            final String[] ldUrl = new String[1];
+            final String[] ldTitle = new String[1];
+            final CountDownLatch ldRead = new CountDownLatch(1);
+            activity.runOnUiThread(() -> {
+                ldUrl[0] = provider.getUrl();
+                ldTitle[0] = provider.getTitle();
+                ldRead.countDown();
+            });
+            ldRead.await(10, TimeUnit.SECONDS);
+            if (!"https://example.com/".equals(ldUrl[0])
+                    || !"Sinytra LoadData".equals(ldTitle[0])) {
+                throw new IllegalStateException(
+                        "loadData identity wrong: url=" + ldUrl[0]
+                                + " title=" + ldTitle[0]);
+            }
+            final String[] ldEval = new String[1];
+            final CountDownLatch ldEvalDone = new CountDownLatch(1);
+            activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                    "document.body ? document.body.textContent : null",
+                    v -> {
+                        ldEval[0] = v;
+                        ldEvalDone.countDown();
+                    }));
+            if (!ldEvalDone.await(45, TimeUnit.SECONDS)
+                    || ldEval[0] == null
+                    || !ldEval[0].replace("\"", "").contains("one-shot")) {
+                throw new IllegalStateException(
+                        "loadData transport dead: " + ldEval[0]);
+            }
+            out.append("PASS loadDataBase url=").append(ldUrl[0]).append('\n');
+            activity.runOnUiThread(
+                    () -> provider.setWebViewClient(ldPrevBox[0]));
     }
 }
