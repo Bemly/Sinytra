@@ -17,8 +17,9 @@
 - sibling checkout 位置：`/Volumes/（U+F8FF 卷）/Projects/firefox`。
   **卷名含 U+F8FF 字面路径经 Bash 传递编码不稳定（实测反复踩）**，一律走
   `~/sinytra-vol` 符号链接或 python 探测；磁盘以该卷为准（非系统盘）
-- 分支：`sinytra-pin-158`（158 线，活跃）；`sinytra-pin`（153 线冻结，
-  0001-0003 的 153 版 patch 历史，objdir-opt 保留可回退）
+- 分支：`sinytra-pin-158`（158 线，唯一活跃线）；`sinytra-pin`
+  （153 线，已退役：2026-10-01 起 r29 NDK 已删，`objdir-opt` 不可再构建；
+  分支仅保留 0001-0003 的 153 版 patch 历史，不再维护）
 - 构建：`mozconfig-158`（独立 `objdir-158`，内容同 mozconfig 仅 objdir 不同；
   每线一个 mozconfig/objdir，互不覆盖）
 
@@ -50,7 +51,7 @@
 
 ```bash
 cd ~/sinytra-vol/Projects/firefox        # U+F8FF 卷名，见 Pin 节
-git checkout sinytra-pin-158             # 158 线（153 线在 sinytra-pin）
+git checkout sinytra-pin-158             # 158 线，唯一活跃线
 export MOZCONFIG="$HOME/sinytra-vol/Projects/firefox/mozconfig-158"
 export MOZBUILD_STATE_PATH="$HOME/sinytra-vol/Projects/mozbuild"
 export PATH="$HOME/.cargo/bin:$PATH"

@@ -411,7 +411,8 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   逐个 cherry-pick，唯一冲突 `ParentChannelListener.cpp` include 区
   （158 重排了 include 列表），其余全部干净/自动合并（注册点逐一复核）。
 - **全量构建 55 分钟全绿**（新 clang 自动拉取，独立 `objdir-158` +
-  `mozconfig-158`；153 线 objdir-opt 保留可回退）。**158 publish 产物
+  `mozconfig-158`；153 线当时保留 `objdir-opt` 可回退——2026-10-01 已退役，
+  见 §1u）。**158 publish 产物
   artifactId 变为 `geckoview-default`**，`substitute-local-geckoview.gradle`
   把 nightly 坐标换成本地 geckoview-default——已验证咬合。
 - **provider 接线**（`d2cafc0`）：compileSdk 36→**37.2**（158 的
@@ -764,6 +765,21 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   个人设备 root 环境，接受并记录。
 - **MiniWV 残留观察**：首跳 `evaluateJavascript` 在第三方宿主里仍可能
   honest-null（transport 竞争，与 harness 同口径，重试即达）。
+
+## 1u. 153 线退役（2026-10-01，用户拍板：全部到 158）
+
+- `mozbuild/android-ndk-r29`（3.1G）已删，现构建链只用 r30
+  （`objdir-158/config.status` 14 处引用核实）；`objdir-opt`（153 线）
+  因此不可再构建，sibling `sinytra-pin` 分支仅保留 0001–0003 的 153 版
+  patch 历史，不再维护。
+- 活文档已清到 158：AGENTS 顶部 pin 注记、`provider/build.gradle`
+  objdir 注释、`firefox-patches/README.md` 分支/检出说明、本节。
+  以下刻意保留（历史事实，不改写）：STATUS §1b–§1k 的 153 实录与
+  153→158 重放记录、各 patch 设计文档的原始基线注记、
+  RELATED-PROJECTS 的取证快照、BOOTSTRAP 的 PoC 注记、代码注释里的
+  GV153 勘察依据（结论在 158 上依然成立）。
+- 待用户决策（sibling 内，不可逆，未动手）：删 `sinytra-pin` 分支
+  与否、删 `objdir-opt`（~20G 级）与否。
 
 ## 2. 下一步（按顺序，一次做一件）
 

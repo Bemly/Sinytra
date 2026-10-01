@@ -10,8 +10,9 @@ plugins {
 def sinytraLocalGecko = (project.findProperty('sinytraLocalGecko') ?: 'false').toBoolean()
 if (sinytraLocalGecko) {
     ext.topsrcdir = file("${rootProject.projectDir}/../firefox").absolutePath
-    // 158 线独立 objdir（objdir-opt 保留给 153 分支）；由 mozconfig-158
-    // （MOZ_OBJDIR=@TOPSRCDIR@/objdir-158）构建产出。
+    // 158 线独立 objdir；由 mozconfig-158
+    // （MOZ_OBJDIR=@TOPSRCDIR@/objdir-158）构建产出。153 线已退役
+    // （objdir-opt 不再构建，r29 NDK 已删）。
     ext.topobjdir = file("${ext.topsrcdir}/objdir-158").absolutePath
     apply from: "${ext.topsrcdir}/substitute-local-geckoview.gradle"
     // PREFER_PROJECT ignores the settings repositories once a project
