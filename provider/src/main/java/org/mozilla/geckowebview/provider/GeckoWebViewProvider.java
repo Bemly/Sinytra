@@ -87,6 +87,7 @@ public final class GeckoWebViewProvider
     private final JavascriptBridge mJsInterfaces;
     private final MessageBridge mMessages;
     private final InterceptBridge mIntercept;
+    private final LoadDataHandler mLoadData;
     private final RenderProcessBridge mRenderProcess;
     // Sinytra 0001: response interception surface (see ResponseBridge).
     private final ResponseBridge mResponseBridge;
@@ -156,6 +157,28 @@ public final class GeckoWebViewProvider
         mJsInterfaces.setTransport(mJsBridge);
         mMessages.setTransport(mJsBridge);
         mIntercept = new InterceptBridge(mFanOut);
+        mLoadData = new LoadDataHandler(new LoadDataHandler.Host() {
+            @Override
+            public void navigateTo(@NonNull String url) {
+                mBridge.loadUrl(url);
+            }
+
+            @Override
+            public void loadDataUri(byte[] data, @NonNull String mimeType) {
+                mBridge.session().load(
+                        new GeckoSession.Loader().data(data, mimeType));
+            }
+
+            @Override
+            public void addInterceptFilter(@NonNull String prefix) {
+                GeckoWebViewProvider.this.addInterceptFilter(prefix);
+            }
+
+            @Override
+            public void logWarning(@NonNull String message) {
+                android.util.Log.w(TAG, message);
+            }
+        });
         mRenderProcess = new RenderProcessBridge();
         mBridge.setExtraDelegates(mFanOut, mFanOut, mFanOut);
         mBridge.setInterceptBridge(mIntercept);
@@ -173,6 +196,14 @@ public final class GeckoWebViewProvider
             @Nullable
             public ResponseBridge.WebResourceResponseHolder shouldIntercept(
                     @NonNull WebRequestInfo info) {
+                // loadData one-shot first (internal, never consults the app).
+                LoadDataHandler.OneShotBody oneShot = info.uri != null
+                        ? mLoadData.consume(info.uri) : null;
+                if (oneShot != null) {
+                    return new ResponseBridge.WebResourceResponseHolder(
+                            oneShot.mimeType, "utf-8", 200,
+                            new java.io.ByteArrayInputStream(oneShot.bytes));
+                }
                 // 0002: the necko query carries the request surface —
                 // isTopLevel maps to WebResourceRequest.isForMainFrame,
                 // method/headers pass through unchanged.
@@ -617,12 +648,24 @@ public final class GeckoWebViewProvider
     @Override public void postUrl(String url, byte[] postData) { throw todo("postUrl"); }
     // Chromium semantics: data is loaded as-is; baseUrl only resolves
     // relative URLs inside it; historyUrl (when non-null) is shown in the
-    // address bar / history INSTEAD of the data: URL. Gecko's Loader has
-    // no base/history split — it produces one data: URI — so baseUrl is
-    // honored by injecting a <base href> (first 2MB: DATA_URI_MAX_LENGTH),
-    // and historyUrl is an honest gap (Gecko history records the data: URI).
+    // address bar / history INSTEAD of the data: URL.
+    //
+    // Origin-faithful path (http(s) target): register a one-shot body for
+    // the target URL and navigate there for real, so the document origin
+    // is the base/history URL — not an opaque data: origin. This is what
+    // makes origin-checked APIs (postWebMessage targetOrigin, cookies,
+    // CORS, SecureContext) behave: the previous data:-URI mapping broke
+    // all of them (CTS PostMessageTest family). Filter registration makes
+    // the necko surface own the URL (0001 query serves the one-shot, the
+    // LoadRequest DENY stands down); subresource loads under the target
+    // still consult the app normally.
+    //
+    // Honest gaps: with both historyUrl and baseUrl set, subresources
+    // resolve against historyUrl (Chromium uses baseUrl) — logged.
+    // Non-http(s) targets keep the legacy data: URI (no necko surface).
     // encoding is Chromium's legacy charset label ("base64" or text charset);
-    // unknown encodings fall back to UTF-8 percent-encoding, never throw.
+    // unknown encodings fall back to UTF-8 (raw bytes for the one-shot
+    // path, percent-encoding for the data: path), never throw.
     @Override public void loadData(String data, String mimeType, String encoding) {
         loadDataWithBaseURL(null, data, mimeType, encoding, null);
     }
@@ -630,59 +673,25 @@ public final class GeckoWebViewProvider
             String encoding, String historyUrl) {
         pushSettings();
         try {
-            String body = data != null ? data : "";
-            String type = mimeType != null && !mimeType.isEmpty()
-                    ? mimeType : "text/html";
-            String html = body;
-            if (baseUrl != null && !baseUrl.isEmpty()
-                    && type.startsWith("text/html")) {
-                html = "<base href=\"" + baseUrl.replace("\"", "%22") + "\">"
-                        + body;
-            }
-            String payload;
-            if ("base64".equalsIgnoreCase(encoding)) {
-                try {
-                    payload = android.util.Base64.encodeToString(
-                            html.getBytes("UTF-8"),
-                            android.util.Base64.NO_WRAP);
-                } catch (java.io.UnsupportedEncodingException e) {
-                    payload = android.util.Base64.encodeToString(
-                            html.getBytes(), android.util.Base64.NO_WRAP);
-                }
-                mBridge.session().load(
-                        new GeckoSession.Loader().data(
-                                android.util.Base64.decode(payload,
-                                        android.util.Base64.DEFAULT),
-                                type));
-            } else {
-                String charset = encoding != null && !encoding.isEmpty()
-                        ? encoding : "UTF-8";
-                try {
-                    payload = java.net.URLEncoder.encode(html, charset)
-                            .replace("+", "%20");
-                } catch (java.io.UnsupportedEncodingException e) {
-                    android.util.Log.w(TAG,
-                            "loadDataWithBaseURL: unknown encoding "
-                                    + encoding + ", falling back to UTF-8");
-                    try {
-                        payload = java.net.URLEncoder.encode(html, "UTF-8")
-                                .replace("+", "%20");
-                    } catch (java.io.UnsupportedEncodingException impossible) {
-                        payload = html;
-                    }
-                }
-                mBridge.session().load(
-                        new GeckoSession.Loader().data(payload, type));
-            }
-            if (historyUrl != null && !historyUrl.isEmpty()) {
-                android.util.Log.d(TAG, "loadDataWithBaseURL: historyUrl "
-                        + historyUrl + " has no Gecko primitive; history "
-                        + "records the data: URI");
-            }
+            mLoadData.loadDataWithBaseURL(baseUrl, data, mimeType, encoding,
+                    historyUrl);
         } catch (Throwable t) {
             android.util.Log.w(TAG, "loadDataWithBaseURL threw", t);
         }
     }
+
+    private void addInterceptFilter(@NonNull String prefix) {
+        String[] current = mInterceptFilters;
+        for (String filter : current) {
+            if (prefix.equals(filter)) {
+                return;
+            }
+        }
+        String[] next = java.util.Arrays.copyOf(current, current.length + 1);
+        next[current.length] = prefix;
+        setInterceptFilters(next);
+    }
+
     @Override public void evaluateJavaScript(String script, ValueCallback<String> resultCallback) {
         mJs.evaluate(script, resultCallback);
     }
