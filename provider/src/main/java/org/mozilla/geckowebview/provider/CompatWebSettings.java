@@ -316,6 +316,10 @@ final class CompatWebSettings extends WebSettings {
         mDelegate.setDisabledActionModeMenuItems(menuItems);
     }
 
+    // The delegate stores exactly the int the app set (same shape as the
+    // getCacheMode suppression above: in-range by the setter contract,
+    // not provable across the delegation).
+    @android.annotation.SuppressLint("WrongConstant")
     @Override public int getDisabledActionModeMenuItems() {
         return mDelegate.getDisabledActionModeMenuItems();
     }
