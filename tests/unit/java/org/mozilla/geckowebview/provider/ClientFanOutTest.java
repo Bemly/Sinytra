@@ -1,5 +1,6 @@
 package org.mozilla.geckowebview.provider;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -10,7 +11,7 @@ import org.junit.Test;
 // wiring on the decision object stays device-locked (needs a live
 // GeckoResult + chrome client); the page-side effect is covered by the
 // CTS Geolocation suite on the switched device.
-public final class ClientFanOutGeoTest {
+public final class ClientFanOutTest {
 
     @Test
     public void https_isSecure() {
@@ -55,5 +56,18 @@ public final class ClientFanOutGeoTest {
         assertFalse(ClientFanOut.isSecureOriginForGeolocation(""));
         assertFalse(ClientFanOut.isSecureOriginForGeolocation("not-a-url"));
         assertFalse(ClientFanOut.isSecureOriginForGeolocation("file:///sdcard/"));
+    }
+
+    @Test
+    public void realmOf_extractsBareRealm() {
+        assertEquals("Android CTS", ClientFanOut.realmOf(
+                "http://localhost:41387 is requesting your username and password."
+                        + " The site says: \"Android CTS\""));
+    }
+
+    @Test
+    public void realmOf_fallsBackToFullMessage() {
+        assertEquals("", ClientFanOut.realmOf(null));
+        assertEquals("plain", ClientFanOut.realmOf("plain"));
     }
 }

@@ -429,7 +429,11 @@ final class ClientFanOut
         String uri = prompt.authOptions != null && prompt.authOptions.uri != null
                 ? prompt.authOptions.uri : "";
         String host = hostOf(uri);
-        String realm = prompt.message != null ? prompt.message : "";
+        // Gecko composes the message as "{uri} is requesting your username
+        // and password. The site says: "{realm}"" — the framework contract
+        // (and CTS HttpAuthHandlerTest) wants the bare realm. Parse it out;
+        // anything unparseable falls back to the full message.
+        String realm = realmOf(prompt.message);
         // The app's proceed()/cancel() on the handler must complete the
         // delegate GeckoResult (PromptBridge holds it open). The Decision
         // posts prompt.confirm/dismiss to the UI thread AND completes
@@ -527,6 +531,21 @@ final class ClientFanOut
         } catch (Throwable t) {
             return uri;
         }
+    }
+
+    static String realmOf(@Nullable String message) {
+        if (message == null) {
+            return "";
+        }
+        String marker = "The site says: \"";
+        int start = message.indexOf(marker);
+        if (start >= 0) {
+            int end = message.lastIndexOf('"');
+            if (end > start + marker.length()) {
+                return message.substring(start + marker.length(), end);
+            }
+        }
+        return message;
     }
 
     @Override
