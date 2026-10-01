@@ -64,6 +64,12 @@ public final class MessageBridge {
     private final Map<String, String> mPairs = new ConcurrentHashMap<>();
     private final Map<String, java.util.List<Queued>> mQueues =
             new ConcurrentHashMap<>();
+    // Java ports handed to the page (postMessageToMainFrame transfer):
+    // the Java object is neutered from then on — posts on it, and posts
+    // on its pair, route to the page-side stub, never to a Java callback.
+    private final java.util.Set<String> mTransferredOut =
+            java.util.Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private static final int MAX_QUEUE = 50;
 
     private static final class Queued {
         @NonNull
@@ -124,10 +130,21 @@ public final class MessageBridge {
         }
         JsBridge bridge = mTransport;
         if (bridge != null && bridge.isReady()) {
-            bridge.postToPage(port.id, data, targetOrigin);
+            // The pair was handed to the page: deliver to the page-side
+            // stub. Posting on a transferred-out (neutered) port itself
+            // is a silent no-op (Chromium parity).
+            String pair = mPairs.get(port.id);
+            if (pair != null && mTransferredOut.contains(pair)) {
+                bridge.postToPage(port.id, data, targetOrigin,
+                        java.util.Collections.emptyList(), pair);
+            } else if (!mTransferredOut.contains(port.id)) {
+                bridge.postToPage(port.id, data, targetOrigin);
+            }
             return;
         }
-        deliverLocal(port, data, targetOrigin);
+        if (!mTransferredOut.contains(port.id)) {
+            deliverLocal(port, data, targetOrigin);
+        }
     }
 
     public void postToMainFrame(@NonNull String data, @Nullable String targetOrigin) {
@@ -144,6 +161,9 @@ public final class MessageBridge {
             for (Port port : transferred) {
                 if (port != null && mPorts.containsKey(port.id)) {
                     ids.add(port.id);
+                    // Transfer neuters the Java object (Chromium parity):
+                    // from here the page-side stub owns this end.
+                    mTransferredOut.add(port.id);
                 }
             }
             bridge.postToPage("__main__", data, targetOrigin, ids);
@@ -161,6 +181,7 @@ public final class MessageBridge {
         mPorts.remove(port.id);
         mPending.remove(port.id);
         mQueues.remove(port.id);
+        mTransferredOut.remove(port.id);
         String pair = mPairs.remove(port.id);
         if (pair != null) {
             mPairs.remove(pair);
@@ -205,6 +226,9 @@ public final class MessageBridge {
                 mQueues.put(pairId, queue);
             }
             queue.add(new Queued(data, origin));
+            while (queue.size() > MAX_QUEUE) {
+                queue.remove(0);
+            }
             return;
         }
         Port port = mPorts.get(portId);

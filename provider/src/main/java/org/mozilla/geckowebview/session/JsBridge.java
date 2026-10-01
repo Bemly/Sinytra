@@ -286,6 +286,16 @@ public final class JsBridge {
     // the shim exposes as stub ports on the delivered MessageEvent.
     public void postToPage(@NonNull String portId, @NonNull String data,
             @Nullable String origin, @NonNull java.util.List<String> transferred) {
+        postToPage(portId, data, origin, transferred, null);
+    }
+
+    // stubDeliver: when the entangled pair was handed to the page, the
+    // payload goes ONLY to the page-side stub listeners (never to window
+    // onmessage — the page would TypeError on the portless event and,
+    // worse, observe phantom traffic).
+    public void postToPage(@NonNull String portId, @NonNull String data,
+            @Nullable String origin, @NonNull java.util.List<String> transferred,
+            @Nullable String stubDeliver) {
         try {
             JSONObject payload = new JSONObject();
             payload.put("port", portId);
@@ -298,6 +308,9 @@ public final class JsBridge {
                 }
             }
             payload.put("ports", ports);
+            if (stubDeliver != null) {
+                payload.put("stubDeliver", stubDeliver);
+            }
             postRequest("port", payload, value -> {
             });
         } catch (Throwable t) {

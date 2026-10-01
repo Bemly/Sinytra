@@ -170,7 +170,8 @@ function onPollAnswer(raw) {
   }
   const req = {id: msg.id, kind: msg.kind};
   for (const k of ["script", "iface", "method", "args", "port", "data",
-    "origin", "methods", "callId", "ok", "value", "error", "ports"]) {
+    "origin", "methods", "callId", "ok", "value", "error", "ports",
+    "stubDeliver"]) {
     if (msg[k] !== undefined) {
       req[k] = msg[k];
     }

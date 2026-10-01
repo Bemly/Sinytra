@@ -235,7 +235,17 @@
     // fan out to the entangled Java callback. Stubs support postMessage
     // (+close/onmessage-property for shape); page-created transfer and
     // addEventListener on stubs stay unsupported (honest gaps).
+    //
+    // stubDeliver (the entangled pair was handed to the page): the
+    // payload goes ONLY to the named stub's onmessage handlers — never
+    // to window.onmessage (the page would TypeError on the portless
+    // event and, worse, observe phantom traffic).
     try {
+      if (typeof msg.stubDeliver === "string") {
+        stubDispatch(msg.stubDeliver, msg.data, msg.origin);
+        reply(msg.id, true, json(true), null);
+        return;
+      }
       const stubs = [];
       for (const javaId of msg.ports || []) {
         if (typeof javaId !== "string") {
@@ -260,17 +270,74 @@
     }
   }
 
+  // Page-side stubs for transferred Java ports (keyed by bridge port
+  // id): postMessage routes into MessageBridge (pair-routed Java-side);
+  // onmessage handlers fire on stubDeliver arrival, with pending posts
+  // queued until the page assigns a handler (Chromium queues port
+  // messages the same way).
+  const stubPorts = new Map();
+
   function makeStubPort(javaId) {
-    return {
+    const stub = {
       postMessage: function (data) {
+        if (stub.closed) {
+          return;
+        }
         queueWrite({portDeliver: true, stub: true, port: javaId,
           data: String(data === undefined || data === null ? "" : data),
           origin: ""});
       },
       close: function () {
+        stub.closed = true;
+        stubPorts.delete(javaId);
       },
-      onmessage: null,
+      closed: false,
+      pending: [],
     };
+    let handler = null;
+    Object.defineProperty(stub, "onmessage", {
+      configurable: true,
+      enumerable: true,
+      get: function () {
+        return handler;
+      },
+      // Assignment drains posts that arrived before the page subscribed
+      // (Chromium queues port messages the same way).
+      set: function (fn) {
+        handler = (typeof fn === "function") ? fn : null;
+        if (handler) {
+          const queued = stub.pending;
+          stub.pending = [];
+          for (const evt of queued) {
+            try {
+              handler(evt);
+            } catch (e) {
+            }
+          }
+        }
+      },
+    });
+    stubPorts.set(javaId, stub);
+    return stub;
+  }
+
+  function stubDispatch(javaId, data, origin) {
+    const stub = stubPorts.get(javaId);
+    if (!stub || stub.closed) {
+      return;
+    }
+    const evt = {data, origin: origin || "", ports: []};
+    if (typeof stub.onmessage === "function") {
+      try {
+        stub.onmessage(evt);
+      } catch (e) {
+      }
+      return;
+    }
+    stub.pending.push(evt);
+    while (stub.pending.length > MAX_QUEUE) {
+      stub.pending.shift();
+    }
   }
 
   // Content-script requests arrive through the DOM attribute mailbox
