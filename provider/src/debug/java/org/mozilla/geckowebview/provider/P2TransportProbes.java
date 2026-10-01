@@ -669,11 +669,19 @@ final class P2TransportProbes {
             // and synthesis must commit a live document (content poll
             // runs in it) — then postMessageToMainFrame delivers and the
             // page sets the title, exactly like verifyPostMessageToOrigin.
+            // The post ALSO carries a transferred port (CTS
+            // testMessageChannel shape): the page echoes through
+            // e.ports[0] and the paired Java callback must observe it.
             final String upHtml = "<!DOCTYPE html><html><body>"
                     + "<script>var received = '';"
                     + "onmessage = function (e) {"
                     + " received += e.data;"
-                    + " document.title = received; };</script>"
+                    + " document.title = received;"
+                    + " try {"
+                    + "   var p = e.ports && e.ports[0];"
+                    + "   if (p) { p.postMessage('echo:' + e.data); }"
+                    + " } catch (err) { }"
+                    + "};</script>"
                     + "</body></html>";
             final CountDownLatch upDone = new CountDownLatch(1);
             final Throwable[] upError = new Throwable[1];
@@ -705,10 +713,26 @@ final class P2TransportProbes {
             }
             final Throwable[] upPostError = new Throwable[1];
             final CountDownLatch upPostDone = new CountDownLatch(1);
+            final WebMessagePort[][] upChannel = new WebMessagePort[1][];
+            final String[] upEcho = new String[1];
+            final CountDownLatch upEchoDone = new CountDownLatch(1);
             activity.runOnUiThread(() -> {
                 try {
+                    WebMessagePort[] channel =
+                            provider.createWebMessageChannel();
+                    upChannel[0] = channel;
+                    channel[0].setWebMessageCallback(
+                            new WebMessagePort.WebMessageCallback() {
+                                @Override
+                                public void onMessage(WebMessagePort port,
+                                        WebMessage message) {
+                                    upEcho[0] = message.getData();
+                                    upEchoDone.countDown();
+                                }
+                            });
                     provider.postMessageToMainFrame(
-                            new WebMessage("from_webview"),
+                            new WebMessage("from_webview",
+                                    new WebMessagePort[] {channel[1]}),
                             Uri.parse("http://www.example.com"));
                 } catch (Throwable t) {
                     upPostError[0] = t;
@@ -720,6 +744,14 @@ final class P2TransportProbes {
             if (upPostError[0] != null) {
                 throw new IllegalStateException("postMessageToMainFrame threw",
                         upPostError[0]);
+            }
+            if (!upEchoDone.await(45, TimeUnit.SECONDS)) {
+                throw new IllegalStateException(
+                        "loadData http-upgrade port echo timeout");
+            }
+            if (!"echo:from_webview".equals(upEcho[0])) {
+                throw new IllegalStateException(
+                        "loadData http-upgrade port echo: " + upEcho[0]);
             }
             String upTitle = null;
             for (int i = 0; i < 120; i++) {
