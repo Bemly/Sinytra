@@ -35,10 +35,21 @@
 //      (content-ready/shim-state pings, iface-call from a page stub,
 //      port-deliver from the shim)
 //
-// Content <-> shim (window.postMessage, same document):
-//   -> shim: {dir:"sinytra-req", id:<int|string>, kind, ...}
-//   <- shim: {dir:"sinytra-res", id, ok, value, error}
-//   <- shim: {dir:"sinytra-event", name, payload}
+// Content <-> shim (DOM attribute mailbox, same document):
+//   content writes attribute "data-sinytra-c2s" (JSON {seq, id, kind,
+//     ...}); shim MutationObserves it.
+//   shim writes attribute "data-sinytra-s2c" (JSON {seq, ...}); content
+//   observes it. A "ready" value on "data-sinytra-shim" (set by the
+//   shim at install) marks the shim present.
+//
+// Why attributes, not window.postMessage: every window message also
+// fires the page's own onmessage, so transport markers would leak into
+// page code as "[object Object]" (CTS PostMessageTest asserts the exact
+// title) — and CustomEvent does not cross the isolated/page worlds.
+// Attribute writes fire no window events at all (fully invisible to
+// onmessage), persist across install order (late joiners catch up by
+// reading the current value), and all payloads here are JSON-safe.
+// Native messaging (content<->Java) is untouched.
 //
 // Why two hops: content scripts run in an isolated JS world -- they can
 // touch the DOM but NOT the page's window objects, so eval and interface
@@ -147,26 +158,24 @@ function onPollAnswer(raw) {
   }
   if (msg.kind === "stub-result"
     && typeof msg.callId === "string") {
-    window.postMessage(
-      {dir: "sinytra-res", id: msg.callId,
-        ok: !!msg.ok,
-        value: msg.value === undefined ? null : msg.value,
-        error: msg.error === undefined ? null : msg.error},
-      "*");
+    sendToShim({res: true, id: msg.callId,
+      ok: !!msg.ok,
+      value: msg.value === undefined ? null : msg.value,
+      error: msg.error === undefined ? null : msg.error});
     pendingCalls.delete(msg.callId);
     return;
   }
   if (typeof msg.id !== "number") {
     return;
   }
-  const req = {dir: "sinytra-req", id: msg.id, kind: msg.kind};
+  const req = {id: msg.id, kind: msg.kind};
   for (const k of ["script", "iface", "method", "args", "port", "data",
     "origin", "methods", "callId", "ok", "value", "error"]) {
     if (msg[k] !== undefined) {
       req[k] = msg[k];
     }
   }
-  window.postMessage(req, "*");
+  sendToShim(req);
 }
 
 // Startup ping: proves the content script is injected and the
@@ -181,46 +190,159 @@ try {
 poll();
 
 // Numeric request ids (from Java) -> nothing stored here: the shim
-// answers synchronously over window.postMessage and we forward the
-// answer straight to the app. Only iface-call round-trips need
-// correlation: the shim emits sinytra-event {name:"iface-call",
-// payload:{callId,...}} and Java answers with a stub-result poll
-// payload that we route back into the shim above.
+// answers through the mailbox and we forward the answer straight to
+// the app. Only iface-call round-trips need correlation: the shim
+// emits event {name:"iface-call", payload:{callId,...}} and Java
+// answers with a stub-result poll payload that we route back into the
+// shim above.
 const pendingCalls = new Map();
+let shimPresent = false;
 
 // Inject the page-world shim exactly once per document. NOTE: content
 // scripts run in an ISOLATED world -- window flags set here are
 // invisible to page-shim.js, and page-shim.js's window.__sinytraShim
-// is invisible here. Cross-world signalling uses ONLY window.postMessage
-// (shim announces itself with {dir:"sinytra-hello"}) and the DOM marker
-// attribute below (shared document, visible from both worlds).
-const SHIM_PING_MS = 500;
-const SHIM_PING_ROUNDS = 4;
-let shimPresent = false;
-let shimPingsSent = 0;
+// is invisible here. Cross-world signalling uses ONLY the DOM
+// attribute mailbox above (never window.postMessage) plus the DOM
+// marker attribute below (shared document, visible from both worlds).
+const C2S_ATTR = "data-sinytra-c2s";
+const S2C_ATTR = "data-sinytra-s2c";
+const READY_ATTR = "data-sinytra-shim";
+let c2sSeq = 0;
+let s2cSeen = 0;
 
-function announceShimQuery() {
-  window.postMessage({dir: "sinytra-hello-query"}, "*");
+function docRoot() {
+  try {
+    return document.documentElement || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// Write a request for the shim. Retried on the next task when the
+// document element does not exist yet (extremely early load — still
+// pre-parse, hence still invisible).
+function sendToShim(obj) {
+  const root = docRoot();
+  if (!root) {
+    setTimeout(() => {
+      try {
+        sendToShim(obj);
+      } catch (e) {
+      }
+    }, 0);
+    return;
+  }
+  try {
+    c2sSeq += 1;
+    obj.seq = c2sSeq;
+    root.setAttribute(C2S_ATTR, JSON.stringify(obj));
+  } catch (e) {
+  }
+}
+
+function readMailbox(attr) {
+  try {
+    const root = docRoot();
+    if (!root || !root.hasAttribute(attr)) {
+      return null;
+    }
+    return JSON.parse(root.getAttribute(attr));
+  } catch (e) {
+    return null;
+  }
+}
+
+function routeShimMessage(d) {
+  if (!d || typeof d.seq !== "number" || d.seq <= s2cSeen) {
+    return;
+  }
+  s2cSeen = d.seq;
+  if (d.hello === true) {
+    shimPresent = true;
+    return;
+  }
+  if (d.res === true) {
+    if (typeof d.id === "string" && pendingCalls.has(d.id)) {
+      const callId = d.id;
+      pendingCalls.delete(callId);
+      sendToShim({id: callId, kind: "stub-res",
+        ok: d.ok, value: d.value, error: d.error});
+      return;
+    }
+    sendToApp({kind: "result", id: d.id, ok: !!d.ok,
+      value: d.value === undefined ? null : d.value,
+      error: d.error === undefined ? null : d.error});
+    return;
+  }
+  if (d.event === true) {
+    if (d.name === "iface-call" && d.payload && d.payload.callId) {
+      pendingCalls.set(d.payload.callId, true);
+    }
+    sendToApp({kind: "event", name: d.name, payload: d.payload || {}});
+    return;
+  }
+  if (d.portDeliver === true) {
+    sendToApp({kind: "event", name: "port-deliver",
+      payload: {port: d.port, data: d.data, origin: d.origin || ""}});
+  }
+}
+
+function observeShim() {
+  // Catch-up: a reply written before we started observing.
+  const cur = readMailbox(S2C_ATTR);
+  if (cur) {
+    routeShimMessage(cur);
+  }
+  try {
+    const root = docRoot();
+    if (!root) {
+      return;
+    }
+    new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type === "attributes" && m.attributeName === S2C_ATTR) {
+          const msg = readMailbox(S2C_ATTR);
+          if (msg) {
+            routeShimMessage(msg);
+          }
+        }
+        if (m.type === "attributes" && m.attributeName === READY_ATTR) {
+          try {
+            if (root.getAttribute(READY_ATTR) === "ready") {
+              shimPresent = true;
+            }
+          } catch (e) {
+          }
+        }
+      }
+    }).observe(root, {attributes: true});
+  } catch (e) {
+  }
 }
 
 function ensureShim() {
+  // The shim marks itself "ready" at install; observe the mailbox from
+  // now on (catch-up read covers a reply written before we observe).
+  observeShim();
+  try {
+    const marker = document.documentElement
+      ? document.documentElement.getAttribute(READY_ATTR)
+      : null;
+    if (marker === "ready") {
+      shimPresent = true;
+      return;
+    }
+  } catch (e) {
+  }
   if (shimPresent) {
     return;
   }
   try {
-    const marker = document.documentElement
-      ? document.documentElement.getAttribute("data-sinytra-shim")
-      : null;
-    if (marker === "ready") {
-      announceShimQuery();
-      return;
-    }
     const script = document.createElement("script");
     script.setAttribute("data-sinytra-shim-script", "1");
     script.src = browser.runtime.getURL("page-shim.js");
     script.onload = function () {
       script.remove();
-      announceShimQuery();
     };
     script.onerror = function () {
       try {
@@ -230,10 +352,6 @@ function ensureShim() {
       }
     };
     (document.head || document.documentElement).appendChild(script);
-    if (document.documentElement) {
-      document.documentElement.setAttribute("data-sinytra-shim",
-        "injected");
-    }
   } catch (e) {
     try {
       sendToApp({kind: "event", name: "shim-state",
@@ -247,69 +365,21 @@ if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", ensureShim);
 }
 ensureShim();
-const shimTimer = setInterval(() => {
-  if (shimPresent) {
-    clearInterval(shimTimer);
-    return;
-  }
-  shimPingsSent += 1;
-  if (shimPingsSent > SHIM_PING_ROUNDS) {
-    clearInterval(shimTimer);
-    try {
-      sendToApp({kind: "event", name: "shim-state",
-        payload: {state: "no-hello-after-retries"}});
-    } catch (e) {
-    }
-    return;
-  }
-  announceShimQuery();
-  ensureShim();
-}, SHIM_PING_MS);
-
-// Shim -> content: forward results and events to the app.
-window.addEventListener("message", (event) => {
-  if (event.source !== window) {
-    return;
-  }
-  const d = event.data;
-  if (!d || typeof d.dir !== "string") {
-    return;
-  }
-  if (d.dir === "sinytra-hello") {
-    shimPresent = true;
-    try {
-      if (document.documentElement) {
-        document.documentElement.setAttribute("data-sinytra-shim",
-          "ready");
+// One delayed re-check: re-injection is DOM-only (invisible); after
+// this, report definitively so eval answers honest-null with a cause
+// instead of hanging the full timeout.
+setTimeout(() => {
+  if (!shimPresent) {
+    ensureShim();
+    if (!shimPresent) {
+      try {
+        sendToApp({kind: "event", name: "shim-state",
+          payload: {state: "no-ready-after-retry"}});
+      } catch (e) {
       }
-    } catch (e) {
     }
-    return;
   }
-  if (d.dir === "sinytra-res") {
-    if (typeof d.id === "string" && pendingCalls.has(d.id)) {
-      const callId = d.id;
-      pendingCalls.delete(callId);
-      window.postMessage(
-        {dir: "sinytra-req", id: callId, kind: "stub-res",
-          ok: d.ok, value: d.value, error: d.error},
-        "*");
-      return;
-    }
-    sendToApp({kind: "result", id: d.id, ok: !!d.ok,
-      value: d.value === undefined ? null : d.value,
-      error: d.error === undefined ? null : d.error});
-    return;
-  }
-  if (d.dir === "sinytra-event") {
-    if (d.name === "iface-call" && d.payload && d.payload.callId) {
-      pendingCalls.set(d.payload.callId, true);
-    }
-    sendToApp({kind: "event", name: d.name, payload: d.payload || {}});
-    return;
-  }
-  if (d.dir === "sinytra-port-deliver") {
-    sendToApp({kind: "event", name: "port-deliver",
-      payload: {port: d.port, data: d.data, origin: d.origin || ""}});
-  }
-});
+}, 2500);
+
+// (Shim -> content traffic arrives via the observeShim mailbox above;
+// no window listener remains here by design — see the header.)

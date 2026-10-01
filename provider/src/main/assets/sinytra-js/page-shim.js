@@ -52,93 +52,49 @@
 "use strict";
 
 (function () {
-  // Hide transport markers from page code (install first, exactly once).
-  // Every internal window message would otherwise also fire the page's
-  // own onmessage handler, arriving there as "[object Object]" (CTS
-  // PostMessageTest asserts the exact title). Marker events skip page
-  // listeners; our own listeners (registered via rawAdd below) and all
-  // genuine deliveries (port posts, real page messages — no markers)
-  // pass through untouched, restoring Chromium parity.
-  function isSinytraMarker(d) {
-    return !!d && typeof d === "object"
-      && typeof d.dir === "string"
-      && d.dir.indexOf("sinytra-") === 0;
-  }
-  if (!window.__sinytraListenerFilter) {
+  // DOM attribute mailbox (see content.js header): no window.postMessage
+  // anywhere in this file except the genuine port delivery below — page
+  // onmessage therefore only ever sees real page messages (Chromium
+  // parity; CTS PostMessageTest asserts the exact title).
+  const C2S_ATTR = "data-sinytra-c2s";
+  const S2C_ATTR = "data-sinytra-s2c";
+  const READY_ATTR = "data-sinytra-shim";
+  let s2cSeq = 0;
+  let c2sSeen = 0;
+  const pendingResolves = new Map();
+
+  function mailboxWrite(obj) {
     try {
-      window.__sinytraListenerFilter = true;
-      const rawAdd = window.addEventListener.bind(window);
-      const rawRemove = window.removeEventListener.bind(window);
-      const wrappedFor = new Map();
-      window.__sinytraRawAdd = rawAdd;
-      window.addEventListener = function (type, listener, opts) {
-        if (type === "message" && typeof listener === "function"
-          && !listener.__sinytraOurs) {
-          let wrapped = wrappedFor.get(listener);
-          if (!wrapped) {
-            wrapped = function (event) {
-              if (event && isSinytraMarker(event.data)) {
-                return;
-              }
-              return listener.call(this, event);
-            };
-            wrappedFor.set(listener, wrapped);
-          }
-          return rawAdd(type, wrapped, opts);
-        }
-        return rawAdd(type, listener, opts);
-      };
-      window.removeEventListener = function (type, listener, opts) {
-        const wrapped = (typeof listener === "function")
-          ? wrappedFor.get(listener) : undefined;
-        return rawRemove(type, wrapped || listener, opts);
-      };
-      let pageOnMessage = null;
-      Object.defineProperty(window, "onmessage", {
-        configurable: true,
-        enumerable: true,
-        get: function () {
-          return pageOnMessage;
-        },
-        set: function (fn) {
-          pageOnMessage = (typeof fn === "function") ? fn : null;
-        },
-      });
-      const dispatchFiltered = function (event) {
-        if (event && isSinytraMarker(event.data)) {
-          return;
-        }
-        const fn = pageOnMessage;
-        if (typeof fn === "function") {
-          try {
-            fn.call(window, event);
-          } catch (e) {
-          }
-        }
-      };
-      // Route genuine "message" events to the page's onmessage property
-      // through the filter: our own dispatchEvent(MessageEvent) port
-      // deliveries (no markers) reach it; marker traffic does not.
-      rawAdd("message", dispatchFiltered);
-    } catch (e) {
-    }
-  }
-  function ourAddListener(type, fn) {
-    try {
-      if (typeof fn === "function") {
-        fn.__sinytraOurs = true;
+      const root = document.documentElement;
+      if (!root) {
+        return;
       }
-      (window.__sinytraRawAdd || window.addEventListener).call(
-        window, type, fn);
+      s2cSeq += 1;
+      obj.seq = s2cSeq;
+      root.setAttribute(S2C_ATTR, JSON.stringify(obj));
     } catch (e) {
     }
   }
 
-  if (window.__sinytraShim) {
-    // Already installed (e.g. double injection): re-announce so the
-    // content script's hello-query resolves even on the second run.
+  function mailboxRead() {
     try {
-      window.postMessage({dir: "sinytra-hello"}, "*");
+      const root = document.documentElement;
+      if (!root || !root.hasAttribute(C2S_ATTR)) {
+        return null;
+      }
+      return JSON.parse(root.getAttribute(C2S_ATTR));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  if (window.__sinytraShim) {
+    // Already installed (e.g. double injection): refresh the ready
+    // marker (the content script observes it) and return.
+    try {
+      if (document.documentElement) {
+        document.documentElement.setAttribute(READY_ATTR, "ready");
+      }
     } catch (e) {
     }
     return;
@@ -146,10 +102,10 @@
 
   // iface name -> {method name -> true} for registered Java interfaces.
   const interfaces = new Map();
-  // Pending Java->page calls that went through window.postMessage are
-  // always answered synchronously below; no pending map needed here.
-  // Page->Java calls (stub invocations) are correlated by the content
-  // script, which echoes our event id back as a result message.
+  // Pending Java->page calls are always answered synchronously below;
+  // no pending map needed here. Page->Java calls (stub invocations)
+  // are correlated by the content script, which echoes our event id
+  // back as a result message.
 
   function json(value) {
     try {
@@ -160,17 +116,13 @@
   }
 
   function reply(id, ok, value, error) {
-    window.postMessage(
-      {dir: "sinytra-res", id, ok: !!ok,
-        value: value === undefined ? null : value,
-        error: error === undefined ? null : error},
-      "*");
+    mailboxWrite({res: true, id, ok: !!ok,
+      value: value === undefined ? null : value,
+      error: error === undefined ? null : error});
   }
 
   function emit(name, payload) {
-    window.postMessage(
-      {dir: "sinytra-event", name, payload: payload || {}},
-      "*");
+    mailboxWrite({event: true, name, payload: payload || {}});
   }
 
   function makeStub(iface, method) {
@@ -178,29 +130,31 @@
       return new Promise((resolve, reject) => {
         const callId = "c" + Math.random().toString(36).slice(2)
           + Date.now().toString(36);
-        const onRes = (event) => {
-          const d = event.data;
-          if (!d || d.dir !== "sinytra-res" || d.id !== callId) {
-            return;
-          }
-          window.removeEventListener("message", onRes);
-          if (d.ok) {
-            let v = null;
-            try {
-              v = d.value !== null ? JSON.parse(d.value) : null;
-            } catch (e) {
-              v = null;
-            }
-            resolve(v);
-          } else {
-            reject(new Error(String(d.error || "java call failed")));
-          }
-        };
-        ourAddListener("message", onRes);
+        pendingResolves.set(callId, {resolve, reject});
         emit("iface-call",
           {callId, iface, method, args: args || []});
       });
     };
+  }
+
+  function resolveStubCall(d) {
+    if (typeof d.id !== "string" || !pendingResolves.has(d.id)) {
+      return false;
+    }
+    const pending = pendingResolves.get(d.id);
+    pendingResolves.delete(d.id);
+    if (d.ok) {
+      let v = null;
+      try {
+        v = d.value !== null ? JSON.parse(d.value) : null;
+      } catch (e) {
+        v = null;
+      }
+      pending.resolve(v);
+    } else {
+      pending.reject(new Error(String(d.error || "java call failed")));
+    }
+    return true;
   }
 
   function registerInterface(iface, methods) {
@@ -283,34 +237,26 @@
       } catch (e) {
       }
       window.dispatchEvent(event);
-      try {
-        window.postMessage(
-          {dir: "sinytra-port-deliver", port: msg.port,
-            data: msg.data, origin: msg.origin || ""},
-          "*");
-      } catch (e) {
-      }
+      mailboxWrite({portDeliver: true, port: msg.port,
+        data: msg.data, origin: msg.origin || ""});
       reply(msg.id, true, json(true), null);
     } catch (e) {
       reply(msg.id, false, null, String((e && e.message) || e));
     }
   }
 
-  // Answer content-script presence queries (see content.js hello
-  // protocol): the two worlds share a document but NOT a JS heap, so
-  // window.postMessage is the only cross-world signal. Registered raw
-  // (ourAddListener) so the page-code filter above never eats markers.
-  ourAddListener("message", (event) => {
-    const probe = event.data;
-    if (probe && probe.dir === "sinytra-hello-query") {
-      try {
-        window.postMessage({dir: "sinytra-hello"}, "*");
-      } catch (e) {
-      }
+  // Content-script requests arrive through the DOM attribute mailbox
+  // (see content.js header): the two worlds share a document but NOT a
+  // JS heap, and window messages would leak into page onmessage. Observe
+  // the mailbox (catch-up read covers a request written before we
+  // observe); stub-res replies route via pendingResolves below.
+  function routeMailboxMessage(msg) {
+    if (!msg || typeof msg.seq !== "number" || msg.seq <= c2sSeen) {
       return;
     }
-    const msg = probe;
-    if (!msg || msg.dir !== "sinytra-req") {
+    c2sSeen = msg.seq;
+    if (msg.kind === "stub-res") {
+      resolveStubCall(msg);
       return;
     }
     switch (msg.kind) {
@@ -349,7 +295,43 @@
         reply(msg.id, false, null, "unknown kind: " + msg.kind);
         break;
     }
-  });
+  }
+
+  function observeMailbox() {
+    try {
+      const root = document.documentElement;
+      if (!root) {
+        return;
+      }
+      const cur = mailboxRead();
+      if (cur) {
+        routeMailboxMessage(cur);
+      }
+      new MutationObserver((mutations) => {
+        for (const m of mutations) {
+          if (m.type === "attributes" && m.attributeName === C2S_ATTR) {
+            const msg = mailboxRead();
+            if (msg) {
+              routeMailboxMessage(msg);
+            }
+          }
+        }
+      }).observe(root, {attributes: true});
+    } catch (e) {
+    }
+  }
+
+  function mailboxRead() {
+    try {
+      const root = document.documentElement;
+      if (!root || !root.hasAttribute(C2S_ATTR)) {
+        return null;
+      }
+      return JSON.parse(root.getAttribute(C2S_ATTR));
+    } catch (e) {
+      return null;
+    }
+  }
 
   window.__sinytraShim = {
     register: registerInterface,
@@ -402,11 +384,14 @@
     }
   }
 
-  // Unprompted announcement: the content script may already be listening
-  // (it injects us), so say hello immediately; it also queries on a
-  // timer, which the listener above answers.
+  // Mark ready (the content script observes this attribute — no
+  // window message, hence invisible to page onmessage) and start
+  // observing the request mailbox.
   try {
-    window.postMessage({dir: "sinytra-hello"}, "*");
+    if (document.documentElement) {
+      document.documentElement.setAttribute(READY_ATTR, "ready");
+    }
   } catch (e) {
   }
+  observeMailbox();
 })();
