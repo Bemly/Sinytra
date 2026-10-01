@@ -130,8 +130,14 @@ final class ClientFanOut
             if (success) {
                 client.onPageFinished(mOwner.webView(), url);
             } else {
+                // Chromium order on failed loads: onReceivedError FIRST,
+                // then onPageFinished anyway. Without the finish, load
+                // gates (CTS WebViewSyncLoader mLoaded, and any app
+                // spinner) hang forever on every failed navigation (CTS
+                // WebViewSslTest.testOnReceivedSslErrorCancel family).
                 client.onReceivedError(mOwner.webView(), WebViewClient.ERROR_UNKNOWN,
                         "load failed", url);
+                client.onPageFinished(mOwner.webView(), url);
             }
         } catch (Throwable t) {
             android.util.Log.w(TAG, "WebViewClient.onPageFinished threw", t);
