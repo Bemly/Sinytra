@@ -7,15 +7,7 @@
 #   business doing (this is Chromium-free embedding, not a browser).
 # - services.settings.server: Remote Settings is a browser-product channel;
 #   pinned to a blackhole address so nothing is fetched.
-# - signon.rememberSignons: the toolkit password store must not silently
-#   capture HTTP-auth credentials (CTS HttpAuthHandlerTest.testProceed:
-#   loads #1-2 confirm wrong/null creds, load #3's challenge is then
-#   answered from the silent store instead of prompting the app).
-#   Credential storage stays in WebViewDatabase (framework contract) and
-#   Android Autofill (Autocomplete bridge) — never the engine-internal
-#   jar, matching Chromium (no silent credential capture in WebView).
 prefs:
   network.connectivity-service.enabled: false
   network.captive-portal-service.enabled: false
   services.settings.server: http://127.0.0.1:1
-  signon.rememberSignons: false
