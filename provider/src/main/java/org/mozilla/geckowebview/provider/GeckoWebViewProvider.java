@@ -126,6 +126,26 @@ public final class GeckoWebViewProvider
         mFanOut = new ClientFanOut(this);
         mBridge = new GeckoSessionBridge(mFanOut);
         mSettings = new CompatWebSettings(new GeckoWebSettings());
+        // Image-policy flips take effect without an app reload (CTS
+        // LoadsImagesAutomatically_/BlockNetworkImage families poll for the
+        // re-render): when the app loosens image loading on a live page,
+        // re-issue the current navigation internally.
+        mSettings.setMutationListener(() -> {
+            try {
+                String url = mBridge.getUrl();
+                if (url == null || url.startsWith("about:")) {
+                    return;
+                }
+                org.mozilla.geckowebview.settings.GeckoWebSettings state =
+                        mSettings.gecko();
+                if (state.getLoadsImagesAutomatically()
+                        || !state.getBlockNetworkImage()) {
+                    mBridge.reload();
+                }
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "images policy reload threw", t);
+            }
+        });
         mFind = new FindBridge(mBridge.session(), mFanOut);
         mPrint = new PrintBridge(mBridge.session());
         mJs = new JsEvaluator();
@@ -353,13 +373,31 @@ public final class GeckoWebViewProvider
 
     // --- WebViewProvider: P0 navigation ---
 
+    // Push facade state onto the live session before every navigation
+    // (all mapped keys are non-initOnly in GV158). Set-then-load is the
+    // CTS norm; without this, toggles like setJavaScriptEnabled never
+    // reached the session (only construction state applied).
+    private void pushSettings() {
+        try {
+            org.mozilla.geckowebview.settings.GeckoWebSettings state =
+                    mSettings.gecko();
+            mBridge.applyWebSettings(state.getJavaScriptEnabled(),
+                    state.getUserAgentString(), state.getDesktopMode(),
+                    state.getUseWideViewPort());
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "pushSettings threw", t);
+        }
+    }
+
     @Override
     public void loadUrl(String url, Map<String, String> additionalHttpHeaders) {
+        pushSettings();
         mBridge.loadUrl(url);
     }
 
     @Override
     public void loadUrl(String url) {
+        pushSettings();
         mBridge.loadUrl(url);
     }
 
@@ -370,6 +408,7 @@ public final class GeckoWebViewProvider
 
     @Override
     public void reload() {
+        pushSettings();
         mBridge.reload();
     }
 
@@ -589,6 +628,7 @@ public final class GeckoWebViewProvider
     }
     @Override public void loadDataWithBaseURL(String baseUrl, String data, String mimeType,
             String encoding, String historyUrl) {
+        pushSettings();
         try {
             String body = data != null ? data : "";
             String type = mimeType != null && !mimeType.isEmpty()

@@ -10,6 +10,31 @@ import org.mozilla.geckowebview.settings.GeckoWebSettings;
 final class CompatWebSettings extends WebSettings {
     private final GeckoWebSettings mDelegate;
 
+    // Fired after image-policy setters (loadsImagesAutomatically /
+    // blockNetworkImage). The provider uses it to re-issue the live page
+    // when the app loosens image loading without reloading (CTS images
+    // families poll for the re-render).
+    interface MutationListener {
+        void onImagesPolicyChanged();
+    }
+
+    @Nullable
+    private MutationListener mMutationListener;
+
+    void setMutationListener(@Nullable MutationListener listener) {
+        mMutationListener = listener;
+    }
+
+    private void notifyImagesPolicyChanged() {
+        MutationListener listener = mMutationListener;
+        if (listener != null) {
+            try {
+                listener.onImagesPolicyChanged();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     CompatWebSettings(GeckoWebSettings delegate) {
         mDelegate = delegate;
     }
@@ -193,6 +218,7 @@ final class CompatWebSettings extends WebSettings {
 
     @Override public void setLoadsImagesAutomatically(boolean flag) {
         mDelegate.setLoadsImagesAutomatically(flag);
+        notifyImagesPolicyChanged();
     }
 
     @Override public boolean getLoadsImagesAutomatically() {
@@ -201,6 +227,7 @@ final class CompatWebSettings extends WebSettings {
 
     @Override public void setBlockNetworkImage(boolean flag) {
         mDelegate.setBlockNetworkImage(flag);
+        notifyImagesPolicyChanged();
     }
 
     @Override public boolean getBlockNetworkImage() {

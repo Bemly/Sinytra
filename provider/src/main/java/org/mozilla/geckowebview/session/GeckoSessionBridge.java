@@ -375,6 +375,35 @@ public final class GeckoSessionBridge
         return mExplicitAboutLoad;
     }
 
+    // Live-push WebSettings state onto the session. Every mapped key is
+    // non-initOnly in GV158 (allowJavascript/userAgentMode/viewportMode/
+    // userAgentOverride), so no construction plumbing is needed — the
+    // provider calls this before every navigation (set-then-load is the
+    // CTS norm) and the facade defaults (JS off, mobile UA) apply
+    // verbatim. Never throws: a closed session degrades silently.
+    public void applyWebSettings(boolean javaScriptEnabled,
+            @Nullable String userAgentOverride, boolean desktopMode,
+            boolean wideViewport) {
+        try {
+            org.mozilla.geckoview.GeckoSessionSettings settings =
+                    mSession.getSettings();
+            settings.setAllowJavascript(javaScriptEnabled);
+            settings.setUserAgentMode(desktopMode
+                    ? org.mozilla.geckoview.GeckoSessionSettings
+                            .USER_AGENT_MODE_DESKTOP
+                    : org.mozilla.geckoview.GeckoSessionSettings
+                            .USER_AGENT_MODE_MOBILE);
+            settings.setViewportMode(wideViewport
+                    ? org.mozilla.geckoview.GeckoSessionSettings
+                            .VIEWPORT_MODE_MOBILE
+                    : org.mozilla.geckoview.GeckoSessionSettings
+                            .VIEWPORT_MODE_DESKTOP);
+            settings.setUserAgentOverride(userAgentOverride);
+        } catch (Throwable t) {
+            Log.w(TAG, "applyWebSettings threw", t);
+        }
+    }
+
     // Ask Gecko to push the latest session data (incl. navigation history)
     // through onSessionStateChange. No GeckoView attach required.
     public void flushHistory() {
