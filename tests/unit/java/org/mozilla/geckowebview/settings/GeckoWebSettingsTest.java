@@ -33,6 +33,32 @@ public final class GeckoWebSettingsTest {
         assertFalse(settings.getBlockNetworkLoads());
         assertFalse(settings.getBlockNetworkImage());
         assertTrue(settings.getLoadsImagesAutomatically());
+        // CTS WebSettingsTest baseline: NARROW_COLUMNS default (deprecated
+        // but frozen), Latin-1 encoding, safe browsing on, file access off.
+        assertEquals(2, settings.getLayoutAlgorithm());
+        assertEquals("sans-serif", settings.getStandardFontFamily());
+        assertEquals("monospace", settings.getFixedFontFamily());
+        assertEquals("sans-serif", settings.getSansSerifFontFamily());
+        assertEquals("serif", settings.getSerifFontFamily());
+        assertEquals("cursive", settings.getCursiveFontFamily());
+        assertEquals("fantasy", settings.getFantasyFontFamily());
+        assertEquals(8, settings.getMinimumFontSize());
+        assertEquals(8, settings.getMinimumLogicalFontSize());
+        assertEquals(16, settings.getDefaultFontSize());
+        assertEquals(13, settings.getDefaultFixedFontSize());
+        assertEquals("Latin-1", settings.getDefaultTextEncodingName());
+        assertEquals(1, settings.getMixedContentMode());
+        assertTrue(settings.getSafeBrowsingEnabled());
+        assertEquals(0, settings.getDisabledActionModeMenuItems());
+        assertFalse(settings.getOffscreenPreRaster());
+        assertFalse(settings.getJavaScriptCanOpenWindowsAutomatically());
+        assertFalse(settings.getAllowFileAccess());
+        assertTrue(settings.getAllowContentAccess());
+        assertFalse(settings.getAllowUniversalAccessFromFileURLs());
+        assertFalse(settings.getAllowFileAccessFromFileURLs());
+        assertFalse(settings.getDomStorageEnabled());
+        assertFalse(settings.getDatabaseEnabled());
+        assertFalse(settings.getSupportMultipleWindows());
     }
 
     @Test
@@ -67,6 +93,78 @@ public final class GeckoWebSettingsTest {
         assertTrue(settings.getBlockNetworkLoads());
         assertTrue(settings.getBlockNetworkImage());
         assertFalse(settings.getLoadsImagesAutomatically());
+    }
+
+    @Test
+    public void setters_verbatimRoundTrip() {
+        GeckoWebSettings settings = new GeckoWebSettings();
+        settings.setLayoutAlgorithm(0);
+        settings.setStandardFontFamily("Times");
+        settings.setFixedFontFamily("Courier");
+        settings.setSansSerifFontFamily("Verdana");
+        settings.setSerifFontFamily("Times");
+        settings.setCursiveFontFamily("Apple Chancery");
+        settings.setFantasyFontFamily("Papyrus");
+        settings.setMinimumFontSize(10);
+        settings.setMinimumLogicalFontSize(10);
+        settings.setDefaultFontSize(10);
+        settings.setDefaultFixedFontSize(10);
+        settings.setDefaultTextEncodingName("iso-8859-1");
+        settings.setMixedContentMode(0);
+        settings.setSafeBrowsingEnabled(false);
+        settings.setDisabledActionModeMenuItems(7);
+        settings.setOffscreenPreRaster(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(false);
+        settings.setAllowUniversalAccessFromFileURLs(true);
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setSupportMultipleWindows(true);
+
+        assertEquals(0, settings.getLayoutAlgorithm());
+        assertEquals("Times", settings.getStandardFontFamily());
+        assertEquals("Courier", settings.getFixedFontFamily());
+        assertEquals("Verdana", settings.getSansSerifFontFamily());
+        assertEquals("Times", settings.getSerifFontFamily());
+        assertEquals("Apple Chancery", settings.getCursiveFontFamily());
+        assertEquals("Papyrus", settings.getFantasyFontFamily());
+        assertEquals(10, settings.getMinimumFontSize());
+        assertEquals(10, settings.getMinimumLogicalFontSize());
+        assertEquals(10, settings.getDefaultFontSize());
+        assertEquals(10, settings.getDefaultFixedFontSize());
+        assertEquals("iso-8859-1", settings.getDefaultTextEncodingName());
+        assertEquals(0, settings.getMixedContentMode());
+        assertFalse(settings.getSafeBrowsingEnabled());
+        assertEquals(7, settings.getDisabledActionModeMenuItems());
+        assertTrue(settings.getOffscreenPreRaster());
+        assertTrue(settings.getJavaScriptCanOpenWindowsAutomatically());
+        assertTrue(settings.getAllowFileAccess());
+        assertFalse(settings.getAllowContentAccess());
+        assertTrue(settings.getAllowUniversalAccessFromFileURLs());
+        assertTrue(settings.getAllowFileAccessFromFileURLs());
+        assertTrue(settings.getDomStorageEnabled());
+        assertTrue(settings.getDatabaseEnabled());
+        assertTrue(settings.getSupportMultipleWindows());
+    }
+
+    @Test
+    public void fontSizes_clampedToOneThroughSeventyTwo() {
+        // CTS pins: set(100) reads 72, set(-10) reads 1 (minimum size).
+        GeckoWebSettings settings = new GeckoWebSettings();
+        settings.setMinimumFontSize(100);
+        assertEquals(72, settings.getMinimumFontSize());
+        settings.setMinimumFontSize(-10);
+        assertEquals(1, settings.getMinimumFontSize());
+        settings.setDefaultFixedFontSize(1000);
+        assertTrue(settings.getDefaultFixedFontSize() > 13);
+        settings.setDefaultFixedFontSize(-10);
+        assertEquals(1, settings.getDefaultFixedFontSize());
+        settings.setDefaultFontSize(-10);
+        assertEquals(1, settings.getDefaultFontSize());
+        settings.setMinimumLogicalFontSize(-10);
+        assertEquals(1, settings.getMinimumLogicalFontSize());
     }
 
     @Test

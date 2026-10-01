@@ -51,17 +51,19 @@ final class CompatWebSettings extends WebSettings {
     }
 
     @Override public void setAllowFileAccess(boolean allow) {
+        mDelegate.setAllowFileAccess(allow);
     }
 
     @Override public boolean getAllowFileAccess() {
-        return false;
+        return mDelegate.getAllowFileAccess();
     }
 
     @Override public void setAllowContentAccess(boolean allow) {
+        mDelegate.setAllowContentAccess(allow);
     }
 
     @Override public boolean getAllowContentAccess() {
-        return false;
+        return mDelegate.getAllowContentAccess();
     }
 
     @Override public void setLoadWithOverviewMode(boolean overview) {
@@ -89,87 +91,104 @@ final class CompatWebSettings extends WebSettings {
     }
 
     @Override public void setSupportMultipleWindows(boolean support) {
+        mDelegate.setSupportMultipleWindows(support);
     }
 
     @Override public boolean supportMultipleWindows() {
-        return false;
+        return mDelegate.getSupportMultipleWindows();
     }
 
     @Override public void setLayoutAlgorithm(LayoutAlgorithm l) {
+        mDelegate.setLayoutAlgorithm(l != null ? l.ordinal() : 0);
     }
 
     @Override public LayoutAlgorithm getLayoutAlgorithm() {
-        return LayoutAlgorithm.NORMAL;
+        LayoutAlgorithm[] values = LayoutAlgorithm.values();
+        int ordinal = mDelegate.getLayoutAlgorithm();
+        if (ordinal < 0 || ordinal >= values.length) {
+            return LayoutAlgorithm.NORMAL;
+        }
+        return values[ordinal];
     }
 
     @Override public void setStandardFontFamily(String font) {
+        mDelegate.setStandardFontFamily(font);
     }
 
     @Override public String getStandardFontFamily() {
-        return "sans-serif";
+        return mDelegate.getStandardFontFamily();
     }
 
     @Override public void setFixedFontFamily(String font) {
+        mDelegate.setFixedFontFamily(font);
     }
 
     @Override public String getFixedFontFamily() {
-        return "monospace";
+        return mDelegate.getFixedFontFamily();
     }
 
     @Override public void setSansSerifFontFamily(String font) {
+        mDelegate.setSansSerifFontFamily(font);
     }
 
     @Override public String getSansSerifFontFamily() {
-        return "sans-serif";
+        return mDelegate.getSansSerifFontFamily();
     }
 
     @Override public void setSerifFontFamily(String font) {
+        mDelegate.setSerifFontFamily(font);
     }
 
     @Override public String getSerifFontFamily() {
-        return "serif";
+        return mDelegate.getSerifFontFamily();
     }
 
     @Override public void setCursiveFontFamily(String font) {
+        mDelegate.setCursiveFontFamily(font);
     }
 
     @Override public String getCursiveFontFamily() {
-        return "cursive";
+        return mDelegate.getCursiveFontFamily();
     }
 
     @Override public void setFantasyFontFamily(String font) {
+        mDelegate.setFantasyFontFamily(font);
     }
 
     @Override public String getFantasyFontFamily() {
-        return "fantasy";
+        return mDelegate.getFantasyFontFamily();
     }
 
     @Override public void setMinimumFontSize(int size) {
+        mDelegate.setMinimumFontSize(size);
     }
 
     @Override public int getMinimumFontSize() {
-        return 8;
+        return mDelegate.getMinimumFontSize();
     }
 
     @Override public void setMinimumLogicalFontSize(int size) {
+        mDelegate.setMinimumLogicalFontSize(size);
     }
 
     @Override public int getMinimumLogicalFontSize() {
-        return 8;
+        return mDelegate.getMinimumLogicalFontSize();
     }
 
     @Override public void setDefaultFontSize(int size) {
+        mDelegate.setDefaultFontSize(size);
     }
 
     @Override public int getDefaultFontSize() {
-        return 16;
+        return mDelegate.getDefaultFontSize();
     }
 
     @Override public void setDefaultFixedFontSize(int size) {
+        mDelegate.setDefaultFixedFontSize(size);
     }
 
     @Override public int getDefaultFixedFontSize() {
-        return 13;
+        return mDelegate.getDefaultFixedFontSize();
     }
 
     @Override public void setLoadsImagesAutomatically(boolean flag) {
@@ -205,38 +224,46 @@ final class CompatWebSettings extends WebSettings {
     }
 
     @Override public void setDatabaseEnabled(boolean flag) {
+        mDelegate.setDatabaseEnabled(flag);
     }
 
     @Override public void setDomStorageEnabled(boolean flag) {
+        mDelegate.setDomStorageEnabled(flag);
     }
 
     @Override public boolean getDomStorageEnabled() {
-        return false;
+        return mDelegate.getDomStorageEnabled();
     }
 
     @Override public boolean getDatabaseEnabled() {
-        return false;
+        return mDelegate.getDatabaseEnabled();
     }
 
     @Override public void setGeolocationEnabled(boolean flag) {
     }
 
     @Override public void setJavaScriptCanOpenWindowsAutomatically(boolean flag) {
+        mDelegate.setJavaScriptCanOpenWindowsAutomatically(flag);
     }
 
     @Override public boolean getJavaScriptCanOpenWindowsAutomatically() {
-        return false;
+        return mDelegate.getJavaScriptCanOpenWindowsAutomatically();
     }
 
     @Override public void setDefaultTextEncodingName(String encoding) {
+        mDelegate.setDefaultTextEncodingName(encoding);
     }
 
     @Override public String getDefaultTextEncodingName() {
-        return "UTF-8";
+        return mDelegate.getDefaultTextEncodingName();
     }
 
     @Override public void setUserAgentString(@Nullable String ua) {
-        mDelegate.setUserAgentString(ua);
+        // CTS testAccessUserAgentString: setting null is a no-op, setting
+        // "" sticks verbatim. Never store null (get must stay non-null).
+        if (ua != null) {
+            mDelegate.setUserAgentString(ua);
+        }
     }
 
     @Override public String getUserAgentString() {
@@ -260,31 +287,37 @@ final class CompatWebSettings extends WebSettings {
     }
 
     @Override public void setMixedContentMode(int mode) {
+        mDelegate.setMixedContentMode(mode);
     }
 
     @Override public int getMixedContentMode() {
-        return 1;
+        return mDelegate.getMixedContentMode();
     }
 
     @Override public void setOffscreenPreRaster(boolean enabled) {
+        mDelegate.setOffscreenPreRaster(enabled);
     }
 
     @Override public boolean getOffscreenPreRaster() {
-        return false;
+        return mDelegate.getOffscreenPreRaster();
     }
 
+    // Safe Browsing has no Gecko backend in P1 (flag parity only, like
+    // Chromium's toggle surface). Default true matches Chromium.
     @Override public void setSafeBrowsingEnabled(boolean enabled) {
+        mDelegate.setSafeBrowsingEnabled(enabled);
     }
 
     @Override public boolean getSafeBrowsingEnabled() {
-        return false;
+        return mDelegate.getSafeBrowsingEnabled();
     }
 
     @Override public void setDisabledActionModeMenuItems(int menuItems) {
+        mDelegate.setDisabledActionModeMenuItems(menuItems);
     }
 
     @Override public int getDisabledActionModeMenuItems() {
-        return 0;
+        return mDelegate.getDisabledActionModeMenuItems();
     }
 
     @Override public void setEnableSmoothTransition(boolean enable) {
@@ -343,16 +376,31 @@ final class CompatWebSettings extends WebSettings {
     }
 
     @Override public void setAllowUniversalAccessFromFileURLs(boolean flag) {
+        mDelegate.setAllowUniversalAccessFromFileURLs(flag);
     }
 
     @Override public boolean getAllowUniversalAccessFromFileURLs() {
-        return false;
+        return mDelegate.getAllowUniversalAccessFromFileURLs();
     }
 
     @Override public void setAllowFileAccessFromFileURLs(boolean flag) {
+        mDelegate.setAllowFileAccessFromFileURLs(flag);
     }
 
     @Override public boolean getAllowFileAccessFromFileURLs() {
+        return mDelegate.getAllowFileAccessFromFileURLs();
+    }
+
+    // Deprecated plugin API: absent from android.jar (stripped) but still
+    // abstract on the API-34 device framework — without these declarations
+    // any call dies with AbstractMethodError (CTS
+    // WebSettingsTest.testAccessPluginsEnabled). Plugins are long dead:
+    // always false, setter is a no-op. No @Override (android.jar has no
+    // such member to override against).
+    public boolean getPluginsEnabled() {
         return false;
+    }
+
+    public void setPluginsEnabled(boolean flag) {
     }
 }
