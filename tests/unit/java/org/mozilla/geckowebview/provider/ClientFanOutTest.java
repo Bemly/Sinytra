@@ -66,6 +66,13 @@ public final class ClientFanOutTest {
     }
 
     @Test
+    public void realmOf_extractsCurlyQuotedRealm() {
+        assertEquals("Android CTS", ClientFanOut.realmOf(
+                "http://localhost:41387 is requesting your username and password."
+                        + " The site says: \u201CAndroid CTS\u201D"));
+    }
+
+    @Test
     public void realmOf_fallsBackToFullMessage() {
         assertEquals("", ClientFanOut.realmOf(null));
         assertEquals("plain", ClientFanOut.realmOf("plain"));

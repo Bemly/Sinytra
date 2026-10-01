@@ -199,6 +199,36 @@ final class P1SystemProbes {
         }
         out.append("PASS bareCookie write+replace\n");
 
+        // --- CTS-exact cookie repro (CookieManagerTest.testSetCookie):
+        // http://www.example.com + bare value, after a
+        // setAcceptCookie(false)→(true) cycle like the CTS setUp. The
+        // basic bare path above passes; this pins the exact failing
+        // shape (sync + callback variants) so a write refusal vs read
+        // loss shows up with the Boolean attached.
+        final String ctsUrl = "http://www.example.com/";
+        jarManager.setAcceptCookie(false);
+        jarManager.setAcceptCookie(true);
+        jarManager.setCookie(ctsUrl, "name=test");
+        String ctsSync = jarManager.getCookie(ctsUrl);
+        if (ctsSync == null || !ctsSync.contains("name=test")) {
+            throw new IllegalStateException(
+                    "CTS-exact bare cookie (sync) lost: " + ctsSync);
+        }
+        final AtomicReference<Boolean> ctsAsync = new AtomicReference<>();
+        final CountDownLatch ctsAsyncDone = new CountDownLatch(1);
+        jarManager.setCookie(ctsUrl, "name=test",
+                value -> {
+                    ctsAsync.set(value);
+                    ctsAsyncDone.countDown();
+                });
+        if (!ctsAsyncDone.await(15, TimeUnit.SECONDS)
+                || !Boolean.TRUE.equals(ctsAsync.get())) {
+            throw new IllegalStateException(
+                    "CTS-exact bare cookie (async) refused: "
+                            + ctsAsync.get());
+        }
+        out.append("PASS bareCookie CTS-exact\n");
+
         // --- P1 print: PrintBridge streams a real PDF into the
         // destination fd (regression: the old bridge reported success
         // without writing anything) ---

@@ -548,15 +548,28 @@ final class ClientFanOut
         if (message == null) {
             return "";
         }
-        String marker = "The site says: \"";
-        int start = message.indexOf(marker);
-        if (start >= 0) {
-            int end = message.lastIndexOf('"');
-            if (end > start + marker.length()) {
-                return message.substring(start + marker.length(), end);
-            }
+        // Gecko quotes the realm with ASCII or curly quotes depending on
+        // platform string formatting (CTS failure text shows U+201C/U+201D).
+        String realm = realmBetween(message, "The site says: \"", "\"");
+        if (realm != null) {
+            return realm;
         }
-        return message;
+        String curly = realmBetween(message, "The site says: \u201C", "\u201D");
+        return curly != null ? curly : message;
+    }
+
+    @Nullable
+    private static String realmBetween(@NonNull String message,
+            @NonNull String open, @NonNull String close) {
+        int start = message.indexOf(open);
+        if (start < 0) {
+            return null;
+        }
+        int end = message.lastIndexOf(close);
+        if (end <= start + open.length()) {
+            return null;
+        }
+        return message.substring(start + open.length(), end);
     }
 
     @Override
