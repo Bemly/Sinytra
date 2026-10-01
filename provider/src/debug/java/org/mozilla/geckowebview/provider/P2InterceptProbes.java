@@ -7,10 +7,12 @@ import java.util.concurrent.TimeUnit;
 // Request-interception probes, split out of P2TransportProbes (file-size
 // rule, AGENTS §7): 0001 interceptBody (app body + URL identity), 0002
 // interceptSubresource / interceptIframe (parent-side necko cover + deny
-// stand-down), 0003 interceptLargeBody (stream path, >16MB), P2-4
-// denyIntercept (subframe DENY holds about:blank). Order matters: the
-// iframe probe removes its frame before the deny probe asserts ALL frames
-// sit at about:blank. Same harness contract: append PASS or throw.
+// stand-down), 0003 interceptLargeBody (stream path, >16MB). The P2-4
+// denyIntercept probe is retired: full interception (universal "http"
+// filter) renders every app answer (Chromium parity), contradicting the
+// old hold-at-about:blank assertion. Order matters: the iframe probe
+// removes its frame before later probes run. Same harness contract:
+// append PASS or throw.
 //
 // Requires: the live provider with the eval transport ready (P2TransportProbes
 // ran first) and the harness TestClient's shouldInterceptRequest hook.
@@ -232,73 +234,14 @@ final class P2InterceptProbes {
             out.append("PASS interceptLargeBody verdict=")
                     .append(largeVerdict).append('\n');
 
-            // --- P2-4 deny value: non-null shouldInterceptRequest ⇒
-            // subframe DENY. The DENY GeckoResult was verified nowhere
-            // (JVM: GeckoResult class-init needs a live UI Looper; device:
-            // no probe). E2E here: inject an iframe to a deny-marker host
-            // through the eval transport; the app client answers non-null;
-            // DENY must cancel the load before network so the frame never
-            // leaves about:blank (an allow would navigate it to an
-            // unresolvable host and end cross-origin / error-paged).
-            client.interceptedUri.set(null);
-            final CountDownLatch denyEvalDone = new CountDownLatch(1);
-            final String[][] denyEvalResult = new String[1][];
-            activity.runOnUiThread(() -> provider.evaluateJavaScript(
-                    "(function(){var f=document.createElement('iframe');"
-                            + "f.src='https://example.org/?"
-                            + "sinytra-deny-probe=1';"
-                            + "document.body.appendChild(f);"
-                            + "return 'iframes='+document.querySelectorAll"
-                            + "('iframe').length;})()",
-                    value -> {
-                        denyEvalResult[0] = new String[] {value};
-                        android.util.Log.i("Sinytra/p0glue",
-                                "deny inject eval result=" + value);
-                        denyEvalDone.countDown();
-                    }));
-            if (!denyEvalDone.await(45, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("deny inject eval timeout");
-            }
-            long waited = 0;
-            while (client.interceptedUri.get() == null && waited < 20_000) {
-                Thread.sleep(250);
-                waited += 250;
-            }
-            String denyUri = client.interceptedUri.get();
-            if (denyUri == null) {
-                throw new IllegalStateException(
-                        "shouldInterceptRequest never saw the deny marker");
-            }
-            if (!denyUri.contains("sinytra-deny-probe")) {
-                throw new IllegalStateException("deny marker uri: " + denyUri);
-            }
-            // Settle: an allowed load would be in-flight; deny keeps the
-            // frame at its initial about:blank.
-            Thread.sleep(8_000);
-            final CountDownLatch frameDone = new CountDownLatch(1);
-            final String[][] frameState = new String[1][];
-            activity.runOnUiThread(() -> provider.evaluateJavaScript(
-                    "(function(){try{return document.querySelector('iframe')"
-                            + ".contentWindow.location.href}"
-                            + "catch(e){return 'ERR:'+e.name}})()",
-                    value -> {
-                        frameState[0] = new String[] {value};
-                        frameDone.countDown();
-                    }));
-            if (!frameDone.await(45, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("deny frame eval timeout");
-            }
-            String frameHref = frameState[0][0];
-            if (frameHref == null) {
-                throw new IllegalStateException("deny frame href null");
-            }
-            // evaluateJavaScript reports JSON-encoded: strip the quotes.
-            String href = frameHref.replace("\"", "");
-            if (!"about:blank".equals(href)) {
-                throw new IllegalStateException(
-                        "deny did not hold the frame at about:blank: " + href);
-            }
-            out.append("PASS denyIntercept uri=").append(denyUri)
-                    .append(" frame=about:blank\n");
+            // --- P2-4 deny value: RETIRED. Full interception (universal
+            // "http" filter, effectiveInterceptFilters) replaced the
+            // LoadRequest DENY approximation: an app answer now always
+            // renders (Chromium parity — shouldInterceptRequest has no
+            // deny). The old assertion (non-null answer holds the frame
+            // at about:blank) contradicts the new contract, and
+            // interceptIframe above already locks app-answers-render for
+            // subframes end-to-end. The DENY code path in
+            // InterceptBridge.decide stays for non-http URIs only.
     }
 }

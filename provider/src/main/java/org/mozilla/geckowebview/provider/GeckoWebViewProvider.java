@@ -98,7 +98,7 @@ public final class GeckoWebViewProvider
     @Nullable
     private final GeckoViewHost mViewHost;
     @NonNull
-    private volatile String[] mInterceptFilters = new String[0];
+    private final InterceptFilterTable mFilterTable = new InterceptFilterTable();
     private final java.util.Map<Long, WebView.VisualStateCallback> mPendingVisualState =
             new java.util.concurrent.ConcurrentHashMap<>();
     private WebViewClient mWebViewClient;
@@ -192,7 +192,7 @@ public final class GeckoWebViewProvider
             @Override
             @NonNull
             public String[] getFilters() {
-                return mInterceptFilters;
+                return effectiveInterceptFilters();
             }
 
             @Override
@@ -373,7 +373,30 @@ public final class GeckoWebViewProvider
     @Override
     @NonNull
     public String[] interceptFilters() {
-        return mInterceptFilters;
+        return mFilterTable.appFilters();
+    }
+
+    // Effective filters pushed to Gecko + consulted by the LoadRequest
+    // stand-down: app filters plus the universal "http" prefix (matches
+    // http:// and https://, never data:/about:/file:). Full interception
+    // retires the P2-4 DENY approximation — an app answer now always
+    // renders (Chromium parity: shouldInterceptRequest has no deny).
+    // Without this, any page served by the app's shouldInterceptRequest
+    // (every CTS test server page) DENYs to about:blank.
+    @NonNull
+    public String[] effectiveInterceptFilters() {
+        return mFilterTable.effective();
+    }
+
+    private void pushEffectiveFilters() {
+        if (mDestroyed) {
+            return;
+        }
+        try {
+            mBridge.session().setResponseDelegate(mResponseBridge);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "pushEffectiveFilters threw", t);
+        }
     }
 
     @Override
@@ -511,12 +534,11 @@ public final class GeckoWebViewProvider
      * Re-settable at any time (re-pushes the filter list to Gecko).
      */
     public void setInterceptFilters(@NonNull String[] filters) {
-        mInterceptFilters = filters.clone();
+        mFilterTable.set(filters);
         // Re-dispatch the delegate: setResponseDelegate re-pushes filters
-        // to the Gecko interception controller.
-        if (!mDestroyed) {
-            mBridge.session().setResponseDelegate(mResponseBridge);
-        }
+        // to the Gecko interception controller (effective set always
+        // carries the universal prefix).
+        pushEffectiveFilters();
     }
 
     public int jsInterfaceCount() {
@@ -684,15 +706,8 @@ public final class GeckoWebViewProvider
     }
 
     private void addInterceptFilter(@NonNull String prefix) {
-        String[] current = mInterceptFilters;
-        for (String filter : current) {
-            if (prefix.equals(filter)) {
-                return;
-            }
-        }
-        String[] next = java.util.Arrays.copyOf(current, current.length + 1);
-        next[current.length] = prefix;
-        setInterceptFilters(next);
+        mFilterTable.add(prefix);
+        pushEffectiveFilters();
     }
 
     @Override public void evaluateJavaScript(String script, ValueCallback<String> resultCallback) {

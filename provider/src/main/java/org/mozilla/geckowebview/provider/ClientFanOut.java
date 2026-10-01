@@ -65,6 +65,10 @@ final class ClientFanOut
         @NonNull
         String[] interceptFilters();
 
+        /** App filters plus the universal prefix (what Gecko actually gets). */
+        @NonNull
+        String[] effectiveInterceptFilters();
+
         @NonNull
         org.mozilla.geckowebview.session.RenderProcessBridge renderProcess();
     }
@@ -800,7 +804,7 @@ final class ClientFanOut
     @Override
     public boolean responseSurfaceOwns(@NonNull String uri) {
         return org.mozilla.geckowebview.session.InterceptBridge
-                .matchesFilterPrefix(uri, mOwner.interceptFilters());
+                .matchesFilterPrefix(uri, mOwner.effectiveInterceptFilters());
     }
 
     // --- FindBridge.Host ---
