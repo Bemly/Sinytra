@@ -46,7 +46,20 @@ final class LoadDataHandler {
 
     @Nullable
     OneShotBody consume(@NonNull String url) {
-        return mOneShotBodies.remove(url);
+        // Idempotent serve (NOT remove-on-read): the necko layer may
+        // query the same document URL more than once (favicon, retry,
+        // speculative re-query). Removing on first read lets a duplicate
+        // query fall through to network and overwrite the synthesized
+        // document with the live site (CTS PostMessage family showed the
+        // title never arriving). Repeat serves are harmless (same static
+        // body); a newer loadData overwrites the entry. Known edge: a
+        // later plain loadUrl of the same URL keeps serving the stale
+        // body until overwritten — rare in practice, noted.
+        return mOneShotBodies.get(url);
+    }
+
+    void discard(@NonNull String url) {
+        mOneShotBodies.remove(url);
     }
 
     void loadDataWithBaseURL(@Nullable String baseUrl, @Nullable String data,
