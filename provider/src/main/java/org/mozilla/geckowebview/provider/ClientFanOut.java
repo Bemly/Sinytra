@@ -468,6 +468,17 @@ final class ClientFanOut
                     @Override
                     public void proceed(@NonNull String username,
                             @NonNull String password) {
+                        // Chromium stores proceed() credentials for the
+                        // protection space (later challenges report
+                        // useHttpAuthUsernamePassword()=true).
+                        try {
+                            mOwner.factory().webViewDatabase(mOwner.webView()
+                                    .getContext()).setHttpAuthUsernamePassword(
+                                            host, realm, username, password);
+                        } catch (Throwable t) {
+                            android.util.Log.w(TAG,
+                                    "webViewDatabase set threw", t);
+                        }
                         mainPostAuth(pending, prompt, username, password,
                                 false);
                     }
@@ -477,15 +488,6 @@ final class ClientFanOut
                         mainPostAuth(pending, prompt, "", "", true);
                     }
                 };
-        HttpAuthHandler handler =
-                FrameworkTokens.newAuthHandler(decision, false);
-        if (handler == null) {
-            try {
-                pending.complete(prompt.dismiss());
-            } catch (Throwable ignored) {
-            }
-            return;
-        }
         String[] stored = null;
         try {
             stored = mOwner.factory().webViewDatabase(mOwner.webView().getContext())
@@ -493,26 +495,36 @@ final class ClientFanOut
         } catch (Throwable t) {
             android.util.Log.w(TAG, "webViewDatabase get threw", t);
         }
-        if (stored != null && stored.length == 2) {
-            // Stored credentials: answer without consulting the app
-            // (Chromium auto-fill path; useHttpAuthUsernamePassword=true
-            // reported to any later handler — none here since answered).
+        HttpAuthHandler handler =
+                FrameworkTokens.newAuthHandler(decision, stored != null
+                        && stored.length == 2);
+        if (handler == null) {
             try {
-                pending.complete(prompt.confirm(
-                        stored[0] != null ? stored[0] : "",
-                        stored[1] != null ? stored[1] : ""));
-                return;
-            } catch (Throwable t) {
-                android.util.Log.w(TAG, "auth confirm stored threw", t);
+                pending.complete(prompt.dismiss());
+            } catch (Throwable ignored) {
+            }
+            return;
+        }
+        // Chromium parity: stored credentials do NOT bypass the app — the
+        // handler reports useHttpAuthUsernamePassword()=true and the app
+        // decides (typically: query getHttpAuthUsernamePassword + proceed).
+        // Only without an app client do stored credentials auto-answer.
+        WebViewClient client = mOwner.webViewClient();
+        if (client == null) {
+            if (stored != null && stored.length == 2) {
+                final String user = stored[0] != null ? stored[0] : "";
+                final String pass = stored[1] != null ? stored[1] : "";
                 try {
-                    pending.complete(prompt.dismiss());
-                } catch (Throwable ignored) {
+                    pending.complete(prompt.confirm(user, pass));
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG, "auth confirm stored threw", t);
+                    try {
+                        pending.complete(prompt.dismiss());
+                    } catch (Throwable ignored) {
+                    }
                 }
                 return;
             }
-        }
-        WebViewClient client = mOwner.webViewClient();
-        if (client == null) {
             try {
                 pending.complete(prompt.dismiss());
             } catch (Throwable t) {
@@ -521,7 +533,10 @@ final class ClientFanOut
             return;
         }
         try {
-            client.onReceivedHttpAuthRequest(mOwner.webView(), handler, uri, realm);
+            // Framework contract: host is the bare host (not the full
+            // URI) and realm is the bare protection-space name.
+            client.onReceivedHttpAuthRequest(mOwner.webView(), handler, host,
+                    realm);
         } catch (Throwable t) {
             android.util.Log.w(TAG, "WebViewClient.onReceivedHttpAuthRequest threw", t);
             try {
