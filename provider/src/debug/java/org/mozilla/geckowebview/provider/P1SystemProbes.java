@@ -153,6 +153,52 @@ final class P1SystemProbes {
                         ? jarValue.substring(0, 64) + "…" : jarValue)
                 .append("\"\n");
 
+        // --- bare programmatic cookie (CTS CookieManagerTest.testSetCookie:
+        // "name=test" with no attributes must land and read back; re-setting
+        // the same name must replace, not duplicate — the duplicate path
+        // showed up as "count=1; count=41" in testAcceptCookie). The
+        // callback Boolean distinguishes a jar-write refusal (0007 add())
+        // from a read-side filter loss (0011) without guessing.
+        final String bareUrl = "https://cookietest.example/";
+        final AtomicReference<Boolean> bareSet = new AtomicReference<>();
+        final CountDownLatch bareSetDone = new CountDownLatch(1);
+        jarManager.setCookie(bareUrl, "name=test",
+                value -> {
+                    bareSet.set(value);
+                    bareSetDone.countDown();
+                });
+        if (!bareSetDone.await(15, TimeUnit.SECONDS)
+                || !Boolean.TRUE.equals(bareSet.get())) {
+            throw new IllegalStateException(
+                    "bare cookie write refused: " + bareSet.get());
+        }
+        String bareValue = jarManager.getCookie(bareUrl);
+        if (bareValue == null || !bareValue.contains("name=test")) {
+            throw new IllegalStateException(
+                    "bare cookie read lost: " + bareValue);
+        }
+        final AtomicReference<Boolean> bareOver = new AtomicReference<>();
+        final CountDownLatch bareOverDone = new CountDownLatch(1);
+        jarManager.setCookie(bareUrl, "name=test2",
+                value -> {
+                    bareOver.set(value);
+                    bareOverDone.countDown();
+                });
+        if (!bareOverDone.await(15, TimeUnit.SECONDS)
+                || !Boolean.TRUE.equals(bareOver.get())) {
+            throw new IllegalStateException(
+                    "bare cookie overwrite refused: " + bareOver.get());
+        }
+        String bareOverValue = jarManager.getCookie(bareUrl);
+        if (bareOverValue == null || !bareOverValue.contains("name=test2")
+                || bareOverValue.contains("name=test;")
+                || bareOverValue.contains("; name=test")) {
+            throw new IllegalStateException(
+                    "bare cookie duplicated instead of replaced: "
+                            + bareOverValue);
+        }
+        out.append("PASS bareCookie write+replace\n");
+
         // --- P1 print: PrintBridge streams a real PDF into the
         // destination fd (regression: the old bridge reported success
         // without writing anything) ---
