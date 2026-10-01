@@ -784,6 +784,37 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   `62b7b46e280e`；153 版 patch 历史以本仓 `firefox-patches/` 文件为准，
   无丢失）、`objdir-opt`（22G）已删。158 线是唯一线。
 
+## 1v. CTS 定向收敛轮（2026-10-01，round6：0013/0014 落栈 + one-shot 规范化）
+
+- **0013 resource://android 指 provider APK**（firefox `9202aa4`，本仓
+  `b41f070`）：`GeckoAppShell.getPackageResourcePath()`（`nsResProtocolHandler::
+  GetApkURI` 经 JNI 调）返回宿主 APK → CTS 进程里 sinytra-js 扩展
+  manifest 报 NS_ERROR_FILE_NOT_FOUND → eval/postMessage/console 全死
+  （0008 greomni 同类跨包问题）。修法与 0008 同构（classloader 推导
+  mozglue 路径；regular embedder 回退不变）。publish 成功后真机实锤：
+  CTS 进程 `GeckoAppShell: resource://android: using provider apk
+  <provider base.apk>` + `ensureBuiltIn installed`，无 NS_ERROR。
+  效果：PostMessage 从 8 全灭到 9 跑 3 过。
+- **0014 同 host 的 Domain 存 domain cookie**（firefox `0e7bca2`，本仓
+  `beb78c9`；0011 同文件后续，线性历史不重写）：CTS CookieTest.testDomain
+  以 `domain=www.foo.com` 落在 `www.foo.com` 上——0011 的
+  `cookieHost!==host` 门漏掉相等 case，存成 host cookie。记
+  `sawDomainAttr`，有 Domain 属性即前导点存（校验仍拒不匹配域）。
+  与 0013 同一批 binaries+publish。效果：**CookieTest 5/5 OK**。
+- **loadData one-shot key 规范化**（本仓 `72e0f81`，纯 provider 侧）：
+  PostMessage 单测 baseUrl `http://www.example.com` 到 necko 变成
+  `https://www.example.com/`（HSTS 内升级 + 根尾斜杠）→ 精确 key
+  miss → 落真实网络 → 真页无 onmessage → waitForTitle 超时。修：
+  `LoadDataHandler.canonicalKey`（去 scheme、host 小写、空 path 归一
+  `/`；存/取双侧用）。origin 检查本就不强制（MessageBridge 只记录），
+  https 页照收 http-origin 消息。JVM +3 锁（123 全绿）。
+- **待验（进行中）**：新包自进程 FrameworkEntry PASS（含 filters pushed +
+  ShouldPrepare HIT）；但重装后 CTS 进程连续三轮 filter 下发停在
+  `filter observer registered` 无 `filters pushed`（旧包旧 child 时曾通）。
+  已干净重编（`--rerun-tasks`）+ 重装 + 双 force-stop，清 child 后
+  PostMessage 单测重跑中——先判定是混合产物偶发还是第三方进程系统性
+  问题，再跑整类。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~**切换路线主线化**~~（2026-09-26 完成，§1s）：metadata + versionCode
