@@ -784,7 +784,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   `62b7b46e280e`；153 版 patch 历史以本仓 `firefox-patches/` 文件为准，
   无丢失）、`objdir-opt`（22G）已删。158 线是唯一线。
 
-## 1v. CTS 定向收敛轮（2026-10-01，round6：0013/0014 落栈 + one-shot 规范化）
+## 1v. CTS 定向收敛轮（2026-10-01/02，round6：0013/0014 落栈 + transport 两轮重写）
 
 - **0013 resource://android 指 provider APK**（firefox `9202aa4`，本仓
   `b41f070`）：`GeckoAppShell.getPackageResourcePath()`（`nsResProtocolHandler::
@@ -814,6 +814,22 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   已干净重编（`--rerun-tasks`）+ 重装 + 双 force-stop，清 child 后
   PostMessage 单测重跑中——先判定是混合产物偶发还是第三方进程系统性
   问题，再跑整类。
+- ** transport 泄漏根因 + 两轮重写（2026-10-02）**：harness 同构探针
+  实锤页面收到 11 个 `[object Object]` + 1 真数据——内部
+  window.postMessage 全漏进页面 onmessage。CustomEvent 证伪（跨不过
+  isolated/page 世界）；shim 层 marker 过滤失败（defineProperty 被拒 +
+  存量 handler）；最终改 DOM 属性邮箱（单写者队列 + seq 水位，
+  MutationObserver，无窗口事件）——harness `loadDataHttpUpgrade
+  title=from_webview` 精确干净，P0 GLUE PASS。`handlePort` 同 task 双写
+  合并丢 port 事件的坑一并修掉（队列化）。
+- **环境侧三类 hang（已定性，非产品逻辑，两次线程转储实锤）**：
+  ① 新 tab 偶发卡 LIBS_READY→RUNNING（0% CPU 睡眠，无崩溃；parent 侧
+  全正常，会话永等）；② parent Gecko JS 环静默（RUNNING 但无扩展回调/
+  PageStart/下发）；③ teardown 经 surfaceDestroyed → syncPauseCompositor
+  同步等 GPU IPC，GPU 失联时主线程卡死 + waitForIdleSync 连带挂（focus
+  flakes 另计）。共同特征：只发生在 CTS 式高频启停/多 tab 堆积下；
+  单 WebView 稳态（harness/MiniWV/FrameworkEntry）从未复现。收敛策略：
+  串行单测 + fresh-everything 取证，不追 Gecko 原生层。
 
 ## 2. 下一步（按顺序，一次做一件）
 
