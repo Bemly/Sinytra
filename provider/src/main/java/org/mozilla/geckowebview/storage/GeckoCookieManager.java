@@ -115,24 +115,44 @@ public final class GeckoCookieManager {
         // applies policy synchronously before the jar op; we emulate it.
         // Deadlock-free: the setter runs on the main thread (never the
         // query thread), and the caller here never holds the query latch.
+        //
+        // Confirmed-only bookkeeping: mLastAppliedBehavior records the
+        // behavior ONLY when the push provably ran. A timed-out or
+        // throwing push must NOT be recorded — otherwise the pref stays
+        // stale forever (every later call early-returns on the recorded
+        // value and never retries). This bit CTS CookieManagerTest:
+        // setUp hammers policy while the main thread is busy creating
+        // the first runtime, the FIRST_PARTY re-push silently died, and
+        // the REJECT stuck.
         final CountDownLatch pushed = new CountDownLatch(1);
+        final AtomicReference<Throwable> pushError = new AtomicReference<>();
         Runnable push = () -> {
             try {
                 runtime.getSettings().getContentBlocking()
                         .setCookieBehavior(behavior);
+            } catch (Throwable t) {
+                pushError.set(t);
             } finally {
                 pushed.countDown();
             }
         };
+        boolean posted = true;
         if (Looper.myLooper() == Looper.getMainLooper()) {
             push.run();
         } else {
             mainHandler().post(push);
             try {
-                pushed.await(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+                posted = pushed.await(TIMEOUT_MS, TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                posted = false;
             }
+        }
+        Throwable error = pushError.get();
+        if (!posted || error != null) {
+            Log.w(TAG, "cookie policy push failed (behavior=" + behavior
+                    + " posted=" + posted + ")", error);
+            return;
         }
         waitForBehavior();
         mLastAppliedBehavior = behavior;
