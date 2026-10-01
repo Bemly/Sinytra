@@ -88,17 +88,13 @@ public final class GeckoWebViewProvider
     private final MessageBridge mMessages;
     private final org.mozilla.geckowebview.session.ConsoleBridge mConsole;
     private final InterceptBridge mIntercept;
-    private final LoadDataHandler mLoadData;
+    private final Interception mInterception;
     private final RenderProcessBridge mRenderProcess;
-    // Sinytra 0001: response interception surface (see ResponseBridge).
-    private final ResponseBridge mResponseBridge;
     // Visual surface (2026-09-25): GeckoViewHost attached as a WebView
     // child; the child's own view lifecycle owns surface attach/detach.
     // Null = attach failed, headless fallback (loud log).
     @Nullable
     private final GeckoViewHost mViewHost;
-    @NonNull
-    private final InterceptFilterTable mFilterTable = new InterceptFilterTable();
     private final java.util.Map<Long, WebView.VisualStateCallback> mPendingVisualState =
             new java.util.concurrent.ConcurrentHashMap<>();
     private WebViewClient mWebViewClient;
@@ -160,68 +156,31 @@ public final class GeckoWebViewProvider
         mMessages.setTransport(mJsBridge);
         mConsole.setTransport(mJsBridge);
         mIntercept = new InterceptBridge(mFanOut);
-        mLoadData = new LoadDataHandler(new LoadDataHandler.Host() {
+        mInterception = new Interception(new Interception.Host() {
             @Override
-            public void navigateTo(@NonNull String url) {
-                mBridge.loadUrl(url);
+            @NonNull
+            public GeckoSessionBridge bridge() {
+                return mBridge;
             }
 
             @Override
-            public void loadDataUri(byte[] data, @NonNull String mimeType) {
-                mBridge.session().load(
-                        new GeckoSession.Loader().data(data, mimeType));
+            @NonNull
+            public GeckoWebSettings settings() {
+                return mSettings.gecko();
             }
 
             @Override
-            public void addInterceptFilter(@NonNull String prefix) {
-                GeckoWebViewProvider.this.addInterceptFilter(prefix);
+            public boolean destroyed() {
+                return mDestroyed;
             }
-
-            @Override
-            public void logWarning(@NonNull String message) {
-                android.util.Log.w(TAG, message);
-            }
-        });
+        }, mIntercept);
         mRenderProcess = new RenderProcessBridge();
         mBridge.setExtraDelegates(mFanOut, mFanOut, mFanOut);
         mBridge.setInterceptBridge(mIntercept);
         // Session must be opened on the UI thread (GeckoView @UiThread contract).
         // Real framework calls create() on the UI thread; assert here so the
         // harness (or future callers) fail fast instead of hanging on load.
-        mResponseBridge = new ResponseBridge(new ResponseBridge.Host() {
-            @Override
-            @NonNull
-            public String[] getFilters() {
-                return effectiveInterceptFilters();
-            }
-
-            @Override
-            @Nullable
-            public ResponseBridge.WebResourceResponseHolder shouldIntercept(
-                    @NonNull WebRequestInfo info) {
-                // loadData one-shot first (internal, never consults the app).
-                LoadDataHandler.OneShotBody oneShot = info.uri != null
-                        ? mLoadData.consume(info.uri) : null;
-                if (oneShot != null) {
-                    return new ResponseBridge.WebResourceResponseHolder(
-                            oneShot.mimeType, "utf-8", 200,
-                            new java.io.ByteArrayInputStream(oneShot.bytes));
-                }
-                // 0002: the necko query carries the request surface —
-                // isTopLevel maps to WebResourceRequest.isForMainFrame,
-                // method/headers pass through unchanged.
-                WebResourceResponse app = mIntercept.queryApp(info.uri,
-                        false, false, info.isTopLevel, info.method,
-                        info.requestHeaders);
-                if (app == null) {
-                    return null;
-                }
-                return new ResponseBridge.WebResourceResponseHolder(
-                        app.getMimeType(), app.getEncoding(),
-                        app.getStatusCode(), app.getData());
-            }
-        });
-        mBridge.session().setResponseDelegate(mResponseBridge);
+        mBridge.session().setResponseDelegate(mInterception.responses());
         mBridge.session().open(GeckoRuntimeHolder.get(
                 webView.getContext().getApplicationContext()));
         // Bind the JS extension transport (built-in WebExtension, public API;
@@ -373,7 +332,13 @@ public final class GeckoWebViewProvider
     @Override
     @NonNull
     public String[] interceptFilters() {
-        return mFilterTable.appFilters();
+        return mInterception.appFilters();
+    }
+
+    @Override
+    @NonNull
+    public org.mozilla.geckowebview.settings.GeckoWebSettings webSettingsState() {
+        return mSettings.gecko();
     }
 
     // Effective filters pushed to Gecko + consulted by the LoadRequest
@@ -385,18 +350,7 @@ public final class GeckoWebViewProvider
     // (every CTS test server page) DENYs to about:blank.
     @NonNull
     public String[] effectiveInterceptFilters() {
-        return mFilterTable.effective();
-    }
-
-    private void pushEffectiveFilters() {
-        if (mDestroyed) {
-            return;
-        }
-        try {
-            mBridge.session().setResponseDelegate(mResponseBridge);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "pushEffectiveFilters threw", t);
-        }
+        return mInterception.effectiveFilters();
     }
 
     @Override
@@ -537,11 +491,7 @@ public final class GeckoWebViewProvider
      * Re-settable at any time (re-pushes the filter list to Gecko).
      */
     public void setInterceptFilters(@NonNull String[] filters) {
-        mFilterTable.set(filters);
-        // Re-dispatch the delegate: setResponseDelegate re-pushes filters
-        // to the Gecko interception controller (effective set always
-        // carries the universal prefix).
-        pushEffectiveFilters();
+        mInterception.setFilters(filters);
     }
 
     public int jsInterfaceCount() {
@@ -701,16 +651,11 @@ public final class GeckoWebViewProvider
             String encoding, String historyUrl) {
         pushSettings();
         try {
-            mLoadData.loadDataWithBaseURL(baseUrl, data, mimeType, encoding,
-                    historyUrl);
+            mInterception.loadDataWithBaseURL(baseUrl, data, mimeType,
+                    encoding, historyUrl);
         } catch (Throwable t) {
             android.util.Log.w(TAG, "loadDataWithBaseURL threw", t);
         }
-    }
-
-    private void addInterceptFilter(@NonNull String prefix) {
-        mFilterTable.add(prefix);
-        pushEffectiveFilters();
     }
 
     @Override public void evaluateJavaScript(String script, ValueCallback<String> resultCallback) {

@@ -37,6 +37,17 @@ public final class InterceptBridge {
          * (firefox-patches/0002 design §4 Group A).
          */
         boolean responseSurfaceOwns(@NonNull String uri);
+
+        /**
+         * Settings-policy navigation block (blockNetworkLoads, mixed
+         * frames, file access). Checked before the app is consulted —
+         * Chromium never calls shouldInterceptRequest for policy-blocked
+         * loads. Defaults to allow so existing Hosts are unaffected.
+         */
+        default boolean policyBlocksNavigation(@NonNull String uri,
+                boolean isMainFrame, @Nullable String triggerUri) {
+            return false;
+        }
     }
 
     private final Host mHost;
@@ -50,7 +61,7 @@ public final class InterceptBridge {
             @NonNull GeckoSession session,
             @NonNull GeckoSession.NavigationDelegate.LoadRequest request) {
         return decide(request.uri, request.isRedirect, request.hasUserGesture,
-                true);
+                true, request.triggerUri);
     }
 
     @Nullable
@@ -58,15 +69,25 @@ public final class InterceptBridge {
             @NonNull GeckoSession session,
             @NonNull GeckoSession.NavigationDelegate.LoadRequest request) {
         return decide(request.uri, request.isRedirect, request.hasUserGesture,
-                false);
+                false, request.triggerUri);
     }
 
     @Nullable
     private GeckoResult<org.mozilla.geckoview.AllowOrDeny> decide(
             @Nullable String uri, boolean isRedirect, boolean hasUserGesture,
-            boolean isMainFrame) {
+            boolean isMainFrame, @Nullable String triggerUri) {
         if (uri == null) {
             return null;
+        }
+        try {
+            if (mHost.policyBlocksNavigation(uri, isMainFrame, triggerUri)) {
+                android.util.Log.i("Sinytra/intercept",
+                        "policy blocks navigation " + uri);
+                return GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.DENY);
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("Sinytra/intercept",
+                    "Host.policyBlocksNavigation threw", t);
         }
         if (mHost.responseSurfaceOwns(uri)) {
             // 0001/0002: the necko controller answers this URI with the

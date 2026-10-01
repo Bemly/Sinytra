@@ -65,6 +65,10 @@ final class ClientFanOut
         @NonNull
         String[] interceptFilters();
 
+        /** Live WebSettings state for policy enforcement. */
+        @NonNull
+        org.mozilla.geckowebview.settings.GeckoWebSettings webSettingsState();
+
         /** App filters plus the universal prefix (what Gecko actually gets). */
         @NonNull
         String[] effectiveInterceptFilters();
@@ -818,6 +822,21 @@ final class ClientFanOut
     public boolean responseSurfaceOwns(@NonNull String uri) {
         return org.mozilla.geckowebview.session.InterceptBridge
                 .matchesFilterPrefix(uri, mOwner.effectiveInterceptFilters());
+    }
+
+    @Override
+    public boolean policyBlocksNavigation(@NonNull String uri,
+            boolean isMainFrame, @Nullable String triggerUri) {
+        try {
+            String page = triggerUri != null && !triggerUri.isEmpty()
+                    ? triggerUri
+                    : mOwner.ownerBridge().getUrl();
+            return LoadPolicy.blockNavigation(uri, isMainFrame, page,
+                    mOwner.webSettingsState());
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "policyBlocksNavigation threw", t);
+            return false;
+        }
     }
 
     // --- FindBridge.Host ---
