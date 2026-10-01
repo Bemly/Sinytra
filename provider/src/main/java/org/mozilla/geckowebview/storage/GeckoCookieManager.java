@@ -383,12 +383,25 @@ public final class GeckoCookieManager {
             callbackOrDefault(callback, Boolean.FALSE);
             return;
         }
+        // Chromium answers whether cookies were actually removed: only a
+        // non-empty jar that ends up empty counts (clearData resolves on
+        // completion, not on effect — trusting it blindly reports success
+        // for empty clears, CTS CookieManagerTest.testRemoveCookiesCallback).
         // Same ordering contract as removeSessionCookies above.
-        Boolean cleared = blockingOp(
-                () -> controller.clearData(flags).map(v -> Boolean.TRUE),
-                Boolean.FALSE);
+        Boolean had = blockingOp(controller::hasCookies, Boolean.FALSE);
+        Boolean cleared = Boolean.FALSE;
+        if (Boolean.TRUE.equals(had)) {
+            cleared = blockingOp(
+                    () -> controller.clearData(flags).map(v -> Boolean.TRUE),
+                    Boolean.FALSE);
+            if (Boolean.TRUE.equals(cleared)) {
+                cleared = blockingOp(controller::hasCookies, Boolean.TRUE)
+                        ? Boolean.FALSE : Boolean.TRUE;
+            }
+        }
+        final Boolean result = cleared;
         Handler main = mainHandler();
-        main.post(() -> callbackOrDefault(callback, cleared));
+        main.post(() -> callbackOrDefault(callback, result));
     }
 
     @NonNull
