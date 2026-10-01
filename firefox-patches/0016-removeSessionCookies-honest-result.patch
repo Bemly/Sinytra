@@ -1,0 +1,40 @@
+From ac1faae93b2cf281d95c86969345619f17057573 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Fri, 2 Oct 2026 07:16:00 +0800
+Subject: [PATCH] Sinytra patch 0007: honest removeSessionCookies result
+ (had-and-gone)
+
+---
+ .../geckoview/GeckoViewStorageController.sys.mjs  | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+index 76438a4c083b..be9c8ab346c1 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+@@ -211,11 +211,18 @@ export const GeckoViewStorageController = {
+         break;
+       }
+       case "GeckoView:RemoveSessionCookies": {
+-        const session = Services.cookies.sessionCookies;
+-        for (const c of session) {
+-          Services.cookies.remove(c.host, c.name, c.path, c.originAttributes);
++        // Chromium reports whether session cookies were actually removed:
++        // existed-before AND gone-after (a bare pre-count would also
++        // report success when the remove calls silently miss).
++        const had = Services.cookies.sessionCookies.length > 0;
++        if (had) {
++          const session = Services.cookies.sessionCookies;
++          for (const c of session) {
++            Services.cookies.remove(c.host, c.name, c.path, c.originAttributes);
++          }
+         }
+-        aCallback.onSuccess(session.length > 0);
++        aCallback.onSuccess(
++          had && Services.cookies.sessionCookies.length === 0);
+         break;
+       }
+       case "GeckoView:HasCookies": {
+-- 
+2.56.0
+
