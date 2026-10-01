@@ -822,6 +822,12 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   MutationObserver，无窗口事件）——harness `loadDataHttpUpgrade
   title=from_webview` 精确干净，P0 GLUE PASS。`handlePort` 同 task 双写
   合并丢 port 事件的坑一并修掉（队列化）。
+- **PostMessage 8/9（2026-10-02，单测串行）**：simple/close/wildcard/
+  empty/multiple/messageChannel/webMessageHandler/webMessageDefaultHandler
+  全过（3–4 秒/个）；唯 testReceiveMessagePort 挂——page→Java 端口转移
+  （`message.getPorts()` null → 测试回调 NPE），需 Gecko MessagePort
+  IPDL 级 plumbing（P2 patch 候选，独立设计）。app→page 转移、配对路由、
+  stub 分发、邮箱队列本轮全部落地验证。
 - **环境侧三类 hang（已定性，非产品逻辑，两次线程转储实锤）**：
   ① 新 tab 偶发卡 LIBS_READY→RUNNING（0% CPU 睡眠，无崩溃；parent 侧
   全正常，会话永等）；② parent Gecko JS 环静默（RUNNING 但无扩展回调/
