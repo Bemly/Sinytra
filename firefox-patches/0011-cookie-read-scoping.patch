@@ -1,6 +1,6 @@
-From c09ba585498276c9e432bafb0a577ea1c0e344c9 Mon Sep 17 00:00:00 2001
+From a61c422a0ef95c631ab9752a90905519b2794d21 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
-Date: Thu, 1 Oct 2026 11:15:20 +0800
+Date: Thu, 1 Oct 2026 12:58:21 +0800
 Subject: [PATCH 1/2] Sinytra patch 0011: scope GetCookie to exact host+path
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -15,12 +15,16 @@ Content-Transfer-Encoding: 8bit
   (The helper is an object method — call as this.defaultCookiePath;
   a bare call throws ReferenceError and the query never answers.)
 - Null-guard the add() validation result.
+- Programmatic sets ignore the cookieBehavior gate: Chromium lets
+  explicit CookieManager.setCookie writes through regardless of
+  setAcceptCookie (the flag only governs network/page cookies).
+- Reject SameSite=None without Secure (RFC 6265bis/Chromium).
 ---
- .../GeckoViewStorageController.sys.mjs        | 80 +++++++++++++++++--
- 1 file changed, 75 insertions(+), 5 deletions(-)
+ .../GeckoViewStorageController.sys.mjs        | 99 ++++++++++++++++---
+ 1 file changed, 87 insertions(+), 12 deletions(-)
 
 diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
-index be1c525c716d..f9cd47842139 100644
+index be1c525c716d..125574c2b32a 100644
 --- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
 +++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
 @@ -294,6 +294,9 @@ export const GeckoViewStorageController = {
@@ -110,16 +114,28 @@ index be1c525c716d..f9cd47842139 100644
    // Sinytra: store a Set-Cookie-shaped string. nsICookieService's own
    // Set-Cookie parser (setCookieStringFromHttp) requires a channel, which a
    // programmatic set does not have, so parse the common attributes here and
-@@ -322,6 +385,8 @@ export const GeckoViewStorageController = {
+@@ -321,13 +384,13 @@ export const GeckoViewStorageController = {
+   // whether the cookie was accepted. Unknown attributes are ignored, as in
    // Chromium.
    setCookie(aUriSpec, aCookieString) {
-     // Mirror Chromium: setting fails while cookies are globally rejected.
-+    // (The provider pushes the behavior synchronously before every jar
-+    // query, so reading the live pref here is race-free.)
-     if (
-       Services.cookies.getCookieBehavior(false) ===
-       Ci.nsICookieService.BEHAVIOR_REJECT
-@@ -347,7 +412,12 @@ export const GeckoViewStorageController = {
+-    // Mirror Chromium: setting fails while cookies are globally rejected.
+-    if (
+-      Services.cookies.getCookieBehavior(false) ===
+-      Ci.nsICookieService.BEHAVIOR_REJECT
+-    ) {
+-      return false;
+-    }
++    // No cookieBehavior gate: this is the programmatic CookieManager.set
++    // path (nsICookieManager.add backdoor), and Chromium lets explicit API
++    // writes through regardless of the accept flag — the flag only governs
++    // network (page) cookies, which the engine enforces itself. Gating
++    // here broke every programmatic set made while acceptCookie=false
++    // (CTS CookieManagerTest.setUp leaves it false; testSetCookie and
++    // friends expect the write to land).
+     let uri;
+     try {
+       uri = Services.io.newURI(aUriSpec);
+@@ -347,7 +410,12 @@ export const GeckoViewStorageController = {
      const name = pieces[0].slice(0, eq).trim();
      const value = pieces[0].slice(eq + 1).trim();
      let cookieHost = host;
@@ -133,7 +149,21 @@ index be1c525c716d..f9cd47842139 100644
      let isSecure = uri.schemeIs("https");
      let isHttpOnly = false;
      let isSession = true;
-@@ -433,10 +503,10 @@ export const GeckoViewStorageController = {
+@@ -405,6 +473,13 @@ export const GeckoViewStorageController = {
+         }
+       }
+     }
++    // RFC 6265bis / Chromium: SameSite=None requires Secure — without it
++    // the cookie is rejected outright (CTS
++    // CookieManagerTest.testSameSiteNoneRequiresSecure). The add() backdoor
++    // does not enforce this itself, so check before storing.
++    if (sameSite === Ci.nsICookie.SAMESITE_NONE && !isSecure) {
++      return false;
++    }
+     if (cookieHost !== host) {
+       // A Domain attribute may only widen to a domain that matches the URI
+       // host (Chromium rejects others), and add() signals a domain cookie
+@@ -433,10 +508,10 @@ export const GeckoViewStorageController = {
            ? Ci.nsICookie.SCHEME_HTTPS
            : Ci.nsICookie.SCHEME_HTTP
        );
