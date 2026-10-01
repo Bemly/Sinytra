@@ -186,4 +186,17 @@ public final class GeckoBackForwardListTest {
         assertEquals(1, list.getSize());
         assertEquals("https://a.example", list.getCurrentItem().getUrl());
     }
+
+    @Test
+    public void outOfRange_returnsNull() {
+        // Chromium contract (CTS WebBackForwardListTest): no exceptions.
+        GeckoBackForwardList list = new GeckoBackForwardList(
+                items("https://a.example"));
+        assertNull(list.getItemAtIndex(-1));
+        assertNull(list.getItemAtIndex(1));
+        assertNull(list.getItemAtIndex(99));
+        GeckoBackForwardList empty = new GeckoBackForwardList(
+                Collections.emptyList());
+        assertNull(empty.getItemAtIndex(0));
+    }
 }

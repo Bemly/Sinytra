@@ -10,12 +10,20 @@ import org.mozilla.geckoview.GeckoSession;
 // Read-only WebBackForwardList translated from Gecko's SessionState/HistoryList.
 // Gecko owns history (ARCHITECTURE.md §4) — this class only translates.
 final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
+    /** Icon lookup by page URL (the shared icon store). Null = no icons. */
+    interface IconLookup {
+        @Nullable
+        android.graphics.Bitmap lookup(@Nullable String url);
+    }
+
     private final List<GeckoHistoryItem> mItems;
     private final int mCurrentIndex;
+    @Nullable
+    private final IconLookup mIcons;
 
     GeckoBackForwardList(
             @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history) {
-        this(history, false);
+        this(history, false, null);
     }
 
     // dropLeadingBlank: drop a pristine leading about:blank document entry
@@ -28,8 +36,14 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
     GeckoBackForwardList(
             @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history,
             boolean dropLeadingBlank) {
-        this(translate(trim(history, dropLeadingBlank)),
-                deriveIndex(trim(history, dropLeadingBlank), history));
+        this(history, dropLeadingBlank, null);
+    }
+
+    GeckoBackForwardList(
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history,
+            boolean dropLeadingBlank, @Nullable IconLookup icons) {
+        this(translate(trim(history, dropLeadingBlank), icons),
+                deriveIndex(trim(history, dropLeadingBlank), history), icons);
     }
 
     private static List<GeckoSession.HistoryDelegate.HistoryItem> trim(
@@ -60,9 +74,11 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
     // mutations never cross. Preserves the current index — the framework
     // contract for WebBackForwardList.clone()/copyBackForwardList().
     private GeckoBackForwardList(
-            @NonNull List<GeckoHistoryItem> items, int currentIndex) {
+            @NonNull List<GeckoHistoryItem> items, int currentIndex,
+            @Nullable IconLookup icons) {
         mItems = new ArrayList<>(items);
         mCurrentIndex = currentIndex;
+        mIcons = icons;
     }
 
     private static int deriveIndex(
@@ -92,7 +108,8 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
 
     @NonNull
     private static List<GeckoHistoryItem> translate(
-            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history) {
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history,
+            @Nullable IconLookup icons) {
         List<GeckoHistoryItem> items =
                 new ArrayList<>(history.size());
         for (GeckoSession.HistoryDelegate.HistoryItem item : history) {
@@ -108,7 +125,7 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
             } catch (UnsupportedOperationException e) {
                 title = null;
             }
-            items.add(new GeckoHistoryItem(uri, title));
+            items.add(new GeckoHistoryItem(uri, title, icons));
         }
         return items;
     }
@@ -127,7 +144,13 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
     }
 
     @Override
+    @Nullable
     public WebHistoryItem getItemAtIndex(int index) {
+        // Chromium returns null (not an exception) for out-of-range
+        // indices — CTS WebBackForwardListTest asserts exactly that.
+        if (index < 0 || index >= mItems.size()) {
+            return null;
+        }
         return mItems.get(index);
     }
 
@@ -138,16 +161,20 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
 
     @Override
     protected android.webkit.WebBackForwardList clone() {
-        return new GeckoBackForwardList(mItems, mCurrentIndex);
+        return new GeckoBackForwardList(mItems, mCurrentIndex, mIcons);
     }
 
     private static final class GeckoHistoryItem extends WebHistoryItem {
         private final String mUrl;
         private final String mTitle;
+        @Nullable
+        private final IconLookup mIcons;
 
-        GeckoHistoryItem(String url, String title) {
+        GeckoHistoryItem(String url, String title,
+                @Nullable IconLookup icons) {
             mUrl = url;
             mTitle = title;
+            mIcons = icons;
         }
 
         @Override
@@ -165,15 +192,26 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
             return mTitle;
         }
 
-        @Nullable
         @Override
+        @Nullable
         public android.graphics.Bitmap getFavicon() {
-            return null;
+            // Shared store lookup (same object the provider's getFavicon
+            // returns, so CTS sameAs holds once the fetch lands). Null
+            // until fetched — a valid state.
+            IconLookup icons = mIcons;
+            if (icons == null) {
+                return null;
+            }
+            try {
+                return icons.lookup(mUrl);
+            } catch (Throwable t) {
+                return null;
+            }
         }
 
         @Override
         protected WebHistoryItem clone() {
-            return new GeckoHistoryItem(mUrl, mTitle);
+            return new GeckoHistoryItem(mUrl, mTitle, mIcons);
         }
     }
 }
