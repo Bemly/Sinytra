@@ -1,38 +1,32 @@
 // Sinytra JS bridge: page-world shim (MAIN world, injected by content.js).
 // Runs with full page privileges: sees the page's own window objects
 // (including addJavascriptInterface registrations) and can synchronously
-// eval in page context. Talks to content.js (isolated world) only through
-// window.postMessage with the "sinytra-*" dir markers below.
+// eval in page context. Talks to content.js (isolated world) only
+// through the DOM attribute mailbox (never window.postMessage: every
+// window message also fires the page's own onmessage, so markers would
+// leak into page code as "[object Object]"). See content.js header for
+// the mailbox design. Only postWebMessage delivery below is a genuine
+// page-visible MessageEvent, by API contract.
 //
-// Marker hiding: every window message also fires the page's own
-// onmessage, so markers would leak into page code as "[object Object]".
-// The shim therefore wraps window.addEventListener('message') and the
-// onmessage property (first script on the page, best effort): events
-// carrying our markers skip page listeners, everything else passes
-// through untouched — Chromium parity restored, not broken. Genuine
-// port deliveries (plain MessageEvent, no markers) always reach the
-// page.
+// Mailbox shapes (JSON, single-writer queues with seq watermarks):
 //
-// Protocol (window.postMessage, origin-agnostic — the bridge is internal
-// to this extension; a hostile page can already spoof its own DOM):
-//
-// Content -> shim (request):
-//   {dir:"sinytra-req", id:<int>, kind:"eval", script:<string>}
-//   {dir:"sinytra-req", id:<int>, kind:"call",
+// Content -> shim (attribute "data-sinytra-c2s"):
+//   {seq, id:<int>, kind:"eval", script:<string>}
+//   {seq, id:<int>, kind:"call",
 //      iface:<string>, method:<string>, args:<array>}
-//   {dir:"sinytra-req", id:<int>, kind:"port",
+//   {seq, id:<int>, kind:"port",
 //      port:<string>, data:<string>, origin:<string|null>}
-//   {dir:"sinytra-req", id:<int>, kind:"register",
+//   {seq, id:<int>, kind:"register",
 //      iface:<string>, methods:<string[]>}
-//   {dir:"sinytra-req", id:<int>, kind:"unregister", iface:<string>}
+//   {seq, id:<int>, kind:"unregister", iface:<string>}
+//   {seq, id:<string>, kind:"stub-res", ok, value, error}
 //
-// Shim -> content (reply, echoes id):
-//   {dir:"sinytra-res", id:<int>, ok:<bool>,
-//      value:<json-string|null>, error:<string|null>}
+// Shim -> content (attribute "data-sinytra-s2c"):
+//   {seq, id, ok:<bool>, value:<json-string|null>, error:<string|null>}
+//   {seq, event:true, name:<string>, payload:<object>}
+//   {seq, portDeliver:true, port, data, origin}
+// Readiness: attribute "data-sinytra-shim" === "ready".
 //
-// Shim -> content (unsolicited: page calls into a registered Java
-// interface, or page JS posts back on a WebMessage port):
-//   {dir:"sinytra-event", name:<string>, payload:<object>}
 //
 // Eval runs via window.eval so it executes in page context with access
 // to page globals. Return values are JSON-stringified; undefined,
@@ -59,32 +53,41 @@
   const C2S_ATTR = "data-sinytra-c2s";
   const S2C_ATTR = "data-sinytra-s2c";
   const READY_ATTR = "data-sinytra-shim";
-  let s2cSeq = 0;
+  // Single-writer queues (the shim owns s2c): each write appends
+  // {seq,...}; readers drain every entry above their watermark. A bare
+  // last-value mailbox loses messages when two writes land in one task
+  // (MutationObserver coalesces them). Observer refs stay reachable so
+  // GC cannot silently stop observation.
+  const MAX_QUEUE = 50;
+  const s2cCounter = {next: 0};
   let c2sSeen = 0;
+  let c2sObserver = null;
   const pendingResolves = new Map();
 
-  function mailboxWrite(obj) {
+  function queueWrite(obj) {
     try {
       const root = document.documentElement;
       if (!root) {
         return;
       }
-      s2cSeq += 1;
-      obj.seq = s2cSeq;
-      root.setAttribute(S2C_ATTR, JSON.stringify(obj));
-    } catch (e) {
-    }
-  }
-
-  function mailboxRead() {
-    try {
-      const root = document.documentElement;
-      if (!root || !root.hasAttribute(C2S_ATTR)) {
-        return null;
+      let queue = [];
+      if (root.hasAttribute(S2C_ATTR)) {
+        try {
+          const parsed = JSON.parse(root.getAttribute(S2C_ATTR));
+          if (Array.isArray(parsed)) {
+            queue = parsed;
+          }
+        } catch (e) {
+        }
       }
-      return JSON.parse(root.getAttribute(C2S_ATTR));
+      s2cCounter.next += 1;
+      obj.seq = s2cCounter.next;
+      queue.push(obj);
+      while (queue.length > MAX_QUEUE) {
+        queue.shift();
+      }
+      root.setAttribute(S2C_ATTR, JSON.stringify(queue));
     } catch (e) {
-      return null;
     }
   }
 
@@ -116,13 +119,13 @@
   }
 
   function reply(id, ok, value, error) {
-    mailboxWrite({res: true, id, ok: !!ok,
+    queueWrite({res: true, id, ok: !!ok,
       value: value === undefined ? null : value,
       error: error === undefined ? null : error});
   }
 
   function emit(name, payload) {
-    mailboxWrite({event: true, name, payload: payload || {}});
+    queueWrite({event: true, name, payload: payload || {}});
   }
 
   function makeStub(iface, method) {
@@ -237,7 +240,7 @@
       } catch (e) {
       }
       window.dispatchEvent(event);
-      mailboxWrite({portDeliver: true, port: msg.port,
+      queueWrite({portDeliver: true, port: msg.port,
         data: msg.data, origin: msg.origin || ""});
       reply(msg.id, true, json(true), null);
     } catch (e) {
@@ -250,11 +253,11 @@
   // JS heap, and window messages would leak into page onmessage. Observe
   // the mailbox (catch-up read covers a request written before we
   // observe); stub-res replies route via pendingResolves below.
+  // Entries arrive pre-filtered by queueDrain (seq above watermark).
   function routeMailboxMessage(msg) {
-    if (!msg || typeof msg.seq !== "number" || msg.seq <= c2sSeen) {
+    if (!msg) {
       return;
     }
-    c2sSeen = msg.seq;
     if (msg.kind === "stub-res") {
       resolveStubCall(msg);
       return;
@@ -298,38 +301,53 @@
   }
 
   function observeMailbox() {
+    // Catch-up: requests written before we started observing.
+    c2sSeen = queueDrain(c2sSeen);
     try {
       const root = document.documentElement;
-      if (!root) {
+      if (!root || c2sObserver) {
         return;
       }
-      const cur = mailboxRead();
-      if (cur) {
-        routeMailboxMessage(cur);
-      }
-      new MutationObserver((mutations) => {
-        for (const m of mutations) {
-          if (m.type === "attributes" && m.attributeName === C2S_ATTR) {
-            const msg = mailboxRead();
-            if (msg) {
-              routeMailboxMessage(msg);
-            }
-          }
-        }
-      }).observe(root, {attributes: true});
+      c2sObserver = new MutationObserver(() => {
+        c2sSeen = queueDrain(c2sSeen);
+      });
+      c2sObserver.observe(root, {attributes: true});
     } catch (e) {
     }
   }
 
-  function mailboxRead() {
+  function queueDrain(seen) {
     try {
       const root = document.documentElement;
       if (!root || !root.hasAttribute(C2S_ATTR)) {
-        return null;
+        return seen;
       }
-      return JSON.parse(root.getAttribute(C2S_ATTR));
+      let queue = null;
+      try {
+        const parsed = JSON.parse(root.getAttribute(C2S_ATTR));
+        if (Array.isArray(parsed)) {
+          queue = parsed;
+        }
+      } catch (e) {
+      }
+      if (!queue) {
+        return seen;
+      }
+      let max = seen;
+      for (const entry of queue) {
+        if (entry && typeof entry.seq === "number" && entry.seq > seen) {
+          if (entry.seq > max) {
+            max = entry.seq;
+          }
+          try {
+            routeMailboxMessage(entry);
+          } catch (e) {
+          }
+        }
+      }
+      return max;
     } catch (e) {
-      return null;
+      return seen;
     }
   }
 

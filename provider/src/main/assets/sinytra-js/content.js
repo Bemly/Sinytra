@@ -207,8 +207,12 @@ let shimPresent = false;
 const C2S_ATTR = "data-sinytra-c2s";
 const S2C_ATTR = "data-sinytra-s2c";
 const READY_ATTR = "data-sinytra-shim";
-let c2sSeq = 0;
+// Single-writer sequence counters (content owns c2s). Kept beside the
+// mailbox helpers; the observer reference below must stay reachable or
+// GC may silently stop observation.
+const c2sCounter = {next: 0};
 let s2cSeen = 0;
+let s2cObserver = null;
 
 function docRoot() {
   try {
@@ -218,12 +222,82 @@ function docRoot() {
   }
 }
 
+// Single-writer queues (content owns c2s, the shim owns s2c): each
+// write appends {seq,...} and readers drain every entry above their
+// watermark. A bare last-value mailbox LOSES messages when two writes
+// land in one task (MutationObserver coalesces: e.g. handlePort's
+// port-deliver + reply — the deliver event vanished every time).
+const MAX_QUEUE = 50;
+
+function queueWrite(attr, counter, obj) {
+  const root = docRoot();
+  if (!root) {
+    return -1;
+  }
+  try {
+    let queue = [];
+    if (root.hasAttribute(attr)) {
+      try {
+        const parsed = JSON.parse(root.getAttribute(attr));
+        if (Array.isArray(parsed)) {
+          queue = parsed;
+        }
+      } catch (e) {
+      }
+    }
+    counter.next += 1;
+    obj.seq = counter.next;
+    queue.push(obj);
+    while (queue.length > MAX_QUEUE) {
+      queue.shift();
+    }
+    root.setAttribute(attr, JSON.stringify(queue));
+    return counter.next;
+  } catch (e) {
+    return -1;
+  }
+}
+
+function queueDrain(attr, seen, route) {
+  try {
+    const root = docRoot();
+    if (!root || !root.hasAttribute(attr)) {
+      return seen;
+    }
+    let queue = null;
+    try {
+      const parsed = JSON.parse(root.getAttribute(attr));
+      if (Array.isArray(parsed)) {
+        queue = parsed;
+      }
+    } catch (e) {
+    }
+    if (!queue) {
+      return seen;
+    }
+    let max = seen;
+    for (const entry of queue) {
+      if (entry && typeof entry.seq === "number" && entry.seq > seen) {
+        if (entry.seq > max) {
+          max = entry.seq;
+        }
+        try {
+          route(entry);
+        } catch (e) {
+        }
+      }
+    }
+    return max;
+  } catch (e) {
+    return seen;
+  }
+}
+
 // Write a request for the shim. Retried on the next task when the
 // document element does not exist yet (extremely early load — still
 // pre-parse, hence still invisible).
 function sendToShim(obj) {
-  const root = docRoot();
-  if (!root) {
+  if (!docRoot()) {
     setTimeout(() => {
       try {
         sendToShim(obj);
@@ -232,31 +306,10 @@ function sendToShim(obj) {
     }, 0);
     return;
   }
-  try {
-    c2sSeq += 1;
-    obj.seq = c2sSeq;
-    root.setAttribute(C2S_ATTR, JSON.stringify(obj));
-  } catch (e) {
-  }
-}
-
-function readMailbox(attr) {
-  try {
-    const root = docRoot();
-    if (!root || !root.hasAttribute(attr)) {
-      return null;
-    }
-    return JSON.parse(root.getAttribute(attr));
-  } catch (e) {
-    return null;
-  }
+  queueWrite(C2S_ATTR, c2sCounter, obj);
 }
 
 function routeShimMessage(d) {
-  if (!d || typeof d.seq !== "number" || d.seq <= s2cSeen) {
-    return;
-  }
-  s2cSeen = d.seq;
   if (d.hello === true) {
     shimPresent = true;
     return;
@@ -288,34 +341,23 @@ function routeShimMessage(d) {
 }
 
 function observeShim() {
-  // Catch-up: a reply written before we started observing.
-  const cur = readMailbox(S2C_ATTR);
-  if (cur) {
-    routeShimMessage(cur);
-  }
+  // Catch-up: replies written before we started observing.
+  s2cSeen = queueDrain(S2C_ATTR, s2cSeen, routeShimMessage);
   try {
     const root = docRoot();
-    if (!root) {
+    if (!root || s2cObserver) {
       return;
     }
-    new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        if (m.type === "attributes" && m.attributeName === S2C_ATTR) {
-          const msg = readMailbox(S2C_ATTR);
-          if (msg) {
-            routeShimMessage(msg);
-          }
+    s2cObserver = new MutationObserver(() => {
+      s2cSeen = queueDrain(S2C_ATTR, s2cSeen, routeShimMessage);
+      try {
+        if (root.getAttribute(READY_ATTR) === "ready") {
+          shimPresent = true;
         }
-        if (m.type === "attributes" && m.attributeName === READY_ATTR) {
-          try {
-            if (root.getAttribute(READY_ATTR) === "ready") {
-              shimPresent = true;
-            }
-          } catch (e) {
-          }
-        }
+      } catch (e) {
       }
-    }).observe(root, {attributes: true});
+    });
+    s2cObserver.observe(root, {attributes: true});
   } catch (e) {
   }
 }
