@@ -34,6 +34,13 @@ public final class GeckoSessionBridge
     private int mProgress;
     private boolean mCanGoBack;
     private boolean mCanGoForward;
+    // True once the app explicitly loaded an about: URL. Gecko seeds every
+    // fresh session with a pristine about:blank document that Chromium
+    // never reports (fresh copyBackForwardList must be size 0 / current
+    // null / index -1 — CTS WebBackForwardListTest.testGetCurrentItem).
+    // The translation layer drops that leading entry unless the app asked
+    // for it (GeckoBackForwardList ctor flag).
+    private boolean mExplicitAboutLoad;
     // Latest SessionState from onSessionStateChange (Gecko owns history;
     // we only translate it — ARCHITECTURE.md §4).
     @Nullable
@@ -235,6 +242,9 @@ public final class GeckoSessionBridge
     // --- P0 navigation surface (called by GeckoWebViewProvider) ---
 
     public void loadUrl(@NonNull String url) {
+        if (url != null && url.regionMatches(true, 0, "about:", 0, 6)) {
+            mExplicitAboutLoad = true;
+        }
         mSession.loadUri(url);
     }
 
@@ -359,6 +369,10 @@ public final class GeckoSessionBridge
         }
         GeckoSession.SessionState state = mSessionState;
         return state != null ? state : java.util.Collections.emptyList();
+    }
+
+    public boolean hasExplicitAboutLoad() {
+        return mExplicitAboutLoad;
     }
 
     // Ask Gecko to push the latest session data (incl. navigation history)

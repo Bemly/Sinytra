@@ -15,7 +15,44 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
 
     GeckoBackForwardList(
             @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history) {
-        this(translate(history), deriveIndex(history));
+        this(history, false);
+    }
+
+    // dropLeadingBlank: drop a pristine leading about:blank document entry
+    // (see GeckoSessionBridge.mExplicitAboutLoad). The trimmed list drives
+    // both items and index: a HistoryList current index shifts down by one
+    // when entry 0 is dropped; a current index of 0 (the blank itself)
+    // becomes empty (-1/null). Known edge, unchanged: raw goBack() can
+    // still land on the phantom blank (navigation targets use untrimmed
+    // Gecko indices); only the reported list is Chromium-shaped.
+    GeckoBackForwardList(
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history,
+            boolean dropLeadingBlank) {
+        this(translate(trim(history, dropLeadingBlank)),
+                deriveIndex(trim(history, dropLeadingBlank), history));
+    }
+
+    private static List<GeckoSession.HistoryDelegate.HistoryItem> trim(
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history,
+            boolean dropLeadingBlank) {
+        if (!dropLeadingBlank || history.isEmpty()) {
+            return history;
+        }
+        String first = uriOf(history.get(0));
+        if (first == null || first.isEmpty() || "about:blank".equalsIgnoreCase(first)) {
+            return history.subList(1, history.size());
+        }
+        return history;
+    }
+
+    @Nullable
+    private static String uriOf(
+            @NonNull GeckoSession.HistoryDelegate.HistoryItem item) {
+        try {
+            return item.getUri();
+        } catch (UnsupportedOperationException e) {
+            return null;
+        }
     }
 
     // Value copy for clone(): shares the immutable GeckoHistoryItem
@@ -29,18 +66,26 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
     }
 
     private static int deriveIndex(
-            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history) {
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> trimmed,
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> original) {
         int current = -1;
-        if (history instanceof GeckoSession.HistoryDelegate.HistoryList) {
+        if (original instanceof GeckoSession.HistoryDelegate.HistoryList) {
             try {
-                current = ((GeckoSession.HistoryDelegate.HistoryList) history)
+                current = ((GeckoSession.HistoryDelegate.HistoryList) original)
                         .getCurrentIndex();
+                if (trimmed.size() != original.size()) {
+                    // Exactly one leading entry was dropped.
+                    current -= 1;
+                }
             } catch (UnsupportedOperationException e) {
                 current = -1;
             }
         }
-        if (current < 0 && !history.isEmpty()) {
-            current = history.size() - 1;
+        if (current < 0 && !trimmed.isEmpty()) {
+            current = trimmed.size() - 1;
+        }
+        if (current >= trimmed.size()) {
+            current = trimmed.isEmpty() ? -1 : trimmed.size() - 1;
         }
         return current;
     }

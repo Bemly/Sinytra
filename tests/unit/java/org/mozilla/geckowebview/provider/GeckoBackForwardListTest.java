@@ -150,4 +150,40 @@ public final class GeckoBackForwardListTest {
                 copy.getCurrentItem().getUrl());
         assertEquals("https://a.example", copy.getItemAtIndex(0).getUrl());
     }
+
+    // CTS WebBackForwardListTest.testGetCurrentItem: a fresh session's
+    // pristine about:blank must not surface (size 0 / null / -1) unless
+    // the app explicitly loaded an about: URL.
+    @Test
+    public void freshSessionBlank_droppedUnlessExplicit() {
+        GeckoBackForwardList dropped = new GeckoBackForwardList(
+                new FixedIndexList(items("about:blank"), 0), true);
+        assertEquals(0, dropped.getSize());
+        assertEquals(-1, dropped.getCurrentIndex());
+        assertNull(dropped.getCurrentItem());
+
+        GeckoBackForwardList kept = new GeckoBackForwardList(
+                new FixedIndexList(items("about:blank"), 0), false);
+        assertEquals(1, kept.getSize());
+        assertEquals("about:blank", kept.getCurrentItem().getUrl());
+    }
+
+    @Test
+    public void leadingBlankAfterFirstNav_shiftsIndexDown() {
+        GeckoBackForwardList list = new GeckoBackForwardList(
+                new FixedIndexList(
+                        items("about:blank", "https://a.example"), 1),
+                true);
+        assertEquals(1, list.getSize());
+        assertEquals(0, list.getCurrentIndex());
+        assertEquals("https://a.example", list.getCurrentItem().getUrl());
+    }
+
+    @Test
+    public void nonBlankFirstEntry_neverDropped() {
+        GeckoBackForwardList list = new GeckoBackForwardList(
+                new FixedIndexList(items("https://a.example"), 0), true);
+        assertEquals(1, list.getSize());
+        assertEquals("https://a.example", list.getCurrentItem().getUrl());
+    }
 }
