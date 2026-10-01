@@ -2,28 +2,36 @@
 // Runs with full page privileges: sees the page's own window objects
 // (including addJavascriptInterface registrations) and can synchronously
 // eval in page context. Talks to content.js (isolated world) only through
-// window.postMessage with the "sinytra-*" dir markers below.
+// window CustomEvents with the "sinytra-*" type names below.
 //
-// Protocol (window.postMessage, origin-agnostic — the bridge is internal
+// Internal traffic MUST NOT use window.postMessage: every window message
+// also fires the page's own onmessage handler, so transport markers
+// would leak into page code as "[object Object]" (CTS PostMessageTest
+// asserts the exact title). CustomEvent types never reach onmessage.
+// The single exception is postWebMessage delivery itself, which is a
+// genuine page-visible MessageEvent by API contract.
+//
+// Protocol (CustomEvent detail, origin-agnostic — the bridge is internal
 // to this extension; a hostile page can already spoof its own DOM):
 //
-// Content -> shim (request):
-//   {dir:"sinytra-req", id:<int>, kind:"eval", script:<string>}
-//   {dir:"sinytra-req", id:<int>, kind:"call",
+// Content -> shim (request, type "sinytra-req"):
+//   {id:<int>, kind:"eval", script:<string>}
+//   {id:<int>, kind:"call",
 //      iface:<string>, method:<string>, args:<array>}
-//   {dir:"sinytra-req", id:<int>, kind:"port",
+//   {id:<int>, kind:"port",
 //      port:<string>, data:<string>, origin:<string|null>}
-//   {dir:"sinytra-req", id:<int>, kind:"register",
+//   {id:<int>, kind:"register",
 //      iface:<string>, methods:<string[]>}
-//   {dir:"sinytra-req", id:<int>, kind:"unregister", iface:<string>}
+//   {id:<int>, kind:"unregister", iface:<string>}
 //
-// Shim -> content (reply, echoes id):
-//   {dir:"sinytra-res", id:<int>, ok:<bool>,
+// Shim -> content (reply, echoes id, type "sinytra-res"):
+//   {id:<int>, ok:<bool>,
 //      value:<json-string|null>, error:<string|null>}
 //
 // Shim -> content (unsolicited: page calls into a registered Java
-// interface, or page JS posts back on a WebMessage port):
-//   {dir:"sinytra-event", name:<string>, payload:<object>}
+// interface, or page JS posts back on a WebMessage port,
+// type "sinytra-event"):
+//   {name:<string>, payload:<object>}
 //
 // Eval runs via window.eval so it executes in page context with access
 // to page globals. Return values are JSON-stringified; undefined,
@@ -46,19 +54,28 @@
   if (window.__sinytraShim) {
     // Already installed (e.g. double injection): re-announce so the
     // content script's hello-query resolves even on the second run.
-    try {
-      window.postMessage({dir: "sinytra-hello"}, "*");
-    } catch (e) {
-    }
+    announceHello();
     return;
   }
 
   // iface name -> {method name -> true} for registered Java interfaces.
   const interfaces = new Map();
-  // Pending Java->page calls that went through window.postMessage are
-  // always answered synchronously below; no pending map needed here.
-  // Page->Java calls (stub invocations) are correlated by the content
-  // script, which echoes our event id back as a result message.
+  // Pending Java->page calls are always answered synchronously below;
+  // no pending map needed here. Page->Java calls (stub invocations)
+  // are correlated by the content script, which echoes our event id
+  // back as a result message.
+  // Internal cross-world signal: CustomEvent (never window.postMessage,
+  // which would also fire the page's own onmessage with our markers).
+  function announce(detail) {
+    try {
+      window.dispatchEvent(new CustomEvent(detail.type, {detail}));
+    } catch (e) {
+    }
+  }
+
+  function announceHello() {
+    announce({type: "sinytra-hello"});
+  }
 
   function json(value) {
     try {
@@ -69,17 +86,13 @@
   }
 
   function reply(id, ok, value, error) {
-    window.postMessage(
-      {dir: "sinytra-res", id, ok: !!ok,
-        value: value === undefined ? null : value,
-        error: error === undefined ? null : error},
-      "*");
+    announce({type: "sinytra-res", id, ok: !!ok,
+      value: value === undefined ? null : value,
+      error: error === undefined ? null : error});
   }
 
   function emit(name, payload) {
-    window.postMessage(
-      {dir: "sinytra-event", name, payload: payload || {}},
-      "*");
+    announce({type: "sinytra-event", name, payload: payload || {}});
   }
 
   function makeStub(iface, method) {
@@ -88,11 +101,11 @@
         const callId = "c" + Math.random().toString(36).slice(2)
           + Date.now().toString(36);
         const onRes = (event) => {
-          const d = event.data;
-          if (!d || d.dir !== "sinytra-res" || d.id !== callId) {
+          const d = event.detail;
+          if (!d || d.id !== callId) {
             return;
           }
-          window.removeEventListener("message", onRes);
+          window.removeEventListener("sinytra-res", onRes);
           if (d.ok) {
             let v = null;
             try {
@@ -105,7 +118,7 @@
             reject(new Error(String(d.error || "java call failed")));
           }
         };
-        window.addEventListener("message", onRes);
+        window.addEventListener("sinytra-res", onRes);
         emit("iface-call",
           {callId, iface, method, args: args || []});
       });
@@ -192,13 +205,8 @@
       } catch (e) {
       }
       window.dispatchEvent(event);
-      try {
-        window.postMessage(
-          {dir: "sinytra-port-deliver", port: msg.port,
-            data: msg.data, origin: msg.origin || ""},
-          "*");
-      } catch (e) {
-      }
+      announce({type: "sinytra-port-deliver", port: msg.port,
+        data: msg.data, origin: msg.origin || ""});
       reply(msg.id, true, json(true), null);
     } catch (e) {
       reply(msg.id, false, null, String((e && e.message) || e));
@@ -206,19 +214,16 @@
   }
 
   // Answer content-script presence queries (see content.js hello
-  // protocol): the two worlds share a document but NOT a JS heap, so
-  // window.postMessage is the only cross-world signal.
-  window.addEventListener("message", (event) => {
-    const probe = event.data;
-    if (probe && probe.dir === "sinytra-hello-query") {
-      try {
-        window.postMessage({dir: "sinytra-hello"}, "*");
-      } catch (e) {
-      }
-      return;
-    }
-    const msg = probe;
-    if (!msg || msg.dir !== "sinytra-req") {
+  // protocol): the two worlds share a document but NOT a JS heap, so a
+  // DOM event is the only cross-world signal. CustomEvent types never
+  // reach the page's onmessage; only the port post below stays a real
+  // MessageEvent (page-visible API delivery).
+  window.addEventListener("sinytra-hello-query", () => {
+    announceHello();
+  });
+  window.addEventListener("sinytra-req", (event) => {
+    const msg = event.detail;
+    if (!msg) {
       return;
     }
     switch (msg.kind) {
@@ -313,8 +318,5 @@
   // Unprompted announcement: the content script may already be listening
   // (it injects us), so say hello immediately; it also queries on a
   // timer, which the listener above answers.
-  try {
-    window.postMessage({dir: "sinytra-hello"}, "*");
-  } catch (e) {
-  }
+  announceHello();
 })();

@@ -1,6 +1,7 @@
 package org.mozilla.geckowebview.provider;
 
 import android.app.Activity;
+import android.net.Uri;
 import android.view.View;
 import android.webkit.WebMessage;
 import android.webkit.WebMessagePort;
@@ -654,5 +655,90 @@ final class P2TransportProbes {
             out.append("PASS loadDataBase url=").append(ldUrl[0]).append('\n');
             activity.runOnUiThread(
                     () -> provider.setWebViewClient(ldPrevBox[0]));
+
+            // --- loadData http-upgrade: CTS PostMessageTest shape.
+            // baseUrl "http://www.example.com" (no trailing slash): Gecko
+            // HSTS-upgrades to https before the necko query, so the
+            // one-shot key must survive scheme + root-slash normalization
+            // and synthesis must commit a live document (content poll
+            // runs in it) — then postMessageToMainFrame delivers and the
+            // page sets the title, exactly like verifyPostMessageToOrigin.
+            final String upHtml = "<!DOCTYPE html><html><body>"
+                    + "<script>var received = '';"
+                    + "onmessage = function (e) {"
+                    + " received += e.data;"
+                    + " document.title = received; };</script>"
+                    + "</body></html>";
+            final CountDownLatch upDone = new CountDownLatch(1);
+            final Throwable[] upError = new Throwable[1];
+            final WebViewClient[] upPrevBox = new WebViewClient[1];
+            activity.runOnUiThread(() -> {
+                try {
+                    upPrevBox[0] = provider.getWebViewClient();
+                    provider.setWebViewClient(new WebViewClient() {
+                        @Override
+                        public void onPageFinished(WebView view, String url) {
+                            if (url != null && url.startsWith("http")) {
+                                upDone.countDown();
+                            }
+                        }
+                    });
+                    provider.loadDataWithBaseURL("http://www.example.com",
+                            upHtml, "text/html", "UTF-8", null);
+                } catch (Throwable t) {
+                    upError[0] = t;
+                    upDone.countDown();
+                }
+            });
+            if (!upDone.await(60, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("loadData http-upgrade timeout");
+            }
+            if (upError[0] != null) {
+                throw new IllegalStateException("loadData http-upgrade failed",
+                        upError[0]);
+            }
+            final Throwable[] upPostError = new Throwable[1];
+            final CountDownLatch upPostDone = new CountDownLatch(1);
+            activity.runOnUiThread(() -> {
+                try {
+                    provider.postMessageToMainFrame(
+                            new WebMessage("from_webview"),
+                            Uri.parse("http://www.example.com"));
+                } catch (Throwable t) {
+                    upPostError[0] = t;
+                } finally {
+                    upPostDone.countDown();
+                }
+            });
+            upPostDone.await(10, TimeUnit.SECONDS);
+            if (upPostError[0] != null) {
+                throw new IllegalStateException("postMessageToMainFrame threw",
+                        upPostError[0]);
+            }
+            String upTitle = null;
+            for (int i = 0; i < 120; i++) {
+                final String[] titleBox = new String[1];
+                final CountDownLatch titleDone = new CountDownLatch(1);
+                activity.runOnUiThread(() -> {
+                    titleBox[0] = provider.getTitle();
+                    titleDone.countDown();
+                });
+                if (!titleDone.await(5, TimeUnit.SECONDS)) {
+                    break;
+                }
+                upTitle = titleBox[0];
+                if ("from_webview".equals(upTitle)) {
+                    break;
+                }
+                Thread.sleep(250);
+            }
+            activity.runOnUiThread(
+                    () -> provider.setWebViewClient(upPrevBox[0]));
+            if (!"from_webview".equals(upTitle)) {
+                throw new IllegalStateException(
+                        "loadData http-upgrade title: " + upTitle);
+            }
+            out.append("PASS loadDataHttpUpgrade title=").append(upTitle)
+                    .append('\n');
     }
 }
