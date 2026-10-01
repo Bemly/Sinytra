@@ -1,7 +1,10 @@
-From 7b05f1ff89c7312760ecc7329705dd3f39bb64f6 Mon Sep 17 00:00:00 2001
+From c09ba585498276c9e432bafb0a577ea1c0e344c9 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
-Date: Thu, 1 Oct 2026 09:13:32 +0800
-Subject: [PATCH] Sinytra patch 0011: scope GetCookie to exact host+path
+Date: Thu, 1 Oct 2026 11:15:20 +0800
+Subject: [PATCH 1/2] Sinytra patch 0011: scope GetCookie to exact host+path
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
 
 - Filter getCookieString by host (exact vs leading-dot domain),
   RFC 6265 path, secure and expiry (ms units per nsICookie.idl),
@@ -9,13 +12,15 @@ Subject: [PATCH] Sinytra patch 0011: scope GetCookie to exact host+path
   alone is base-domain-wide and leaks sibling-subdomain cookies.
 - RFC 6265 5.3 default cookie-path from the request URI (not a
   hardcoded slash): same-name cookies must replace, not duplicate.
-- Null-guard the add() validation result; drop the warn() spam.
+  (The helper is an object method — call as this.defaultCookiePath;
+  a bare call throws ReferenceError and the query never answers.)
+- Null-guard the add() validation result.
 ---
  .../GeckoViewStorageController.sys.mjs        | 80 +++++++++++++++++--
  1 file changed, 75 insertions(+), 5 deletions(-)
 
 diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
-index be1c525c716d..5032697d50f1 100644
+index be1c525c716d..f9cd47842139 100644
 --- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
 +++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
 @@ -294,6 +294,9 @@ export const GeckoViewStorageController = {
@@ -124,7 +129,7 @@ index be1c525c716d..5032697d50f1 100644
 +    // when there is none. A hardcoded "/" creates a second key next to
 +    // server/JS-set cookies and duplicates same-name cookies instead of
 +    // replacing them (CTS CookieManagerTest.testAcceptCookie).
-+    let path = defaultCookiePath(uri);
++    let path = this.defaultCookiePath(uri);
      let isSecure = uri.schemeIs("https");
      let isHttpOnly = false;
      let isSession = true;
@@ -143,4 +148,5 @@ index be1c525c716d..5032697d50f1 100644
    },
 -- 
 2.56.0
+
 

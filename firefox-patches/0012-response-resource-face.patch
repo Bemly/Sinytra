@@ -1,7 +1,7 @@
-From a7a9cbd4cb338172d8a563caf4e27420e1a55479 Mon Sep 17 00:00:00 2001
+From 3ecee4136c07ccf73bac72d8aa1375a152402feb Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
-Date: Thu, 1 Oct 2026 09:16:05 +0800
-Subject: [PATCH] Sinytra patch 0012: resource type + trigger URI on the
+Date: Thu, 1 Oct 2026 11:15:22 +0800
+Subject: [PATCH 2/2] Sinytra patch 0012: resource type + trigger URI on the
  response query
 
 The embedder cannot enforce WebSettings image/block/mixed-content
