@@ -30,7 +30,8 @@ final class ClientFanOut
         implements org.mozilla.geckowebview.session.GeckoSessionBridge.Client,
         PermissionBridge.Host, PromptBridge.Host, ContentBridge.Host,
         org.mozilla.geckowebview.session.FindBridge.Host,
-        MessageBridge.Host, InterceptBridge.Host {
+        MessageBridge.Host, InterceptBridge.Host,
+        org.mozilla.geckowebview.session.ConsoleBridge.Host {
     private static final String TAG = "Sinytra/session";
     private static final int FILE_CHOOSER_REQUEST = 0x5EED;
 
@@ -733,6 +734,29 @@ final class ClientFanOut
     }
 
     // --- MessageBridge.Host ---
+
+    @Override
+    public void onConsoleMessage(@NonNull String level, @NonNull String message,
+            int line) {
+        WebChromeClient chrome = mOwner.webChromeClient();
+        if (chrome == null) {
+            return;
+        }
+        try {
+            android.webkit.ConsoleMessage.MessageLevel mapped;
+            try {
+                mapped = android.webkit.ConsoleMessage.MessageLevel
+                        .valueOf(level);
+            } catch (Throwable t) {
+                mapped = android.webkit.ConsoleMessage.MessageLevel.LOG;
+            }
+            String url = mOwner.ownerBridge().getUrl();
+            chrome.onConsoleMessage(new android.webkit.ConsoleMessage(message,
+                    url != null ? url : "", line, mapped));
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "WebChromeClient.onConsoleMessage threw", t);
+        }
+    }
 
     @Override
     public void onMessage(@NonNull String portId, @NonNull String data,

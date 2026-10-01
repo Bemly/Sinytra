@@ -86,6 +86,7 @@ public final class GeckoWebViewProvider
     private final JsBridge mJsBridge;
     private final JavascriptBridge mJsInterfaces;
     private final MessageBridge mMessages;
+    private final org.mozilla.geckowebview.session.ConsoleBridge mConsole;
     private final InterceptBridge mIntercept;
     private final LoadDataHandler mLoadData;
     private final RenderProcessBridge mRenderProcess;
@@ -154,8 +155,10 @@ public final class GeckoWebViewProvider
         mJs.setBridge(mJsBridge);
         mJsInterfaces = new JavascriptBridge();
         mMessages = new MessageBridge(mFanOut);
+        mConsole = new org.mozilla.geckowebview.session.ConsoleBridge(mFanOut);
         mJsInterfaces.setTransport(mJsBridge);
         mMessages.setTransport(mJsBridge);
+        mConsole.setTransport(mJsBridge);
         mIntercept = new InterceptBridge(mFanOut);
         mLoadData = new LoadDataHandler(new LoadDataHandler.Host() {
             @Override

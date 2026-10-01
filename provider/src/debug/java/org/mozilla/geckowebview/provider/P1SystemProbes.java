@@ -449,6 +449,40 @@ final class P1SystemProbes {
                     () -> provider.setWebChromeClient(client.chrome));
         }
         out.append("PASS jsDialog confirm+prompt+alert\n");
+
+        // --- P1 console forwarding: page console.* reaches the app
+        // client (CTS WebChromeClientTest.testOnConsoleMessage asserts
+        // text, level and exact line; the probe locks delivery + text +
+        // level, CTS locks the line numbers).
+        final java.util.concurrent.BlockingQueue<
+                android.webkit.ConsoleMessage> consoleQueue =
+                new java.util.concurrent.LinkedBlockingQueue<>();
+        final WebChromeClient consoleChrome = new WebChromeClient() {
+            @Override
+            public boolean onConsoleMessage(
+                    android.webkit.ConsoleMessage message) {
+                consoleQueue.add(message);
+                return false;
+            }
+        };
+        activity.runOnUiThread(() -> provider.setWebChromeClient(consoleChrome));
+        try {
+            evalJs(activity, provider, "console.warn('sinytra-console-probe')");
+            android.webkit.ConsoleMessage logged =
+                    consoleQueue.poll(20, TimeUnit.SECONDS);
+            if (logged == null
+                    || !"sinytra-console-probe".equals(logged.message())
+                    || logged.messageLevel()
+                            != android.webkit.ConsoleMessage.MessageLevel
+                                    .WARNING) {
+                throw new IllegalStateException(
+                        "console forwarding failed: " + logged);
+            }
+        } finally {
+            activity.runOnUiThread(
+                    () -> provider.setWebChromeClient(client.chrome));
+        }
+        out.append("PASS jsConsole warn\n");
         // --- P1 download: deterministic attachment-server path (0006
         // verdict, 2026-09-25). Gecko's helper-app dispatch WORKS on this
         // opt build: forceExternalHandling →

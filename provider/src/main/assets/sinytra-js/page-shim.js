@@ -264,6 +264,52 @@
     unregister: unregisterInterface,
   };
 
+  // Console hook: forward page console.* to Java as sinytra-event
+  // {name:"console", payload:{level, message, line}} (CTS
+  // WebChromeClientTest.testOnConsoleMessage asserts text, level and
+  // exact line). Originals still run (page behavior unchanged). The
+  // caller line comes from the second stack frame (the page call site,
+  // not this wrapper); Gecko format "fn@url:line:col".
+  if (!window.__sinytraConsoleHooked) {
+    window.__sinytraConsoleHooked = true;
+    const levels = {log: "log", info: "info", warn: "warn",
+      error: "error", debug: "debug"};
+    for (const method of Object.keys(levels)) {
+      try {
+        const original = window.console[method];
+        if (typeof original !== "function") {
+          continue;
+        }
+        window.console[method] = function (...args) {
+          try {
+            let line = 0;
+            try {
+              const stack = new Error().stack || "";
+              const frames = stack.split("\n");
+              if (frames.length > 1) {
+                const m = frames[1].match(/:(\d+):\d*\s*$/);
+                if (m) {
+                  line = parseInt(m[1], 10) || 0;
+                }
+              }
+            } catch (e) {
+            }
+            let message = "";
+            try {
+              message = args.length > 0 ? String(args[0]) : "";
+            } catch (e) {
+            }
+            emit("console",
+              {level: levels[method], message, line});
+          } catch (e) {
+          }
+          return original.apply(window.console, args);
+        };
+      } catch (e) {
+      }
+    }
+  }
+
   // Unprompted announcement: the content script may already be listening
   // (it injects us), so say hello immediately; it also queries on a
   // timer, which the listener above answers.
