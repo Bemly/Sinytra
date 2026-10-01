@@ -532,11 +532,17 @@ final class ClientFanOut
     @Override
     public void onJsAlert(@NonNull String title, @NonNull String message) {
         WebChromeClient chrome = mOwner.webChromeClient();
-        if (chrome == null) {
-            return;
-        }
         JsResult result = FrameworkTokens.newJsResult();
         if (result == null) {
+            return;
+        }
+        if (chrome == null) {
+            // No client: framework default handling confirms (a dangling
+            // alert would wedge page JS forever).
+            try {
+                result.confirm();
+            } catch (Throwable ignored) {
+            }
             return;
         }
         try {
@@ -550,17 +556,22 @@ final class ClientFanOut
     @Override
     public boolean onJsConfirm(@NonNull String title, @NonNull String message) {
         WebChromeClient chrome = mOwner.webChromeClient();
-        if (chrome == null) {
-            return false;
-        }
         JsResult result = FrameworkTokens.newJsResult();
         if (result == null) {
+            return false;
+        }
+        if (chrome == null) {
+            // No client: framework default is cancel.
             return false;
         }
         try {
             chrome.onJsConfirm(mOwner.webView(), mOwner.ownerBridge().getUrl(), message,
                     result);
-            return true;
+            // The token is ours; read back the app's synchronous answer
+            // (getResult is public @SystemApi on device). Blind-true here
+            // used to report OK even when the app cancelled (CTS
+            // WebChromeClientTest timeout family).
+            return FrameworkTokens.jsResultValue(result);
         } catch (Throwable t) {
             android.util.Log.w(TAG, "WebChromeClient.onJsConfirm threw", t);
             return false;
@@ -572,21 +583,47 @@ final class ClientFanOut
     public String onJsPrompt(@NonNull String title, @NonNull String message,
             @Nullable String defaultValue) {
         WebChromeClient chrome = mOwner.webChromeClient();
-        if (chrome == null) {
-            return null;
-        }
         JsPromptResult result = FrameworkTokens.newJsPromptResult();
         if (result == null) {
             return null;
         }
+        if (chrome == null) {
+            return null;
+        }
         try {
-            boolean handled = chrome.onJsPrompt(mOwner.webView(),
+            chrome.onJsPrompt(mOwner.webView(),
                     mOwner.ownerBridge().getUrl(), message,
                     defaultValue != null ? defaultValue : "", result);
-            return handled ? "" : null;
+            // Read back the confirmed string (was: hardcoded "" — the page
+            // always received empty input).
+            return FrameworkTokens.jsPromptString(result);
         } catch (Throwable t) {
             android.util.Log.w(TAG, "WebChromeClient.onJsPrompt threw", t);
             return null;
+        }
+    }
+
+    @Override
+    public boolean onJsBeforeUnload(@NonNull String url, @NonNull String message) {
+        WebChromeClient chrome = mOwner.webChromeClient();
+        JsResult result = FrameworkTokens.newJsResult();
+        if (result == null) {
+            return true;
+        }
+        if (chrome == null) {
+            // No client: proceed without dialog (Chromium default).
+            try {
+                result.confirm();
+            } catch (Throwable ignored) {
+            }
+            return true;
+        }
+        try {
+            chrome.onJsBeforeUnload(mOwner.webView(), url, message, result);
+            return FrameworkTokens.jsResultValue(result);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "WebChromeClient.onJsBeforeUnload threw", t);
+            return true;
         }
     }
 

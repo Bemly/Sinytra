@@ -20,6 +20,11 @@ public class PromptBridge implements GeckoSession.PromptDelegate {
         @Nullable
         String onJsPrompt(@NonNull String title, @NonNull String message,
                 @Nullable String defaultValue);
+        // Returns true to allow the navigation, false to keep the page.
+        // Gecko's BeforeUnloadPrompt carries no page text (title null, no
+        // message field) — the message arg is "" and only the allow/deny
+        // routes (CTS WebChromeClientTest asserts gating, not text).
+        boolean onJsBeforeUnload(@NonNull String url, @NonNull String message);
     }
 
     private final Host mHost;
@@ -107,6 +112,22 @@ public class PromptBridge implements GeckoSession.PromptDelegate {
                     value != null ? prompt.confirm(value) : prompt.dismiss());
         } catch (Throwable t) {
             android.util.Log.w("Sinytra/prompt", "Host.onJsPrompt threw", t);
+            return null;
+        }
+    }
+
+    @Nullable
+    @Override
+    public GeckoResult<GeckoSession.PromptDelegate.PromptResponse> onBeforeUnloadPrompt(
+            @NonNull GeckoSession session,
+            @NonNull GeckoSession.PromptDelegate.BeforeUnloadPrompt prompt) {
+        try {
+            boolean allow = mHost.onJsBeforeUnload("", "");
+            return GeckoResult.fromValue(prompt.confirm(
+                    allow ? org.mozilla.geckoview.AllowOrDeny.ALLOW
+                            : org.mozilla.geckoview.AllowOrDeny.DENY));
+        } catch (Throwable t) {
+            android.util.Log.w("Sinytra/prompt", "Host.onJsBeforeUnload threw", t);
             return null;
         }
     }

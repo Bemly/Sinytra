@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.os.ParcelFileDescriptor;
 import android.print.PrintDocumentAdapter;
 import android.webkit.CookieManager;
+import android.webkit.JsPromptResult;
+import android.webkit.JsResult;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -311,6 +313,96 @@ final class P1SystemProbes {
         }
         out.append("PASS geolocationPrompt origin=").append(geoOrigin.get())
                 .append(" page=").append(geoPage.get()).append('\n');
+
+        // --- P1 JS dialogs: alert/confirm/prompt round-trip through the
+        // app chrome client. Guards the FrameworkTokens token-ctor fix (a
+        // dead token constructor silently drops every dialog — the page
+        // wedges and the eval below times out) and the confirm/prompt
+        // result readback (CTS WebChromeClientTest family: blind-true /
+        // hardcoded-"" used to mask a dropped answer).
+        final AtomicReference<String> dlgAlert = new AtomicReference<>();
+        final AtomicReference<String> dlgConfirm = new AtomicReference<>();
+        final WebChromeClient dlgChrome = new WebChromeClient() {
+            @Override
+            public boolean onJsAlert(WebView view, String url, String message,
+                    JsResult result) {
+                dlgAlert.set(message);
+                result.confirm();
+                return true;
+            }
+
+            @Override
+            public boolean onJsConfirm(WebView view, String url,
+                    String message, JsResult result) {
+                dlgConfirm.set(message);
+                result.confirm();
+                return true;
+            }
+
+            @Override
+            public boolean onJsPrompt(WebView view, String url,
+                    String message, String defaultValue,
+                    JsPromptResult result) {
+                result.confirm("cts-prompt-answer");
+                return true;
+            }
+        };
+        activity.runOnUiThread(() -> provider.setWebChromeClient(dlgChrome));
+        try {
+            final AtomicReference<String> confirmBox = new AtomicReference<>();
+            final CountDownLatch confirmDone = new CountDownLatch(1);
+            activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                    "confirm('sinytra-confirm')",
+                    v -> {
+                        confirmBox.set(v);
+                        confirmDone.countDown();
+                    }));
+            if (!confirmDone.await(30, TimeUnit.SECONDS)
+                    || !"true".equals(confirmBox.get())) {
+                throw new IllegalStateException(
+                        "confirm round-trip failed: " + confirmBox.get());
+            }
+            if (!"sinytra-confirm".equals(dlgConfirm.get())) {
+                throw new IllegalStateException(
+                        "confirm message not delivered: " + dlgConfirm.get());
+            }
+            final AtomicReference<String> promptBox = new AtomicReference<>();
+            final CountDownLatch promptDone = new CountDownLatch(1);
+            activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                    "prompt('sinytra-prompt','def')",
+                    v -> {
+                        promptBox.set(v);
+                        promptDone.countDown();
+                    }));
+            if (!promptDone.await(30, TimeUnit.SECONDS)
+                    || !"cts-prompt-answer".equals(unjson(promptBox.get()))) {
+                throw new IllegalStateException(
+                        "prompt round-trip failed: " + promptBox.get());
+            }
+            // alert() blocks page JS until the app confirms: eval
+            // completion itself proves the dialog reached the client.
+            final AtomicReference<String> alertBox = new AtomicReference<>();
+            final CountDownLatch alertDone = new CountDownLatch(1);
+            activity.runOnUiThread(() -> provider.evaluateJavaScript(
+                    "alert('sinytra-alert');'alert-done'",
+                    v -> {
+                        alertBox.set(v);
+                        alertDone.countDown();
+                    }));
+            if (!alertDone.await(30, TimeUnit.SECONDS)
+                    || !"alert-done".equals(unjson(alertBox.get()))) {
+                throw new IllegalStateException(
+                        "alert round-trip failed: " + alertBox.get());
+            }
+            if (!"sinytra-alert".equals(dlgAlert.get())) {
+                throw new IllegalStateException(
+                        "alert message not delivered: " + dlgAlert.get());
+            }
+        } finally {
+            activity.runOnUiThread(
+                    () -> provider.setWebChromeClient(client.chrome));
+        }
+        out.append("PASS jsDialog confirm+prompt+alert\n");
         // --- P1 download: deterministic attachment-server path (0006
         // verdict, 2026-09-25). Gecko's helper-app dispatch WORKS on this
         // opt build: forceExternalHandling →
