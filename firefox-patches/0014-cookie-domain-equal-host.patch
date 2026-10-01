@@ -1,0 +1,59 @@
+From 0e7bca2f43e24c3c5647a3b4cfb70dc54e295cd6 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Thu, 1 Oct 2026 15:59:55 +0800
+Subject: [PATCH] Sinytra patch 0014: store equal-host Domain attribute as
+ domain cookie
+
+Followup to 0011 (same file, same concern). CTS CookieTest.testDomain
+sets domain=www.foo.com on host www.foo.com (no leading dot): the old
+cookieHost!==host gate missed the equal case and stored a host cookie
+instead of a domain cookie. Track sawDomainAttr: any present Domain
+attribute makes it a domain cookie (leading-dot signal for add()), while
+validation still rejects non-matching domains. No-Domain-attribute sets
+stay host cookies.
+---
+ .../geckoview/GeckoViewStorageController.sys.mjs       | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+index 125574c2b32a..76438a4c083b 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+@@ -410,6 +410,7 @@ export const GeckoViewStorageController = {
+     const name = pieces[0].slice(0, eq).trim();
+     const value = pieces[0].slice(eq + 1).trim();
+     let cookieHost = host;
++    let sawDomainAttr = false;
+     // RFC 6265 §5.3 default-path (Chromium parity): no Path attribute
+     // means the uri-path up to (not including) the right-most "/", or "/"
+     // when there is none. A hardcoded "/" creates a second key next to
+@@ -434,6 +435,7 @@ export const GeckoViewStorageController = {
+       switch (aname) {
+         case "domain":
+           cookieHost = avalue.replace(/^\.+/, "");
++          sawDomainAttr = true;
+           break;
+         case "path":
+           path = avalue || "/";
+@@ -480,11 +482,17 @@ export const GeckoViewStorageController = {
+     if (sameSite === Ci.nsICookie.SAMESITE_NONE && !isSecure) {
+       return false;
+     }
+-    if (cookieHost !== host) {
++    // A Domain attribute (even one equal to the request host, e.g.
++    // domain=www.foo.com on www.foo.com — CTS CookieTest.testDomain)
++    // makes this a domain cookie: add() signals that with a leading
++    // dot. The old cookieHost!==host check missed the equal case and
++    // stored a host cookie instead.
++    if (sawDomainAttr) {
+       // A Domain attribute may only widen to a domain that matches the URI
+       // host (Chromium rejects others), and add() signals a domain cookie
+       // with a leading dot.
+       if (
++        cookieHost !== host &&
+         !host.endsWith("." + cookieHost) &&
+         !cookieHost.endsWith("." + host)
+       ) {
+-- 
+2.56.0
+
