@@ -835,6 +835,12 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   忽略）。`install -r` 之间必清：双 force-stop + `su -c 'echo 3 >
   /proc/sys/vm/drop_caches'`（实测 1.4G→4.7G），静置数分钟等 load 回落
   再跑；同版本连续跑不清 child（热复用稳，冷 burst 抖）。
+- **hook 栈（2026-10-02）**：机上 zygisk_lsposed + Shamiko + jshook +
+  sui + 5 个 Xposed 模块（smscode/momoxposed/hook/vendetta/
+  noregionlimits），每次 fork 全过钩子。load 15 证伪（MTK 内核线程
+  常驻 D，CPU 实际全闲）——卡点在 fork/attach 握手本身，大概率钩子栈
+  + vendor AMS 扩展在 burst 下的间歇失速。用户配置，不动；flakes 归因
+  到此为止，产品侧不再追。
 
 ## 2. 下一步（按顺序，一次做一件）
 
