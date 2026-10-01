@@ -828,6 +828,12 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   （`message.getPorts()` null → 测试回调 NPE），需 Gecko MessagePort
   IPDL 级 plumbing（P2 patch 候选，独立设计）。app→page 转移、配对路由、
   stub 分发、邮箱队列本轮全部落地验证。
+- **HttpAuth（2026-10-02）：testCancel 单过**；testProceed 卡在第三 load
+  静默（前两 load 各 2 prompt 正常：proceed-wrong/cancel、proceed-null/
+  cancel；第三 load 401 到但 prompt 永不到 Java）。signon 假说已证伪
+  （关 toolkit 存储 + 清 profile 重跑依旧；已回退 pref）。首要怀疑：
+  每次 load 切新 tab，第三次 prompt 时 session↔新 tab 的 prompt 链未就
+  绪——需专用复现（triple-auth harness），本轮不追。
 - **环境侧三类 hang（已定性，非产品逻辑，两次线程转储实锤）**：
   ① 新 tab 偶发卡 LIBS_READY→RUNNING（0% CPU 睡眠，无崩溃；parent 侧
   全正常，会话永等）；② parent Gecko JS 环静默（RUNNING 但无扩展回调/
