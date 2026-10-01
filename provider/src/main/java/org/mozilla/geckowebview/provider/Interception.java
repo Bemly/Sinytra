@@ -135,6 +135,18 @@ final class Interception {
         pushEffectiveFilters();
     }
 
+    // Re-push the effective filters on demand. The ResponseFilters event
+    // is fire-and-forget: dispatched before the parent JS module
+    // (GeckoViewNavigation) finishes onInit, it lands on no listener and
+    // is lost silently — necko then consults an empty table forever
+    // (CTS PostMessage family: about:blank completes, the http upgrade
+    // never even reaches ShouldPrepare). The first PageStart proves the
+    // module pipeline is alive, so the provider re-pushes once there;
+    // repeats carry identical prefixes and are idempotent C++-side.
+    void repushFilters() {
+        pushEffectiveFilters();
+    }
+
     void loadDataWithBaseURL(@Nullable String baseUrl, @Nullable String data,
             @Nullable String mimeType, @Nullable String encoding,
             @Nullable String historyUrl) {

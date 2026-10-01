@@ -369,6 +369,11 @@ public final class GeckoWebViewProvider
     }
 
     @Override
+    public void repushResponseFilters() {
+        mInterception.repushFilters();
+    }
+
+    @Override
     @NonNull
     public org.mozilla.geckowebview.settings.GeckoWebSettings webSettingsState() {
         return mSettings.gecko();

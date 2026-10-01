@@ -69,6 +69,9 @@ final class ClientFanOut
         @NonNull
         org.mozilla.geckowebview.settings.GeckoWebSettings webSettingsState();
 
+        /** Re-push 0001 filters: recovers a startup-raced push (see Interception). */
+        void repushResponseFilters();
+
         /** Kick a best-effort favicon fetch for the current page. */
         void fetchFavicon();
         /** App filters plus the universal prefix (what Gecko actually gets). */
@@ -80,6 +83,7 @@ final class ClientFanOut
     }
 
     private final Owner mOwner;
+    private boolean mFiltersRepushed;
 
     ClientFanOut(@NonNull Owner owner) {
         mOwner = owner;
@@ -119,6 +123,14 @@ final class ClientFanOut
 
     @Override
     public void onPageStarted(@NonNull String url) {
+        if (!mFiltersRepushed) {
+            mFiltersRepushed = true;
+            try {
+                mOwner.repushResponseFilters();
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "repushResponseFilters threw", t);
+            }
+        }
         WebViewClient client = mOwner.webViewClient();
         if (client == null) {
             return;
