@@ -4,7 +4,6 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 
 import org.junit.Test;
-
 // Unit locks for the loadData byte shaping (pure-Java paths). The base64
 // branch calls android.util.Base64.decode (a framework static the
 // mockable jar pins to null) and is device-covered instead: CTS
@@ -30,5 +29,26 @@ public final class LoadDataBytesTest {
         byte[] bytes =
                 LoadDataHandler.loadDataBytes("hi", "no-such-charset");
         assertEquals(2, bytes.length);
+    }
+
+    // CTS PostMessageTest baseUrl "http://www.example.com" arrives at
+    // necko as "https://www.example.com/" (HSTS upgrade + root slash):
+    // the one-shot key must survive both.
+    @Test
+    public void canonicalKey_foldsSchemeAndRootSlash() {
+        assertEquals(LoadDataHandler.canonicalKey("http://www.example.com"),
+                LoadDataHandler.canonicalKey("https://www.example.com/"));
+    }
+
+    @Test
+    public void canonicalKey_lowercasesHostKeepsPath() {
+        assertEquals("h.example.com/a?b=c", LoadDataHandler
+                .canonicalKey("HTTP://H.EXAMPLE.COM/a?b=c"));
+    }
+
+    @Test
+    public void canonicalKey_distinctPathsStayDistinct() {
+        assertEquals(false, LoadDataHandler.canonicalKey("http://h/a").equals(
+                LoadDataHandler.canonicalKey("http://h/b")));
     }
 }

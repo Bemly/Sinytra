@@ -55,11 +55,36 @@ final class LoadDataHandler {
         // body); a newer loadData overwrites the entry. Known edge: a
         // later plain loadUrl of the same URL keeps serving the stale
         // body until overwritten — rare in practice, noted.
-        return mOneShotBodies.get(url);
+        return mOneShotBodies.get(canonicalKey(url));
     }
 
     void discard(@NonNull String url) {
-        mOneShotBodies.remove(url);
+        mOneShotBodies.remove(canonicalKey(url));
+    }
+
+    // Canonical one-shot key: scheme-insensitive, host lowercased, empty
+    // path treated as "/". Gecko normalizes the navigated URL before the
+    // necko query (root gains a trailing slash) and may HSTS-upgrade
+    // http→https without consulting the intercept layer for the http
+    // form at all (CTS PostMessageTest: baseUrl "http://www.example.com"
+    // arrives as "https://www.example.com/"). An exact-string key misses
+    // both and the load falls through to the live network — the test
+    // page never exists and every downstream assertion times out. The
+    // scheme fold is safe here: one-shot bodies are short-lived internal
+    // entries, and serving the same bytes post-upgrade keeps the
+    // document (and its base-URL resolution) intact. Honest edge: getUrl
+    // reports the upgraded https URL while the app passed http.
+    @NonNull
+    static String canonicalKey(@NonNull String url) {
+        String rest = url;
+        int scheme = rest.indexOf("://");
+        if (scheme >= 0) {
+            rest = rest.substring(scheme + 3);
+        }
+        int slash = rest.indexOf('/');
+        String host = slash >= 0 ? rest.substring(0, slash) : rest;
+        String path = slash >= 0 ? rest.substring(slash) : "/";
+        return host.toLowerCase(java.util.Locale.ROOT) + path;
     }
 
     void loadDataWithBaseURL(@Nullable String baseUrl, @Nullable String data,
@@ -78,7 +103,7 @@ final class LoadDataHandler {
                         + "against historyUrl; Chromium uses baseUrl "
                         + "(honest gap)");
             }
-            mOneShotBodies.put(target,
+            mOneShotBodies.put(canonicalKey(target),
                     new OneShotBody(type, loadDataBytes(body, encoding)));
             mHost.addInterceptFilter(target);
             mHost.navigateTo(target);
