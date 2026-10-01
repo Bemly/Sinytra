@@ -19,7 +19,39 @@ public final class GeckoTracingController extends TracingController {
 
     @Override
     public void start(@NonNull TracingConfig config) {
-        mTracing.set(true);
+        // CTS TracingControllerTest contract (mirrors Chromium validation):
+        // null config, double start, comma-joined categories, and
+        // exclusion patterns without their base category all throw
+        // instead of silently arming a backend we don't have.
+        if (config == null) {
+            throw new IllegalArgumentException("TracingConfig must not be null");
+        }
+        validateCategories(config.getCustomIncludedCategories());
+        if (!mTracing.compareAndSet(false, true)) {
+            throw new IllegalStateException("Tracing already started");
+        }
+    }
+
+    static void validateCategories(
+            @NonNull java.util.List<String> categories) {
+        java.util.Set<String> included = new java.util.HashSet<>();
+        for (String category : categories) {
+            if (category == null || category.isEmpty()
+                    || category.indexOf(',') >= 0) {
+                throw new IllegalArgumentException(
+                        "Invalid tracing category: " + category);
+            }
+            if (!category.startsWith("-")) {
+                included.add(category);
+            }
+        }
+        for (String category : categories) {
+            if (category.startsWith("-")
+                    && !included.contains(category.substring(1))) {
+                throw new IllegalArgumentException(
+                        "Exclusion category without its base: " + category);
+            }
+        }
     }
 
     @Override
@@ -28,8 +60,12 @@ public final class GeckoTracingController extends TracingController {
         boolean wasTracing = mTracing.getAndSet(false);
         executor.execute(() -> {
             try {
+                // No Gecko tracing backend (honest "{}"); the CTS receiver
+                // contract needs ≥1 chunk on the executor thread plus
+                // close() to signal completion — both delivered here.
                 outputStream.write("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 outputStream.flush();
+                outputStream.close();
             } catch (Throwable ignored) {
             }
         });

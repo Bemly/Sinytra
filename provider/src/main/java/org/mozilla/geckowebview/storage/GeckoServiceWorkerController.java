@@ -15,46 +15,60 @@ public final class GeckoServiceWorkerController extends ServiceWorkerController 
     @Nullable
     private volatile ServiceWorkerClient mClient;
 
+    // Single settings object (Chromium parity: one ServiceWorker settings
+    // per controller, so set-then-get round-trips). Verbatim state only —
+    // no Gecko SW backend is wired (SW coexistence is a P2 reserve item).
+    private final ServiceWorkerWebSettings mSettings = new ServiceWorkerWebSettings() {
+        private int mCacheMode = android.webkit.WebSettings.LOAD_DEFAULT;
+        private boolean mAllowContentAccess = true;
+        private boolean mAllowFileAccess;
+        private boolean mBlockNetworkLoads;
+
+        @Override
+        public void setCacheMode(int mode) {
+            mCacheMode = mode;
+        }
+
+        @Override
+        public int getCacheMode() {
+            return mCacheMode;
+        }
+
+        @Override
+        public void setAllowContentAccess(boolean allow) {
+            mAllowContentAccess = allow;
+        }
+
+        @Override
+        public boolean getAllowContentAccess() {
+            return mAllowContentAccess;
+        }
+
+        @Override
+        public void setAllowFileAccess(boolean allow) {
+            mAllowFileAccess = allow;
+        }
+
+        @Override
+        public boolean getAllowFileAccess() {
+            return mAllowFileAccess;
+        }
+
+        @Override
+        public void setBlockNetworkLoads(boolean flag) {
+            mBlockNetworkLoads = flag;
+        }
+
+        @Override
+        public boolean getBlockNetworkLoads() {
+            return mBlockNetworkLoads;
+        }
+    };
+
     @NonNull
     @Override
     public ServiceWorkerWebSettings getServiceWorkerWebSettings() {
-        return new ServiceWorkerWebSettings() {
-            @Override
-            public void setCacheMode(int mode) {
-            }
-
-            @Override
-            public int getCacheMode() {
-                return android.webkit.WebSettings.LOAD_DEFAULT;
-            }
-
-            @Override
-            public void setAllowContentAccess(boolean allow) {
-            }
-
-            @Override
-            public boolean getAllowContentAccess() {
-                return true;
-            }
-
-            @Override
-            public void setAllowFileAccess(boolean allow) {
-            }
-
-            @Override
-            public boolean getAllowFileAccess() {
-                return false;
-            }
-
-            @Override
-            public void setBlockNetworkLoads(boolean flag) {
-            }
-
-            @Override
-            public boolean getBlockNetworkLoads() {
-                return false;
-            }
-        };
+        return mSettings;
     }
 
     @Override
