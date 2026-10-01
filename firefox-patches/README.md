@@ -41,6 +41,7 @@
 | 0012 | 响应问询资源面 | `shouldInterceptRequest` 的资源类型/触发页（图片/混合内容/文件策略执行） | 0002 问询面只有 uri/method/headers：policy 执行（blockNetworkImage、mixed-content、file-access）无从判断 subresource 类型与所属页面，只能嗅 URL（设计见 patch 头注释） | **已定稿**：`0012-response-resource-face.patch`（C++ bundle 加 contentPolicyType + triggerUri；WebRequestInfo 加同名字段；nsIContentPolicy TYPE_* 值为准） |
 | 0013 | resource://android 指向 provider APK | `evaluateJavascript` / `addJavascriptInterface` / `postMessage` / console / 一切依赖内置 sinytra-js 扩展的 API | `GeckoAppShell.getPackageResourcePath()` 返回宿主 APK 路径 → `resource://android/assets/sinytra-js/manifest.json` 在宿主包内不存在 → 扩展加载失败（NS_ERROR_FILE_NOT_FOUND）→ JS transport 死 → PostMessage 8 全灭 + console/beforeunload/Geo 用例失败（CTS pid 20099 logcat 实锤） | **已定稿**：`0013-resource-android-provider-apk.patch`（与 0008 同逻辑：classloader-derived provider APK 路径；`nsResProtocolHandler::GetApkURI` 经 JNI 调此方法）；publish 成功，待真机验证 |
 | 0014 | 同 host 的 Domain 也存成 domain cookie | `CookieManager.setCookie` 带与 URL host 相等的 Domain 属性（CTS CookieTest.testDomain） | 0011 的 `cookieHost!==host` 门漏掉相等 case → 存成 host cookie；记 `sawDomainAttr`，有 Domain 属性即前导点存 domain cookie（校验仍拒不匹配域） | **已定稿**：`0014-cookie-domain-equal-host.patch`（0011 同文件后续；与 0013 同一批 binaries+publish）；待 CTS CookieTest.testDomain 验证 |
+| 0015 | 合成响应追踪日志 | triage（CTS 合成后无完成的定位） | 0005 门控下的 Take 命中/MISS + Start 返回值 + finish 日志（默认关闭，零开销；已用其证实 Take 命中/Start rv=0） | **已定稿**：`0015-synthesis-trace.patch`（0001 同文件后续；独立编号保持栈线性） |
 
 设计文档：`0001/0002/0003/0006/0007/0008/0009/0010-*.md`（树内勘察、地基选型、边界、测试计划）。
 

@@ -1,0 +1,45 @@
+From 144959806f4d3b347f2220954982023c4430df04 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Fri, 2 Oct 2026 02:55:51 +0800
+Subject: [PATCH] Sinytra patch 0001: trace synthesis take/start/finish (CTS
+ triage)
+
+Temporary triage logs behind the existing sinytra.log.enabled gate:
+Take hit/MISS per bodyStreamId plus StartSynthesizedResponse rv and
+finish per URL. CTS PostMessage loads stall after OnSuccess with no
+PageStart; need ground truth on whether Take misses or Start fails.
+---
+ .../components/geckoview/GeckoViewResponseController.cpp     | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/mobile/android/components/geckoview/GeckoViewResponseController.cpp b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+index 3b1cb4b2bb10..104b71acdb19 100644
+--- a/mobile/android/components/geckoview/GeckoViewResponseController.cpp
++++ b/mobile/android/components/geckoview/GeckoViewResponseController.cpp
+@@ -300,6 +300,8 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+     if (aBodyStreamId != 0) {
+       mozilla::java::GeckoViewInputStream::LocalRef stream =
+           mozilla::java::GeckoViewResponseStreams::Take(aBodyStreamId);
++      SINYTRA_LOG("Synthesize take id=%lld %s", (long long)aBodyStreamId,
++                  stream ? "hit" : "MISS");
+       if (stream) {
+         body = MakeRefPtr<ResponseBodyStream>(stream);
+       }
+@@ -347,11 +349,14 @@ class ResponseCallback final : public nsIGeckoViewEventCallback {
+ 
+     nsresult rv = mChannel->StartSynthesizedResponse(
+         body, new BodyCompleteCallback(), nullptr, spec, false);
++    SINYTRA_LOG("Synthesize url=%s status=%u start-rv=0x%x", spec.get(),
++                (unsigned)aStatusCode, (unsigned)rv);
+     if (NS_FAILED(rv)) {
+       mChannel->CancelInterception(NS_ERROR_INTERCEPTION_FAILED);
+       return;
+     }
+     mChannel->FinishSynthesizedResponse();
++    SINYTRA_LOG("Synthesize finished url=%s", spec.get());
+   }
+ 
+   nsCOMPtr<nsIInterceptedChannel> mChannel;
+-- 
+2.56.0
+
