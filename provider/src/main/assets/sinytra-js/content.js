@@ -35,17 +35,10 @@
 //      (content-ready/shim-state pings, iface-call from a page stub,
 //      port-deliver from the shim)
 //
-// Content <-> shim (window CustomEvent, same document):
-//   -> shim, type "sinytra-req": {id:<int|string>, kind, ...}
-//   <- shim, type "sinytra-res": {id, ok, value, error}
-//   <- shim, type "sinytra-event": {name, payload}
-//
-// CustomEvent (never window.postMessage): every window message also
-// fires the page's own onmessage, so transport markers would leak into
-// page code as "[object Object]" (CTS PostMessageTest asserts exact
-// titles). CustomEvent types never reach onmessage. Payloads ride
-// event.detail (structured-cloned across the isolated/page worlds;
-// all shapes here are JSON-safe).
+// Content <-> shim (window.postMessage, same document):
+//   -> shim: {dir:"sinytra-req", id:<int|string>, kind, ...}
+//   <- shim: {dir:"sinytra-res", id, ok, value, error}
+//   <- shim: {dir:"sinytra-event", name, payload}
 //
 // Why two hops: content scripts run in an isolated JS world -- they can
 // touch the DOM but NOT the page's window objects, so eval and interface
@@ -154,25 +147,26 @@ function onPollAnswer(raw) {
   }
   if (msg.kind === "stub-result"
     && typeof msg.callId === "string") {
-    window.dispatchEvent(new CustomEvent("sinytra-res",
-      {detail: {id: msg.callId,
+    window.postMessage(
+      {dir: "sinytra-res", id: msg.callId,
         ok: !!msg.ok,
         value: msg.value === undefined ? null : msg.value,
-        error: msg.error === undefined ? null : msg.error}}));
+        error: msg.error === undefined ? null : msg.error},
+      "*");
     pendingCalls.delete(msg.callId);
     return;
   }
   if (typeof msg.id !== "number") {
     return;
   }
-  const req = {id: msg.id, kind: msg.kind};
+  const req = {dir: "sinytra-req", id: msg.id, kind: msg.kind};
   for (const k of ["script", "iface", "method", "args", "port", "data",
     "origin", "methods", "callId", "ok", "value", "error"]) {
     if (msg[k] !== undefined) {
       req[k] = msg[k];
     }
   }
-  window.dispatchEvent(new CustomEvent("sinytra-req", {detail: req}));
+  window.postMessage(req, "*");
 }
 
 // Startup ping: proves the content script is injected and the
@@ -187,7 +181,7 @@ try {
 poll();
 
 // Numeric request ids (from Java) -> nothing stored here: the shim
-// answers synchronously over CustomEvent and we forward the
+// answers synchronously over window.postMessage and we forward the
 // answer straight to the app. Only iface-call round-trips need
 // correlation: the shim emits sinytra-event {name:"iface-call",
 // payload:{callId,...}} and Java answers with a stub-result poll
@@ -197,21 +191,16 @@ const pendingCalls = new Map();
 // Inject the page-world shim exactly once per document. NOTE: content
 // scripts run in an ISOLATED world -- window flags set here are
 // invisible to page-shim.js, and page-shim.js's window.__sinytraShim
-// is invisible here. Cross-world signalling uses ONLY window
-// CustomEvents (shim announces itself with type "sinytra-hello") and
-// the DOM marker attribute below (shared document, visible from both
-// worlds).
+// is invisible here. Cross-world signalling uses ONLY window.postMessage
+// (shim announces itself with {dir:"sinytra-hello"}) and the DOM marker
+// attribute below (shared document, visible from both worlds).
 const SHIM_PING_MS = 500;
 const SHIM_PING_ROUNDS = 4;
 let shimPresent = false;
 let shimPingsSent = 0;
 
 function announceShimQuery() {
-  try {
-    window.dispatchEvent(
-      new CustomEvent("sinytra-hello-query", {detail: {}}));
-  } catch (e) {
-  }
+  window.postMessage({dir: "sinytra-hello-query"}, "*");
 }
 
 function ensureShim() {
@@ -278,48 +267,49 @@ const shimTimer = setInterval(() => {
 }, SHIM_PING_MS);
 
 // Shim -> content: forward results and events to the app.
-window.addEventListener("sinytra-hello", () => {
-  shimPresent = true;
-  try {
-    if (document.documentElement) {
-      document.documentElement.setAttribute("data-sinytra-shim",
-        "ready");
+window.addEventListener("message", (event) => {
+  if (event.source !== window) {
+    return;
+  }
+  const d = event.data;
+  if (!d || typeof d.dir !== "string") {
+    return;
+  }
+  if (d.dir === "sinytra-hello") {
+    shimPresent = true;
+    try {
+      if (document.documentElement) {
+        document.documentElement.setAttribute("data-sinytra-shim",
+          "ready");
+      }
+    } catch (e) {
     }
-  } catch (e) {
-  }
-});
-window.addEventListener("sinytra-res", (event) => {
-  const d = event.detail;
-  if (!d) {
     return;
   }
-  if (typeof d.id === "string" && pendingCalls.has(d.id)) {
-    const callId = d.id;
-    pendingCalls.delete(callId);
-    window.dispatchEvent(new CustomEvent("sinytra-req",
-      {detail: {id: callId, kind: "stub-res",
-        ok: d.ok, value: d.value, error: d.error}}));
+  if (d.dir === "sinytra-res") {
+    if (typeof d.id === "string" && pendingCalls.has(d.id)) {
+      const callId = d.id;
+      pendingCalls.delete(callId);
+      window.postMessage(
+        {dir: "sinytra-req", id: callId, kind: "stub-res",
+          ok: d.ok, value: d.value, error: d.error},
+        "*");
+      return;
+    }
+    sendToApp({kind: "result", id: d.id, ok: !!d.ok,
+      value: d.value === undefined ? null : d.value,
+      error: d.error === undefined ? null : d.error});
     return;
   }
-  sendToApp({kind: "result", id: d.id, ok: !!d.ok,
-    value: d.value === undefined ? null : d.value,
-    error: d.error === undefined ? null : d.error});
-});
-window.addEventListener("sinytra-event", (event) => {
-  const d = event.detail;
-  if (!d) {
+  if (d.dir === "sinytra-event") {
+    if (d.name === "iface-call" && d.payload && d.payload.callId) {
+      pendingCalls.set(d.payload.callId, true);
+    }
+    sendToApp({kind: "event", name: d.name, payload: d.payload || {}});
     return;
   }
-  if (d.name === "iface-call" && d.payload && d.payload.callId) {
-    pendingCalls.set(d.payload.callId, true);
+  if (d.dir === "sinytra-port-deliver") {
+    sendToApp({kind: "event", name: "port-deliver",
+      payload: {port: d.port, data: d.data, origin: d.origin || ""}});
   }
-  sendToApp({kind: "event", name: d.name, payload: d.payload || {}});
-});
-window.addEventListener("sinytra-port-deliver", (event) => {
-  const d = event.detail;
-  if (!d) {
-    return;
-  }
-  sendToApp({kind: "event", name: "port-deliver",
-    payload: {port: d.port, data: d.data, origin: d.origin || ""}});
 });
