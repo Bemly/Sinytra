@@ -30,6 +30,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.SinytraWebMessagePort;
+import org.mozilla.geckowebview.storage.GeckoWebIconDatabase;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebViewProvider;
@@ -89,6 +90,7 @@ public final class GeckoWebViewProvider
     private final org.mozilla.geckowebview.session.ConsoleBridge mConsole;
     private final InterceptBridge mIntercept;
     private final Interception mInterception;
+    private final ProviderFavicon mFavicon;
     private final RenderProcessBridge mRenderProcess;
     // Visual surface (2026-09-25): GeckoViewHost attached as a WebView
     // child; the child's own view lifecycle owns surface attach/detach.
@@ -175,6 +177,37 @@ public final class GeckoWebViewProvider
             }
         }, mIntercept);
         mRenderProcess = new RenderProcessBridge();
+        mFavicon = new ProviderFavicon(new ProviderFavicon.Host() {
+            @Override
+            @NonNull
+            public WebView webView() {
+                return mWebView;
+            }
+
+            @Override
+            @Nullable
+            public WebChromeClient chromeClient() {
+                return mWebChromeClient;
+            }
+
+            @Override
+            @NonNull
+            public GeckoWebViewFactoryProvider factory() {
+                return mFactory;
+            }
+
+            @Override
+            @NonNull
+            public JsEvaluator js() {
+                return mJs;
+            }
+
+            @Override
+            @Nullable
+            public String pageUrl() {
+                return mBridge.getUrl();
+            }
+        });
         mBridge.setExtraDelegates(mFanOut, mFanOut, mFanOut);
         mBridge.setInterceptBridge(mIntercept);
         // Session must be opened on the UI thread (GeckoView @UiThread contract).
@@ -341,6 +374,11 @@ public final class GeckoWebViewProvider
         return mSettings.gecko();
     }
 
+    @Override
+    public void fetchFavicon() {
+        mFavicon.onPageFinished();
+    }
+
     // Effective filters pushed to Gecko + consulted by the LoadRequest
     // stand-down: app filters plus the universal "http" prefix (matches
     // http:// and https://, never data:/about:/file:). Full interception
@@ -464,8 +502,9 @@ public final class GeckoWebViewProvider
     @Override
     public WebBackForwardList copyBackForwardList() {
         return new GeckoBackForwardList(mBridge.historySnapshot(),
-                !mBridge.hasExplicitAboutLoad());
+                !mBridge.hasExplicitAboutLoad(), mFavicon.lookup());
     }
+
 
     public void flushHistory() {
         mBridge.flushHistory();
@@ -584,7 +623,7 @@ public final class GeckoWebViewProvider
     @Override public WebBackForwardList saveState(Bundle outState) {
         if (outState == null) {
             return new GeckoBackForwardList(mBridge.historySnapshot(),
-                !mBridge.hasExplicitAboutLoad());
+                !mBridge.hasExplicitAboutLoad(), mFavicon.lookup());
         }
         try {
             StateBridge.saveInto(outState, mBridge.sessionState(),
@@ -593,21 +632,21 @@ public final class GeckoWebViewProvider
             android.util.Log.w(TAG, "saveState threw", t);
         }
         return new GeckoBackForwardList(mBridge.historySnapshot(),
-                !mBridge.hasExplicitAboutLoad());
+                !mBridge.hasExplicitAboutLoad(), mFavicon.lookup());
     }
     @Override public boolean savePicture(Bundle b, File dest) { return false; }
     @Override public boolean restorePicture(Bundle b, File src) { return false; }
     @Override public WebBackForwardList restoreState(Bundle inState) {
         if (inState == null) {
             return new GeckoBackForwardList(mBridge.historySnapshot(),
-                !mBridge.hasExplicitAboutLoad());
+                !mBridge.hasExplicitAboutLoad(), mFavicon.lookup());
         }
         try {
             GeckoSession.SessionState state = StateBridge.restoreParcelable(inState);
             if (state != null) {
                 mBridge.session().restoreState(state);
                 return new GeckoBackForwardList(mBridge.historySnapshot(),
-                !mBridge.hasExplicitAboutLoad());
+                !mBridge.hasExplicitAboutLoad(), mFavicon.lookup());
             }
             List<String> urls = StateBridge.restoreUrls(inState);
             int index = StateBridge.restoreIndex(inState);
@@ -621,7 +660,7 @@ public final class GeckoWebViewProvider
             android.util.Log.w(TAG, "restoreState threw", t);
         }
         return new GeckoBackForwardList(mBridge.historySnapshot(),
-                !mBridge.hasExplicitAboutLoad());
+                !mBridge.hasExplicitAboutLoad(), mFavicon.lookup());
     }
     @Override public void postUrl(String url, byte[] postData) { throw todo("postUrl"); }
     // Chromium semantics: data is loaded as-is; baseUrl only resolves
@@ -779,7 +818,7 @@ public final class GeckoWebViewProvider
     @Override public void requestFocusNodeHref(Message hrefMsg) {}
     @Override public void requestImageRef(Message msg) {}
     @Override public String getOriginalUrl() { return getUrl(); }
-    @Override public Bitmap getFavicon() { return null; }
+    @Override public Bitmap getFavicon() { return mFavicon.getFavicon(); }
     @Override public String getTouchIconUrl() { return null; }
     @Override public int getContentHeight() { return 0; }
     @Override public int getContentWidth() { return 0; }

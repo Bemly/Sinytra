@@ -69,6 +69,8 @@ final class ClientFanOut
         @NonNull
         org.mozilla.geckowebview.settings.GeckoWebSettings webSettingsState();
 
+        /** Kick a best-effort favicon fetch for the current page. */
+        void fetchFavicon();
         /** App filters plus the universal prefix (what Gecko actually gets). */
         @NonNull
         String[] effectiveInterceptFilters();
@@ -155,6 +157,13 @@ final class ClientFanOut
                 mOwner.fireVisualState();
             } catch (Throwable t) {
                 android.util.Log.w(TAG, "fireVisualState threw", t);
+            }
+            if (success) {
+                try {
+                    mOwner.fetchFavicon();
+                } catch (Throwable t) {
+                    android.util.Log.d(TAG, "fetchFavicon threw", t);
+                }
             }
         }
     }

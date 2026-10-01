@@ -76,4 +76,14 @@ public final class GeckoWebIconDatabase extends WebIconDatabase {
         }
         mPrefs.edit().putBoolean(url, icon != null).apply();
     }
+
+    @Nullable
+    public Bitmap getIcon(@Nullable String url) {
+        if (url == null) {
+            return null;
+        }
+        synchronized (mMemory) {
+            return mMemory.get(url);
+        }
+    }
 }
