@@ -791,8 +791,11 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   RemoveCookies/RemoveCookiesNullCallback/RemoveCookiesCallback/
   SameSiteNoneRequiresSecure/SchemefulSameSite/b3167208 全过；
   testSameSiteLaxByDefault 挂（第三方无 SameSite 读侧未拦，engine 网络
-  set 路径行为对齐，open）；testThirdPartyCookie 两度跑到第二 load 无
-  verdict（teardown/GPU 卷入，待健康窗口重取）。
+  set 路径行为对齐，open）；testThirdPartyCookie 在 0017 v2 下已能稳定
+  出 verdict（2026-10-03 三轮：load 全绿 → cookie-domain waitForCookie
+  FAIL，产品 cookie 域问题非 hang；中间一轮 load 静默系内存压力所致，
+  reboot（6.8G avail）后恢复；teardown 均为 IPDL-leg kill 预期行为，
+  Binder-hop 零异常——详见 0017 设计文档 §8 rounds 5–7）。
   附带修好：removeAll/removeSession 空清谎报（0016 + `bdb5cb9`）。
 - **HttpAuth（2026-10-02）：testCancel 单过**；testProceed 卡在第三 load
   静默（前两 load 各 2 prompt 正常，realm 正确；signon 假说证伪已回退；

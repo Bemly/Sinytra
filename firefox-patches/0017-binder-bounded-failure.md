@@ -201,3 +201,18 @@ without that evidence.
   zero FAIL, gpu child healthy throughout, zero watchdog/kill/async log
   anomalies. Acceptance items 3 (no black screen; visualSurface +
   render probes green) and 6 (healthy path unchanged) hold on this build.
+- **Rounds 5–7 (2026-10-03, `testThirdPartyCookie` ×3, GPU ON + 0017 v2)**:
+  R5 + R7 (R7 post-reboot, MemAvailable 6.8G): both loads green, verdict
+  FAIL at the pre-existing cookie-domain `waitForCookie` (product cookie
+  issue, identical to round 4/M3 — hang gone); teardown shows the
+  **IPDL-leg** kill (`Killing GPU process due to IPC reply timeout`,
+  1880503 behavior) with **zero Binder-hop anomaly** (no transact log,
+  no re-wedge). R6 (pre-reboot, mem pressure): second load died between
+  LoadRequest and necko consult (parent-JS silence family, no verdict) —
+  pressure, not patch. Reboot hygiene precedent: hours of CTS churn drove
+  free-mem to the floor; `reboot` restored 6.8G avail (Current WebView +
+  Enforcing + DuraSpeed-off all survive reboot). MemAvailable is the
+  gauge (`free` column misleads). Items 1 (verdicts return, no limbo),
+  4 (in-test navigations normal), 6 hold again; item 5 verdict-stable but
+  not "green" (cookie FAIL is product); item 3 screencap + formal patch
+  landing still outstanding.
