@@ -153,8 +153,11 @@ public final class GeckoSessionBridge
     public void setExtraDelegates(@NonNull PermissionBridge.Host permHost,
             @NonNull PromptBridge.Host promptHost,
             @NonNull ContentBridge.Host contentHost) {
-        mSession.setPermissionDelegate(new PermissionBridge(permHost));
-        mSession.setPromptDelegate(new PromptBridge(promptHost));
+        // set*Delegate is @UiThread; the creator thread may be a background
+        // looper (CTS WebViewStartupTest) — hop, bounded (MainThread).
+        org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+            mSession.setPermissionDelegate(new PermissionBridge(permHost));
+            mSession.setPromptDelegate(new PromptBridge(promptHost));
         mSession.setContentDelegate(new ContentBridge(new ContentBridge.Host() {
             @Override
             public void onDownloadStart(@NonNull String url, @Nullable String userAgent,
@@ -191,13 +194,19 @@ public final class GeckoSessionBridge
                 contentHost.onCrash();
             }
         }));
+            return null;
+        });
     }
 
     // P2 intercept bridge (subframe allow/deny): installed separately so
-    // NavigationBridge stays a pure translator.
+    // NavigationBridge stays a pure translator. setNavigationDelegate is
+    // @UiThread — hop, bounded (MainThread), same background-creation case.
     public void setInterceptBridge(@NonNull InterceptBridge intercept) {
-        mSession.setNavigationDelegate(new P2NavigationDelegate(
-                new NavigationBridge(this), intercept));
+        org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+            mSession.setNavigationDelegate(new P2NavigationDelegate(
+                    new NavigationBridge(this), intercept));
+            return null;
+        });
     }
 
     @NonNull
