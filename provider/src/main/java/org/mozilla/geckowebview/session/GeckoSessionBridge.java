@@ -223,21 +223,91 @@ public final class GeckoSessionBridge
         // progress ticks while bytes are in flight (instant local loads may
         // emit none at all — CTS WebViewTest.testLoadUrl reads 0 forever).
         mProgress = 0;
+        // Pairing bit for the pristine-blank swallow below: a blank Start
+        // arms it, any non-blank Start disarms it. Stops pair with the most
+        // recent Start, so only a blank Stop for a blank Start is swallowed —
+        // a real load failing while mUrl is still blank still reports.
+        mBlankStartOutstanding = isAboutBlank(url);
         mClient.onPageStarted(url);
     }
 
     @Override
     public void onPageFinished(boolean success) {
-        // Terminal-100 completion (Chromium contract): a finished load always
-        // reports progress 100, even when Gecko emitted no (or partial)
-        // ticks for it. State here, event in ClientFanOut (which fires 100
-        // before forwarding finished — order locked by JVM test).
-        if (success && mProgress < 100) {
-            mProgress = 100;
+        if (success) {
+            // Swallow the pristine initial about:blank completion: Gecko
+            // reports it, Chromium never does, and forwarding it arms every
+            // load-gate (CTS WebViewSyncLoader mLoaded) while the app's real
+            // load is still in flight — later asserts then read stale blank
+            // state. Paired by Start (mBlankStartOutstanding), so a real
+            // load failing while mUrl is still blank still reports;
+            // explicit about: loads (flagged at loadUrl time) always report.
+            // (URL adoption for the blank slot happens lazily in getUrl(),
+            // not here — history updates land after PageStop.)
+            if (isAboutBlank(mUrl) && !mExplicitAboutLoad
+                    && mBlankStartOutstanding) {
+                mBlankStartOutstanding = false;
+                return;
+            }
+            mBlankStartOutstanding = false;
+            // Terminal-100 completion (Chromium contract): a finished load
+            // always reports progress 100, even when Gecko emitted no (or
+            // partial) ticks for it. State here, event in ClientFanOut
+            // (which fires 100 before forwarding finished — order locked by
+            // JVM test).
+            if (mProgress < 100) {
+                mProgress = 100;
+            }
         }
         mClient.onPageFinished(success);
         if (success) {
             flushHistory();
+        }
+    }
+
+    // Pairing bit for the pristine-blank finish swallow (see
+    // onPageStarted/onPageFinished): only a blank Stop for a blank Start
+    // is swallowed.
+    private boolean mBlankStartOutstanding;
+
+    private static boolean isAboutBlank(@Nullable String url) {
+        // NOTE: compare full strings — a hardcoded length here was once 12
+        // for the 11-char "about:blank" and silently never matched.
+        return "about:blank".equalsIgnoreCase(url);
+    }
+
+    /**
+     * Current non-blank URL from Gecko-owned history (live list preferred,
+     * session snapshot fallback), or null when history holds no usable URL.
+     * Device-locked (CTS WebViewTest.testLoadUrl/testGetCurrentItem); JVM
+     * cannot construct the Gecko history types.
+     */
+    @Nullable
+    private String currentHistoryUrl() {
+        String fromLive = currentHistoryUrl(mHistoryList);
+        if (fromLive != null) {
+            return fromLive;
+        }
+        return currentHistoryUrl(mSessionState);
+    }
+
+    @Nullable
+    private static String currentHistoryUrl(
+            @Nullable List<GeckoSession.HistoryDelegate.HistoryItem> list) {
+        if (list == null || list.isEmpty()) {
+            return null;
+        }
+        int index = safeIndex(list);
+        if (index < 0 || index >= list.size()) {
+            return null;
+        }
+        try {
+            String uri = list.get(index).getUri();
+            if (uri == null || isAboutBlank(uri)) {
+                return null;
+            }
+            return uri;
+        } catch (UnsupportedOperationException | IndexOutOfBoundsException e) {
+            return null;
         }
     }
 
@@ -345,6 +415,17 @@ public final class GeckoSessionBridge
 
     @Nullable
     public String getUrl() {
+        // Lazy adoption: LocationChange never fires for intercepted channels,
+        // and history updates land AFTER PageStop — so adopting at finish
+        // time races empty history. Adopting on read sees the settled state
+        // (WebViewTest.testLoadUrl asserts after completion). Only fills a
+        // blank/unknown slot, never overwrites a real URL.
+        if (isAboutBlank(mUrl)) {
+            String adopted = currentHistoryUrl();
+            if (adopted != null) {
+                mUrl = adopted;
+            }
+        }
         return mUrl;
     }
 
