@@ -78,43 +78,46 @@ Recovery state machine already in tree (reuse, do not reinvent):
   (`mCompositorPaused` set before the attempt — 1880503's first patch,
   nsWindow.cpp:1384/1421), so a mid-pause kill rebuilds paused, not blank.
 
-## 3. M5-A proposal: bounded wait + invalidate + rebuild
+## 3. M5-A proposal: never transact on UI (v2; v1 superseded)
+
+v1 (watchdog-race: 5 s bound → invalidate → kill) **fired correctly on
+device** (round 2: `Surface Binder transact timed out` after the Binder
+hop hung 5 s post-IPDL-kill) but the host still died: round 3 proved an
+in-flight transact survives two GPU kills and a rebirth, parking UI 35 s+
+beside a healthy GPU. Killing releases the *process*, not the parked
+*transaction*. Conclusion: bounding the wait is insufficient — the UI
+thread must not enter the transact at all.
+
+v2 (implemented): async dispatch of the JNI Binder call to the
+compositor thread, fire-and-forget. Safe because the sync wait buys
+nothing: the pause path uses the result only for the death-notify (the
+worker performs it identically — `NotifyRemoteActorDestroyed`
+self-dispatches to main from any thread); the resume path ignores the
+result entirely (`nsWindow.cpp:1466` — no check); the GPU stores
+surfaces last-writer-wins, so a racing newer surface supersedes. A
+wedged worker dies with GPU teardown like any GPU-bound thread and never
+blocks UI. Healthy-path overhead: one dispatch + one GlobalRef promote.
 
 ```text
-UI thread
+UI thread (syncPause/syncResume)
   │
-  └─ sync compositor path
+  ├─ IPDL legs (unchanged, 10 s budget via 1880503)
+  │
+  └─ Binder: OnCompositorSurfaceChanged()
        │
-       └─ Binder: ICompositorSurfaceManager.onSurfaceChanged()
+       └─ promote Surface → GlobalRef, post to CompositorThread, RETURN
             │
-            ├─ normal return → continue existing path (zero behavior change)
-            │
-            └─ bounded wait expires (N ms; N ≤ IPDL 10 s budget, TBD §6)
-                  ↓
-            invalidate remote endpoint (treat as NS_FAILED equivalent)
-                  ↓
-            NotifyRemoteActorDestroyed(token)
-                  ↓
-            GPU kill + compositor rebuild (existing machine, §2)
-                  ↓
-            Surface state re-sync (RequestNewSurface path already exists
-            for the Resume-false branch, nsWindow.cpp:1483)
+            └─ worker: transact → on NS_FAILED, NotifyRemoteActorDestroyed
+               (slow/failed transacts logged with ms/rv; healthy ms-level
+               transacts fully silent)
 ```
 
-Design constraints (from review):
-
-- Never "pretend paused": after timeout the caller must enter the
-  recovery path, not continue destroying the surface as if the
-  compositor had stopped (UAF/stale-surface risk).
-- Healthy-path overhead must be ~zero: no extra thread hop, no extra
-  IPC when the Binder answers promptly.
-- Where to bound: candidates are (a) JNI/C++ around the
-  `mCompositorSurfaceManager->OnSurfaceChanged` call with a timed wait
-  on a worker + token invalidation, or (b) Java-side async dispatch
-  with UI-thread timeout callback into the same invalidation branch.
-  Decision during implementation; both land in the same recovery branch.
-- N (timeout): bounded above by the 10 s IPDL budget so the Binder leg
-  can never out-wait the IPDL leg; exact value from experiment (§6).
+Remaining ordering note (resume path): the surface handoff may now land
+*after* `ResumeAndResize` where it used to land before. The GPU applies
+surfaces last-writer-wins and the parent keeps its own `mSurface` copy,
+so the worst case is a stale frame until the handoff lands — validated
+by screencap regression (§7), infinitely preferable to a dead host.
+Never-pretend-paused holds trivially: no wait exists to pretend about.
 
 ## 4. Explicitly NOT claimed
 
@@ -155,3 +158,46 @@ without that evidence.
   GPU ON + patch; screencap triplicates on cover/recreate rounds.
 - Upstream report: land with paired minidump intact (1880503's
   diagnostics must keep working — the kill path is shared).
+
+## 8. Validation log (GPU ON + 0017 v1)
+
+- **Round 1 (2026-10-02, `testThirdPartyCookie`)**: both loads green
+  (HIT+OnSuccess+PageStop), then teardown cover → main stuck in
+  `syncPauseCompositor ← onSurfaceDestroyed` (watchdog dump). At +10 s
+  the **IPDL leg won the race**: `[GFX1-]: Killing GPU process due to
+  IPC reply timeout` (1880503) — 0017's Binder watchdog correctly never
+  armed (pause path runs SendPause before the Binder hop). New GPU +
+  tabs relaunched. **But the host made zero forward progress afterwards**
+  (0 CPU/30 s, SIGQUIT unserviced, no verdict, no ANR — silent limbo).
+  Lesson: GPU-level kill+relaunch is necessary but not sufficient;
+  app-level recovery (acceptance items 4–5) is the real bar, and this
+  round is the 1880503-only baseline (0017 changes nothing on the IPDL
+  leg — no regression attributable to the patch).
+- Still needed: a round that hangs in the **Binder hop** (resume path,
+  Binder-before-IPDL) to observe the 0017 watchdog fire
+  (`Surface Binder transact timed out`) and the forced recovery.
+- **Round 2 (2026-10-02, same reproducer, GPU ON + 0017 v1)**: loads green,
+  teardown cover → main stuck `syncPause ← onSurfaceDestroyed` →
+  13:08:42 IPDL kill → **13:08:47 `Surface Binder transact timed out;
+  invalidating GPU endpoint` — 0017 FIRED**. The Binder hop hung ~5 s
+  *after* the IPDL kill, proving it an independent hang site (the design
+  premise). Fresh GPU + tabs relaunched. **But the host still ANR'd at
+  the 60 s input deadline with zero further logs** — process-level
+  recovery again did not resume app-level flow. Open: where main parks
+  post-rebuild (still inside the original transact vs. a second park).
+  v2 instrumentation (transact exit log gen/ms/rv + per-check watchdog
+  dumps) targets exactly this question.
+- **Round 3 (2026-10-02, GPU ON + 0017 v1 + exit instrumentation)**:
+  same path; per-check dumps proved main parked in the SAME
+  `transactNative ← onSurfaceChanged` **35 s after both kills beside a
+  healthy reborn GPU** — killing releases the process, not the parked
+  transaction. v1 direction falsified → v2 (async, never transact on UI).
+- **Round 4 (2026-10-02, GPU ON + 0017 v2 async)**: loads green →
+  teardown cover stall → IPDL kill → **verdict 0.1 s later**
+  (`testThirdPartyCookie` FAIL at the pre-existing cookie-domain
+  waitForCookie, identical to M3 — hang gone, verdict alive). Single
+  watchdog episode, no re-wedge.
+- **Harness (2026-10-02, GPU ON + 0017 v2)**: **46 PASS + P0 GLUE PASS**,
+  zero FAIL, gpu child healthy throughout, zero watchdog/kill/async log
+  anomalies. Acceptance items 3 (no black screen; visualSurface +
+  render probes green) and 6 (healthy path unchanged) hold on this build.

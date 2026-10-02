@@ -1,0 +1,97 @@
+From 5dddbe98fbc2f7917f4609be465103dc5e9cc1bd Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Fri, 2 Oct 2026 19:13:05 +0800
+Subject: [PATCH] Sinytra patch 0017: async Binder surface handoff (never
+ transact on UI)
+
+---
+ .../ipc/UiCompositorControllerChild.cpp       | 58 ++++++++++++++++---
+ 1 file changed, 49 insertions(+), 9 deletions(-)
+
+diff --git a/gfx/layers/ipc/UiCompositorControllerChild.cpp b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+index 94a9b3093944..55ef663c2676 100644
+--- a/gfx/layers/ipc/UiCompositorControllerChild.cpp
++++ b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+@@ -10,6 +10,7 @@
+ #include "mozilla/gfx/GPUProcessManager.h"
+ #include "mozilla/ipc/Endpoint.h"
+ #include "mozilla/layers/CompositorThread.h"
++#include "mozilla/TimeStamp.h"
+ #include "mozilla/layers/SynchronousTask.h"
+ #include "mozilla/layers/UiCompositorControllerMessageTypes.h"
+ #include "mozilla/layers/UiCompositorControllerParent.h"
+@@ -363,6 +364,18 @@ void UiCompositorControllerChild::SetCompositorSurfaceManager(
+   mCompositorSurfaceManager = aCompositorSurfaceManager;
+ };
+ 
++// 0017 v2: the Binder transact below NEVER runs on the calling thread.
++// v1 (watchdog + kill) proved insufficient on device: an in-flight transact
++// survived two GPU kills and a rebirth, parking the UI thread 35 s+ with a
++// healthy GPU beside it (2026-10-02, round 3). Killing releases the process,
++// not the parked transaction. So the UI thread must not enter the transact
++// at all: dispatch it to the compositor thread fire-and-forget. This is
++// semantically safe because (a) the pause path only uses the result for the
++// death-notify below, which the worker performs identically; (b) the resume
++// path ignores the result entirely; (c) the GPU stores surfaces
++// last-writer-wins, so a racing newer surface simply supersedes. The worker
++// holds a strong ref; a wedged worker dies with the GPU teardown like any
++// other GPU-bound thread, and never blocks UI.
+ void UiCompositorControllerChild::OnCompositorSurfaceChanged(
+     int32_t aWidgetId, java::sdk::Surface::Param aSurface) {
+   // If mCompositorSurfaceManager is not set then there is no GPU process and
+@@ -371,16 +384,43 @@ void UiCompositorControllerChild::OnCompositorSurfaceChanged(
+     return;
+   }
+ 
+-  nsresult result =
+-      mCompositorSurfaceManager->OnSurfaceChanged(aWidgetId, aSurface);
++  RefPtr<UiCompositorControllerChild> self = this;
++  // The Surface param is a borrowed JNI ref; promote to GlobalRef for the
++  // thread hop (same pattern as nsWindow's mSurface). The lambda's copy
++  // keeps the Surface alive until the worker runs.
++  java::sdk::Surface::GlobalRef surface =
++      java::sdk::Surface::GlobalRef::From(aSurface);
++  (void)CompositorThread()->Dispatch(NS_NewRunnableFunction(
++      "UiCompositorControllerChild::AsyncSurfaceChanged",
++      [self, aWidgetId, surface]() {
++        const mozilla::TimeStamp transactStart = mozilla::TimeStamp::Now();
++        nsresult result =
++            self->mCompositorSurfaceManager->OnSurfaceChanged(aWidgetId,
++                                                              surface);
++        const mozilla::TimeDuration elapsed =
++            mozilla::TimeStamp::Now() - transactStart;
++        if (NS_FAILED(result) || elapsed.ToMilliseconds() > 1000.0) {
++          gfxCriticalNote << "Async surface transact finished"
++                          << " ms=" << elapsed.ToMilliseconds()
++                          << " rv=" << static_cast<uint32_t>(result);
++        }
+ 
+-  // If our remote binder has died then notify the GPU process manager.
+-  if (NS_FAILED(result)) {
+-    if (mProcessToken) {
+-      gfx::GPUProcessManager::Get()->NotifyRemoteActorDestroyed(mProcessToken);
+-      mProcessToken = 0;
+-    }
+-  }
++        // Same death-notify the synchronous path performed, now from the
++        // worker: NotifyRemoteActorDestroyed self-dispatches to main.
++        if (NS_FAILED(result)) {
++          uint64_t token = self->mProcessToken;
++          if (token) {
++            if (gfx::GPUProcessManager* gpm =
++                    gfx::GPUProcessManager::Get()) {
++              gpm->NotifyRemoteActorDestroyed(token);
++              self->mProcessToken = 0;
++            }
++          }
++        }
++      }));
++
++  // Return immediately: the caller (syncPause/syncResume paths) never waits
++  // on the Binder hop anymore. IPDL legs keep their own 10 s budget (1880503).
+ }
+ #endif
+ 
+-- 
+2.56.0
+

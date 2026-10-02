@@ -14,10 +14,13 @@ prefs:
   # early-returns and the unwatched Binder hop disappears. mirror:once —
   # read at GeckoRuntime.create, before any GPU decision (GeckoRuntimeHolder).
   # Debug-only: shipping this needs the perf/memory tradeoff decision.
-  layers.gpu-process.enabled: false
+  # SUSPENDED 2026-10-02 for M5-A validation (0017 needs GPU ON to exercise
+  # the Binder hop): re-enable by uncommenting. M3/M3b stay documented
+  # fallbacks (STATUS §1w).
+  # layers.gpu-process.enabled: false
   # M3b (2026-10-02): allow WebGL in the parent process on top of M3.
   # Tests whether "GPU-process isolation" decouples from "WebGL capable":
   # M3 disables WebGL via FEATURE_WEBGL_NO_GPU_PROCESS (gfxPlatform.cpp);
   # this pref re-enables parent-process GL. Tradeoff under test: driver
   # crashes land in the host instead of an isolated GPU child.
-  webgl.allow-in-parent: true
+  # webgl.allow-in-parent: true
