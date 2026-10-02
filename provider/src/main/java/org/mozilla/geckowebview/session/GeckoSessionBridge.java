@@ -468,6 +468,13 @@ public final class GeckoSessionBridge
     }
 
     public void close() {
-        mSession.close();
+        long startMs = android.os.SystemClock.uptimeMillis();
+        try {
+            mSession.close();
+        } finally {
+            android.util.Log.d(TAG, "session.close took "
+                    + (android.os.SystemClock.uptimeMillis() - startMs)
+                    + "ms");
+        }
     }
 }

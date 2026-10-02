@@ -125,6 +125,14 @@ public final class GeckoWebViewProvider
             @NonNull GeckoWebViewFactoryProvider factory,
             @Nullable Object privateAccess) {
         mWebView = webView;
+        // Debug-gated host-main watchdog (CTS triage; release builds skip).
+        // Never breaks construction: install failures stay silent.
+        try {
+            MainWatchdog.installIfDebuggable(
+                    webView.getContext().getApplicationContext());
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "watchdog install threw", t);
+        }
         mPrivateAccess = new FrameworkPrivateAccess(privateAccess);
         mFactory = factory;
         mFanOut = new ClientFanOut(this);
@@ -426,6 +434,7 @@ public final class GeckoWebViewProvider
     public void destroy() {
         mDestroyed = true;
         mFactory.unregisterWebViewProvider(this);
+        long startMs = android.os.SystemClock.uptimeMillis();
         try {
             if (mViewHost != null) {
                 // GeckoViewHost.release() closes the bridge/session, which
@@ -436,6 +445,10 @@ public final class GeckoWebViewProvider
             }
         } catch (Throwable t) {
             android.util.Log.w(TAG, "bridge.close threw", t);
+        } finally {
+            android.util.Log.d(TAG, "destroy took "
+                    + (android.os.SystemClock.uptimeMillis() - startMs)
+                    + "ms");
         }
     }
 

@@ -50,8 +50,15 @@ public class GeckoViewHost extends GeckoView {
         // GeckoView.setSession is @NonNull in GV 153: detach by closing the
         // session side instead of passing null (session.close unbinds it).
         if (mBridge != null) {
-            mBridge.close();
-            mBridge = null;
+            long startMs = android.os.SystemClock.uptimeMillis();
+            try {
+                mBridge.close();
+            } finally {
+                Log.d(TAG, "release/close took "
+                        + (android.os.SystemClock.uptimeMillis() - startMs)
+                        + "ms");
+                mBridge = null;
+            }
         }
     }
 
