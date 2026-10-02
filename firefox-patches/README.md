@@ -43,6 +43,7 @@
 | 0014 | 同 host 的 Domain 也存成 domain cookie | `CookieManager.setCookie` 带与 URL host 相等的 Domain 属性（CTS CookieTest.testDomain） | 0011 的 `cookieHost!==host` 门漏掉相等 case → 存成 host cookie；记 `sawDomainAttr`，有 Domain 属性即前导点存 domain cookie（校验仍拒不匹配域） | **已定稿**：`0014-cookie-domain-equal-host.patch`（0011 同文件后续；与 0013 同一批 binaries+publish）；待 CTS CookieTest.testDomain 验证 |
 | 0015 | 合成响应追踪日志 | triage（CTS 合成后无完成的定位） | 0005 门控下的 Take 命中/MISS + Start 返回值 + finish 日志（默认关闭，零开销；已用其证实 Take 命中/Start rv=0） | **已定稿**：`0015-synthesis-trace.patch`（0001 同文件后续；独立编号保持栈线性） |
 | 0016 | removeSessionCookies 诚实返回值 | `CookieManager.removeSessionCookies/removeAllCookies` 回调语义 | 预删计数会谎报（删失败也 true）+ 空清恒 true；改为有删净才 true（CTS CookieManagerTest.testRemoveCookiesCallback:337 第二次空清必须 false） | **已定稿**：`0016-removeSessionCookies-honest-result.patch`（0007 同文件后续；provider 侧 removeAllCookies 同修 `bdb5cb9`） |
+| 0017 | Binder 有界失败+恢复（M5-A） | compositor teardown 的同步 Binder 依赖（1855536 类） | IPDL 跳有 1880503 的 10s 超时，Binder 跳（`ICompositorSurfaceManager.onSurfaceChanged`）无任何超时——UI 可被无限拖死（设计文档 `0017-binder-bounded-failure.md`；不碰 fence；oneway 仅 M5-B 实验变体） | **设计中**：bounded wait → 沿用 `NotifyRemoteActorDestroyed` 恢复链；M3/M3b 并列 fallback |
 
 设计文档：`0001/0002/0003/0006/0007/0008/0009/0010-*.md`（树内勘察、地基选型、边界、测试计划）。
 
