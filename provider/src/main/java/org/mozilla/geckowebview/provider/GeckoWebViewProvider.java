@@ -29,7 +29,6 @@ import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
-import android.webkit.SinytraWebMessagePort;
 import org.mozilla.geckowebview.storage.GeckoWebIconDatabase;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -87,10 +86,7 @@ public final class GeckoWebViewProvider
     private final JsBridge mJsBridge;
     private final JavascriptBridge mJsInterfaces;
     private final MessageBridge mMessages;
-    // Framework port -> bridge port (app-to-page MessagePort transfer;
-    // weak: closed ports must not pin the bridge).
-    private final java.util.Map<android.webkit.WebMessagePort, MessageBridge.Port>
-            mPortRoutes = new java.util.WeakHashMap<>();
+    private final ProviderMessagePorts mPorts;
     private final org.mozilla.geckowebview.session.ConsoleBridge mConsole;
     private final InterceptBridge mIntercept;
     private final Interception mInterception;
@@ -165,6 +161,7 @@ public final class GeckoWebViewProvider
         mJs.setBridge(mJsBridge);
         mJsInterfaces = new JavascriptBridge();
         mMessages = new MessageBridge(mFanOut);
+        mPorts = new ProviderMessagePorts(() -> mMessages);
         mConsole = new org.mozilla.geckowebview.session.ConsoleBridge(mFanOut);
         mJsInterfaces.setTransport(mJsBridge);
         mMessages.setTransport(mJsBridge);
@@ -966,74 +963,10 @@ public final class GeckoWebViewProvider
         }
     }
     @Override public WebMessagePort[] createWebMessageChannel() {
-        // Framework-typed ports: android.webkit.SinytraWebMessagePort
-        // (same-package subclass over the @SystemApi framework ctor — see
-        // its header; resolves the old AOSP-patch-vs-hook decision point
-        // with neither). Routes into MessageBridge; the page transport is
-        // shared with the boundary face (LiveMessagePort). Port transfer
-        // (getPorts) stays an honest gap.
-        MessageBridge.Port[] ports = mMessages.createChannel();
-        android.webkit.WebMessagePort[] fw = new WebMessagePort[] {
-                new SinytraWebMessagePort(portBinding(ports[0])),
-                new SinytraWebMessagePort(portBinding(ports[1])),
-        };
-        synchronized (mPortRoutes) {
-            mPortRoutes.put(fw[0], ports[0]);
-            mPortRoutes.put(fw[1], ports[1]);
-        }
-        return fw;
-    }
-
-    @NonNull
-    private SinytraWebMessagePort.Binding portBinding(
-            @NonNull MessageBridge.Port port) {
-        return new SinytraWebMessagePort.Binding() {
-            @Override
-            public void post(@NonNull String data) {
-                mMessages.postMessage(port, data, null);
-            }
-
-            @Override
-            public void close() {
-                mMessages.close(port);
-            }
-
-            @Override
-            public void setCallback(
-                    @Nullable WebMessagePort.WebMessageCallback callback) {
-                mMessages.setCallback(port, callback);
-            }
-        };
+        return mPorts.createChannel();
     }
     @Override public void postMessageToMainFrame(WebMessage message, Uri targetOrigin) {
-        if (message == null) {
-            return;
-        }
-        try {
-            // App-to-page MessagePort transfer (CTS PostMessageTest
-            // testMessageChannel family): framework ports map back to
-            // bridge ports; unknown/closed ports are skipped (honest).
-            // Page-created transfer stays unsupported (see header).
-            java.util.List<MessageBridge.Port> transferred =
-                    new java.util.ArrayList<>();
-            WebMessagePort[] fwPorts = message.getPorts();
-            if (fwPorts != null) {
-                synchronized (mPortRoutes) {
-                    for (WebMessagePort fw : fwPorts) {
-                        MessageBridge.Port routed = mPortRoutes.get(fw);
-                        if (routed != null) {
-                            transferred.add(routed);
-                        }
-                    }
-                }
-            }
-            mMessages.postToMainFrame(
-                    message.getData() != null ? message.getData() : "",
-                    targetOrigin != null ? targetOrigin.toString() : null,
-                    transferred);
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "postMessageToMainFrame threw", t);
-        }
+        mPorts.postToMainFrame(message, targetOrigin);
     }
     @Override public void setMapTrackballToArrowKeys(boolean setMap) {}
     @Override public void flingScroll(int vx, int vy) {}
