@@ -71,6 +71,7 @@ public final class GeckoSessionBridge
             public void onHistoryStateChange(@NonNull GeckoSession session,
                     @NonNull GeckoSession.HistoryDelegate.HistoryList historyList) {
                 mHistoryList = historyList;
+                adoptHistoryUrl(historyList);
                 Log.i(TAG, "history: onHistoryStateChange size=" + historyList.size()
                         + " index=" + safeIndex(historyList)
                         + " urls=" + snapshotUrls(historyList));
@@ -115,6 +116,7 @@ public final class GeckoSessionBridge
             public void onSessionStateChange(@NonNull GeckoSession session,
                     @NonNull GeckoSession.SessionState sessionState) {
                 mSessionState = sessionState;
+                adoptHistoryUrl(sessionState);
                 Log.i(TAG, "history: onSessionStateChange size=" + sessionState.size()
                         + " index=" + safeIndex(sessionState)
                         + " urls=" + snapshotUrls(sessionState));
@@ -285,6 +287,20 @@ public final class GeckoSessionBridge
      * Device-locked (CTS WebViewTest.testLoadUrl/testGetCurrentItem); JVM
      * cannot construct the Gecko history types.
      */
+    // Mirror Gecko-owned history-current into mUrl when it carries news:
+    // redirect finalization, back/forward targets, and any commit whose
+    // LocationChange never arrived. Blank never overwrites real (initial
+    // blank updates); equal is a no-op. Ordering risk (stale update landing
+    // after a newer loadUrl) is negligible: Gecko emits history in commit
+    // order. Device-locked (testLoadUrl/testGetCurrentItem/goBack flows).
+    private void adoptHistoryUrl(
+            @Nullable List<GeckoSession.HistoryDelegate.HistoryItem> list) {
+        String current = currentHistoryUrl(list);
+        if (current != null && !current.equals(mUrl)) {
+            mUrl = current;
+        }
+    }
+
     @Nullable
     private String currentHistoryUrl() {
         String fromLive = currentHistoryUrl(mHistoryList);
@@ -339,6 +355,14 @@ public final class GeckoSessionBridge
         // cannot be distinguished arriving — but the pre-redirect URL is
         // exactly what the app asked for (WebViewTest.testGetOriginalUrl).
         mOriginalUrl = url;
+        // Optimistic URL: the app asked for this document now. LocationChange
+        // never fires for intercepted channels and history updates land after
+        // PageStop, so without this getUrl() reads stale state until Gecko
+        // catches up (WebViewTest.testLoadUrl). Redirect finalization and
+        // history navigation correct it via adoptHistoryUrl below.
+        if (url != null) {
+            mUrl = url;
+        }
         mSession.loadUri(url);
     }
 
