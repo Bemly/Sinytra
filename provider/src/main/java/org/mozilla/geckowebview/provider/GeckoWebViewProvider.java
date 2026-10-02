@@ -217,8 +217,14 @@ public final class GeckoWebViewProvider
         // Session must be opened on the UI thread (GeckoView @UiThread contract).
         // Real framework calls create() on the UI thread; assert here so the
         // harness (or future callers) fail fast instead of hanging on load.
+        // Liveness gate for filter retries (set before the first push):
+        // the JS transport bring-up rides the same parent-JS bring-up as
+        // the filter module, so a retry that waits for it can never push
+        // into a not-yet-listening dispatcher. isReady() is field reads
+        // only, safe to wire before bind().
+        mInterception.setTransportReady(mJsBridge::isReady);
         // Initial filter dispatch goes through Interception so the
-        // time-based retries cover the onInit race from the very first
+        // gated retries cover the onInit race from the very first
         // push (a bare setResponseDelegate here would be fire-and-forget
         // with no recovery until the first PageStart).
         mInterception.repushFilters();

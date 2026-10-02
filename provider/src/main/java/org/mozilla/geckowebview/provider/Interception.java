@@ -147,21 +147,45 @@ final class Interception {
     // The PageStart repush alone is not enough: a filter-waiting channel
     // may never produce a PageStart (CTS single-test runs observed
     // observer-registered → onLoadRequest → 20s silence, no PageStop).
-    // Every push therefore also schedules two time-based retries covering
-    // the onInit window. A newer push supersedes pending retries via the
-    // generation guard (repeats stay idempotent C++-side). Best-effort:
-    // without a Looper (JVM unit tests) the retries are skipped and only
-    // the synchronous push runs.
-    static final long REPUSH_DELAY_MS_FIRST = 500;
-    static final long REPUSH_DELAY_MS_SECOND = 2000;
+    // Every push therefore also schedules time-based retries covering a
+    // slow onInit window. Blind time retries are not enough either: a
+    // cold CTS process can stall JS init past any fixed delay (no
+    // ensureBuiltIn, no PageStart at all). The retries are hence gated on
+    // transport liveness (JsBridge.isReady: extension installed + session
+    // delegate bound — the same parent-JS/extension bring-up the filter
+    // module rides on): while the pipeline is not alive the retry backs
+    // off instead of pushing into the void, so a slow init still gets a
+    // push the moment it completes. A newer push supersedes pending
+    // retries via the generation guard (repeats stay idempotent C++-side).
+    // Best-effort: without a Looper (JVM unit tests) no retries run and
+    // only the synchronous push executes.
+    static final int MAX_RETRY_ATTEMPTS = 5;
 
     private int mPushGeneration;
+    @Nullable
+    private Readiness mReadiness;
+
+    /** Transport-liveness gate for filter retries (provider wires JsBridge). */
+    interface Readiness {
+        boolean isReady();
+    }
+
+    // Pure (JVM-testable): attempt is 1-based; 500ms doubling to an 8s cap
+    // covers a slow onInit window (~15s total) without spamming.
+    static long retryDelayMs(int attempt) {
+        long delay = 500L << (attempt - 1);
+        return Math.min(delay, 8000L);
+    }
 
     // Pure (JVM-testable): a scheduled retry is live only when its
     // generation still matches the latest push.
     static boolean isRepushLive(int scheduledGeneration,
             int currentGeneration) {
         return scheduledGeneration == currentGeneration;
+    }
+
+    void setTransportReady(@Nullable Readiness readiness) {
+        mReadiness = readiness;
     }
 
     void repushFilters() {
@@ -186,11 +210,13 @@ final class Interception {
             return;
         }
         final int generation = ++mPushGeneration;
-        scheduleDelayedRepush(generation, REPUSH_DELAY_MS_FIRST);
-        scheduleDelayedRepush(generation, REPUSH_DELAY_MS_SECOND);
+        scheduleRetry(generation, 1);
     }
 
-    private void scheduleDelayedRepush(final int generation, long delayMs) {
+    private void scheduleRetry(final int generation, final int attempt) {
+        if (attempt > MAX_RETRY_ATTEMPTS) {
+            return;
+        }
         final android.os.Handler handler;
         try {
             handler = new android.os.Handler(
@@ -206,15 +232,31 @@ final class Interception {
                         || mHost.destroyed()) {
                     return;
                 }
+                Readiness readiness = mReadiness;
+                if (readiness != null) {
+                    boolean alive;
+                    try {
+                        alive = readiness.isReady();
+                    } catch (Throwable t) {
+                        android.util.Log.w(TAG, "readiness threw", t);
+                        return;
+                    }
+                    if (!alive) {
+                        // Pipeline not up yet: back off, do not push into
+                        // the void (the dispatch would be lost silently).
+                        scheduleRetry(generation, attempt + 1);
+                        return;
+                    }
+                }
                 try {
                     mHost.bridge().session()
                             .setResponseDelegate(mResponses);
                 } catch (Throwable t) {
-                    android.util.Log.w(TAG, "delayed repush threw", t);
+                    android.util.Log.w(TAG, "filter retry threw", t);
                 }
-            }, delayMs);
+            }, retryDelayMs(attempt));
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "scheduleDelayedRepush threw", t);
+            android.util.Log.w(TAG, "scheduleRetry threw", t);
         }
     }
 }

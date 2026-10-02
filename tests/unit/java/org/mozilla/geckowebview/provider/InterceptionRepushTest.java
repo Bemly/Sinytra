@@ -1,5 +1,6 @@
 package org.mozilla.geckowebview.provider;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -30,9 +31,13 @@ public final class InterceptionRepushTest {
     }
 
     @Test
-    public void delays_orderedPositive() {
-        assertTrue(Interception.REPUSH_DELAY_MS_FIRST > 0);
-        assertTrue(Interception.REPUSH_DELAY_MS_SECOND
-                > Interception.REPUSH_DELAY_MS_FIRST);
+    public void delays_backoffToCap() {
+        assertEquals(500L, Interception.retryDelayMs(1));
+        assertEquals(1000L, Interception.retryDelayMs(2));
+        assertEquals(2000L, Interception.retryDelayMs(3));
+        assertEquals(4000L, Interception.retryDelayMs(4));
+        assertEquals(8000L, Interception.retryDelayMs(5));
+        assertEquals(8000L, Interception.retryDelayMs(6));
+        assertEquals(5, Interception.MAX_RETRY_ATTEMPTS);
     }
 }
