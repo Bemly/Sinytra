@@ -64,6 +64,9 @@ export PATH="$HOME/.cargo/bin:$PATH"
 ./mach gradle geckoview:publishDebugPublicationToMavenRepository
 # 本地产物 artifactId=geckoview-default；substitute 脚本换 nightly 坐标
 cd ~/sinytra-vol/Projects/Sinytra
+export MOZCONFIG="$HOME/sinytra-vol/Projects/firefox/mozconfig-158"  # 必带：
+# 默认 mozconfig 指向已删的 objdir-opt，缺了它 substitute 脚本的
+# `mach environment --verbose` 失败，provider 配置阶段报缺 compileSdk
 JAVA_HOME=/opt/homebrew/opt/openjdk@17 ANDROID_HOME=/opt/homebrew/share/android-commandlinetools \
   ./gradlew :provider:assembleDebug -PsinytraLocalGecko=true
 # 真机回归：P0RenderActivity 金丝雀 + P0GlueActivity 全量探针（现 41 PASS）
