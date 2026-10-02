@@ -86,6 +86,9 @@ final class ClientFanOut
     private boolean mFiltersRepushed;
     @Nullable
     private String mLastTitle;
+    // Last progress value forwarded to the WebChromeClient this navigation
+    // (terminal-100 completion below needs to know whether 100 went out).
+    private int mLastProgress;
 
     ClientFanOut(@NonNull Owner owner) {
         mOwner = owner;
@@ -126,8 +129,10 @@ final class ClientFanOut
     @Override
     public void onPageStarted(@NonNull String url) {
         // New navigation: title dedupe restarts (same title on a new
-        // document still reports).
+        // document still reports), and the progress baseline restarts
+        // (bridge state resets alongside; event side resets here).
         mLastTitle = null;
+        mLastProgress = 0;
         if (!mFiltersRepushed) {
             mFiltersRepushed = true;
             try {
@@ -149,6 +154,25 @@ final class ClientFanOut
 
     @Override
     public void onPageFinished(boolean success) {
+        // Terminal-100 completion (Chromium contract — bridge state already
+        // holds 100 via GeckoSessionBridge, this is the event side): a
+        // finished load reports onProgressChanged(100) BEFORE onPageFinished,
+        // even when Gecko emitted no ticks for it (instant local loads).
+        // Failure loads keep Gecko's partial values (no fabrication).
+        // Rule JVM-locked via shouldFireTerminalProgress; order device-
+        // locked (CTS progress suites + harness probes).
+        if (shouldFireTerminalProgress(success, mLastProgress)) {
+            mLastProgress = 100;
+            WebChromeClient chrome = mOwner.webChromeClient();
+            if (chrome != null) {
+                try {
+                    chrome.onProgressChanged(mOwner.webView(), 100);
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG,
+                            "WebChromeClient.onProgressChanged threw", t);
+                }
+            }
+        }
         WebViewClient client = mOwner.webViewClient();
         String url = mOwner.ownerBridge().getUrl();
         if (client == null || url == null) {
@@ -187,6 +211,7 @@ final class ClientFanOut
 
     @Override
     public void onProgressChanged(int progress) {
+        mLastProgress = progress;
         WebChromeClient chrome = mOwner.webChromeClient();
         if (chrome == null) {
             return;
@@ -722,6 +747,13 @@ final class ClientFanOut
             android.util.Log.w(TAG, "WebChromeClient.onJsBeforeUnload threw", t);
             return true;
         }
+    }
+
+    // Pure (JVM-testable): terminal-100 fires only for successful loads
+    // whose last reported progress never reached 100.
+    static boolean shouldFireTerminalProgress(boolean success,
+            int lastProgress) {
+        return success && lastProgress < 100;
     }
 
     // --- ContentBridge.Host ---

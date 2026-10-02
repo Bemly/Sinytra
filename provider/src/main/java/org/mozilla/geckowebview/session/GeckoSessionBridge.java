@@ -216,11 +216,22 @@ public final class GeckoSessionBridge
 
     @Override
     public void onPageStarted(@NonNull String url) {
+        // Chromium resets progress on every new navigation; Gecko only emits
+        // progress ticks while bytes are in flight (instant local loads may
+        // emit none at all — CTS WebViewTest.testLoadUrl reads 0 forever).
+        mProgress = 0;
         mClient.onPageStarted(url);
     }
 
     @Override
     public void onPageFinished(boolean success) {
+        // Terminal-100 completion (Chromium contract): a finished load always
+        // reports progress 100, even when Gecko emitted no (or partial)
+        // ticks for it. State here, event in ClientFanOut (which fires 100
+        // before forwarding finished — order locked by JVM test).
+        if (success && mProgress < 100) {
+            mProgress = 100;
+        }
         mClient.onPageFinished(success);
         if (success) {
             flushHistory();

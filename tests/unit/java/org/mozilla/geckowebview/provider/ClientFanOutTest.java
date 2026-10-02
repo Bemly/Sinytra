@@ -77,4 +77,22 @@ public final class ClientFanOutTest {
         assertEquals("", ClientFanOut.realmOf(null));
         assertEquals("plain", ClientFanOut.realmOf("plain"));
     }
+
+    @Test
+    public void terminalProgress_firesOnSuccessBelow100() {
+        assertTrue(ClientFanOut.shouldFireTerminalProgress(true, 0));
+        assertTrue(ClientFanOut.shouldFireTerminalProgress(true, 15));
+        assertTrue(ClientFanOut.shouldFireTerminalProgress(true, 99));
+    }
+
+    @Test
+    public void terminalProgress_skippedAt100() {
+        assertFalse(ClientFanOut.shouldFireTerminalProgress(true, 100));
+    }
+
+    @Test
+    public void terminalProgress_skippedOnFailure() {
+        assertFalse(ClientFanOut.shouldFireTerminalProgress(false, 0));
+        assertFalse(ClientFanOut.shouldFireTerminalProgress(false, 50));
+    }
 }
