@@ -30,6 +30,10 @@ public final class GeckoSessionBridge
     private final GeckoSession mSession;
     private final Client mClient;
     private String mUrl;
+    // Pre-redirect URL of the current navigation (see loadUrl). Null until
+    // the first loadUrl; getOriginalUrl falls back to getUrl() then.
+    @Nullable
+    private String mOriginalUrl;
     private String mTitle;
     // Fresh WebView reports 100 (CTS INITIAL_PROGRESS): nothing is loading.
     // A new navigation drops it to 0 (onPageStarted) and a finished load
@@ -329,6 +333,12 @@ public final class GeckoSessionBridge
         if (url != null && url.regionMatches(true, 0, "about:", 0, 6)) {
             mExplicitAboutLoad = true;
         }
+        // Original URL (Chromium getOriginalUrl contract): the URL the load
+        // was initiated with, before any server redirect. LocationChange
+        // never fires for intercepted channels, so the redirect target
+        // cannot be distinguished arriving — but the pre-redirect URL is
+        // exactly what the app asked for (WebViewTest.testGetOriginalUrl).
+        mOriginalUrl = url;
         mSession.loadUri(url);
     }
 
@@ -427,6 +437,11 @@ public final class GeckoSessionBridge
             }
         }
         return mUrl;
+    }
+
+    @Nullable
+    public String getOriginalUrl() {
+        return mOriginalUrl != null ? mOriginalUrl : getUrl();
     }
 
     @Nullable

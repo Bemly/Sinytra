@@ -849,7 +849,7 @@ public final class GeckoWebViewProvider
     @Override public WebView.HitTestResult getHitTestResult() { return null; }
     @Override public void requestFocusNodeHref(Message hrefMsg) {}
     @Override public void requestImageRef(Message msg) {}
-    @Override public String getOriginalUrl() { return getUrl(); }
+    @Override public String getOriginalUrl() { return mBridge.getOriginalUrl(); }
     @Override public Bitmap getFavicon() { return mFavicon.getFavicon(); }
     @Override public String getTouchIconUrl() { return null; }
     @Override public int getContentHeight() { return 0; }
