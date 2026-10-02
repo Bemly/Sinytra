@@ -872,6 +872,54 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   + vendor AMS 扩展在 burst 下的间歇失速。用户配置，不动；flakes 归因
   到此为止，产品侧不再追。
 
+## 1w. GPU-process hang / fallback status（2026-10-02，用户拍板）
+
+### 已确认
+
+- GPU-process ON 路径存在 compositor teardown hang：`syncPauseCompositor()`
+  → 同步 Binder `ICompositorSurfaceManager.onSurfaceChanged()` 路径可导致
+  UI thread 长时间阻塞（device trace 双实锤：surfaceDestroyed→syncPause
+  与 surfaceChanged→syncResumeResize，两次主线程皆 park 在
+  `BpBinder::transact`；GPU 子进程 20 分钟 CPU 零增长、全线程信号无响应）。
+- GPU-process OFF（M3，debug config `layers.gpu-process.enabled=false`）
+  后，同一 teardown/cover 复现器不再出现 compositor hang；46 项 harness +
+  P0 GLUE 全部 PASS，watchdog 零报警（`:gpu` 子进程全程缺席）。
+- GPU-process OFF + `webgl.allow-in-parent=true`（M3b）后，WebGL context
+  创建、几何绘制与动画均正常（get.webgl.org 绿字 + 旋转立方体双帧）；
+  同一 teardown 复现器仍无 compositor hang。
+- 因此，当前证据支持：**触发故障所必需的是 GPU-process failure
+  domain，而不是"硬件 GL 必须关闭"。**
+- 当前 WebGL 像素表现已确认"功能可用"；与 GPU-process ON 的像素/面片
+  颜色对照尚未完成，因此暂不宣称视觉等价。
+- 视频冒烟：mp4 首帧海报正常渲染 + 用户手势点播正常播放（画面 verified；
+  音频因无监听手段记未验证）。
+
+### Fallback
+
+- **M3：GPU process OFF**。优点：最大限度消除 GPU-process failure
+  domain。已完成全量 harness 回归，无已知功能回归。已知代价：WebGL
+  默认不可用（`FEATURE_WEBGL_NO_GPU_PROCESS`，Gecko 主动 disable）。
+- **M3b：GPU process OFF + parent GL ON**。优点：保留 WebGL 功能，同时
+  保持当前已验证的 compositor teardown 稳定性。当前已验证：WebGL
+  context / draw / animation 可用；teardown 复现器无 hang。风险：GL/
+  driver failure domain 回到宿主/parent process；目前未观测到 driver
+  crash。当前状态：**可作为功能完整度更高的 fallback 候选，但仍需评估
+  driver stability、WebGL 视觉一致性以及视频播放中性能。**
+
+### Root-fix
+
+- **M5-A：保留 GPU process，修复同步 Binder failure handling**。目标：
+  `ICompositorSurfaceManager.onSurfaceChanged()` 同步 Binder IPC →
+  bounded failure → GPU/provider recovery → 复用现有
+  `NotifyRemoteActorDestroyed` / GPU reinitialization 路径。设计原则沿用
+  1880503：**超时后恢复/重建，而不是假设 remote 已经成功完成操作。**
+  M5-A 完成后，重新开启 GPU process 做完整回归；M3/M3b 保留为 fallback。
+- 上游参照：1855536（同类 ANR，NEW/P3）/ 1880503（IPDL 10s 超时 + kill
+  GPU + minidump，已在 158 树；不覆盖 Binder 跳——即本次靶子）/
+  1929209（同症状不同病因：Adreno shader，133/134 已修；Mali 本机不适用）。
+- 设计文档：`firefox-patches/0017-binder-bounded-failure.md`（M5-A 主线；
+  oneway 仅作 M5-B 实验变体，不预设根治；不碰 fence）。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~**切换路线主线化**~~（2026-09-26 完成，§1s）：metadata + versionCode
