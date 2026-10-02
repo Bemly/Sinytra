@@ -72,71 +72,78 @@ public final class GeckoSessionBridge
 
     public GeckoSessionBridge(@NonNull Client client) {
         mClient = client;
-        mSession = new GeckoSession();
-        mSession.setNavigationDelegate(new NavigationBridge(this));
-        mSession.setHistoryDelegate(new GeckoSession.HistoryDelegate() {
-            @Override
-            public void onHistoryStateChange(@NonNull GeckoSession session,
-                    @NonNull GeckoSession.HistoryDelegate.HistoryList historyList) {
-                mHistoryList = historyList;
-                adoptHistoryUrl(historyList);
-                Log.i(TAG, "history: onHistoryStateChange size=" + historyList.size()
-                        + " index=" + safeIndex(historyList)
-                        + " urls=" + snapshotUrls(historyList));
-            }
+        // new GeckoSession() is @UiThread (Autofill reads surface bounds
+        // in the ctor), but the framework may create the provider on any
+        // looper thread (CTS WebViewStartupTest background creation) — so
+        // construction + delegate wiring hop to main, bounded (MainThread).
+        mSession = org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+            GeckoSession session = new GeckoSession();
+            session.setNavigationDelegate(new NavigationBridge(this));
+            session.setHistoryDelegate(new GeckoSession.HistoryDelegate() {
+                @Override
+                public void onHistoryStateChange(@NonNull GeckoSession s,
+                        @NonNull GeckoSession.HistoryDelegate.HistoryList historyList) {
+                    mHistoryList = historyList;
+                    adoptHistoryUrl(historyList);
+                    Log.i(TAG, "history: onHistoryStateChange size=" + historyList.size()
+                            + " index=" + safeIndex(historyList)
+                            + " urls=" + snapshotUrls(historyList));
+                }
 
-            @Override
-            public GeckoResult<Boolean> onVisited(@NonNull GeckoSession session,
-                    @NonNull String url, @Nullable String lastVisitedURL, int flags) {
-                return GeckoResult.fromValue(Boolean.FALSE);
-            }
+                @Override
+                public GeckoResult<Boolean> onVisited(@NonNull GeckoSession s,
+                        @NonNull String url, @Nullable String lastVisitedURL, int flags) {
+                    return GeckoResult.fromValue(Boolean.FALSE);
+                }
 
-            @Override
-            public GeckoResult<boolean[]> getVisited(@NonNull GeckoSession session,
-                    @NonNull String[] urls) {
-                return GeckoResult.fromValue(new boolean[urls.length]);
-            }
-        });
-        ProgressBridge progress = new ProgressBridge(this);
-        mSession.setProgressDelegate(new GeckoSession.ProgressDelegate() {
-            @Override
-            public void onPageStart(@NonNull GeckoSession session, @NonNull String url) {
-                progress.onPageStart(session, url);
-            }
+                @Override
+                public GeckoResult<boolean[]> getVisited(@NonNull GeckoSession s,
+                        @NonNull String[] urls) {
+                    return GeckoResult.fromValue(new boolean[urls.length]);
+                }
+            });
+            ProgressBridge progress = new ProgressBridge(this);
+            session.setProgressDelegate(new GeckoSession.ProgressDelegate() {
+                @Override
+                public void onPageStart(@NonNull GeckoSession s, @NonNull String url) {
+                    progress.onPageStart(s, url);
+                }
 
-            @Override
-            public void onPageStop(@NonNull GeckoSession session, boolean success) {
-                progress.onPageStop(session, success);
-            }
+                @Override
+                public void onPageStop(@NonNull GeckoSession s, boolean success) {
+                    progress.onPageStop(s, success);
+                }
 
-            @Override
-            public void onProgressChange(@NonNull GeckoSession session, int progressValue) {
-                progress.onProgressChange(session, progressValue);
-            }
+                @Override
+                public void onProgressChange(@NonNull GeckoSession s, int progressValue) {
+                    progress.onProgressChange(s, progressValue);
+                }
 
-            @Override
-            public void onSecurityChange(@NonNull GeckoSession session,
-                    @NonNull SecurityInformation securityInfo) {
-                progress.onSecurityChange(session, securityInfo);
-            }
+                @Override
+                public void onSecurityChange(@NonNull GeckoSession s,
+                        @NonNull SecurityInformation securityInfo) {
+                    progress.onSecurityChange(s, securityInfo);
+                }
 
-            @Override
-            public void onSessionStateChange(@NonNull GeckoSession session,
-                    @NonNull GeckoSession.SessionState sessionState) {
-                mSessionState = sessionState;
-                adoptHistoryUrl(sessionState);
-                Log.i(TAG, "history: onSessionStateChange size=" + sessionState.size()
-                        + " index=" + safeIndex(sessionState)
-                        + " urls=" + snapshotUrls(sessionState));
-            }
-        });
-        mSession.setContentDelegate(new GeckoSession.ContentDelegate() {
-            @Override
-            public void onTitleChange(@NonNull GeckoSession session,
-                    @Nullable String title) {
-                mTitle = title;
-                mClient.onTitleChanged(title);
-            }
+                @Override
+                public void onSessionStateChange(@NonNull GeckoSession s,
+                        @NonNull GeckoSession.SessionState sessionState) {
+                    mSessionState = sessionState;
+                    adoptHistoryUrl(sessionState);
+                    Log.i(TAG, "history: onSessionStateChange size=" + sessionState.size()
+                            + " index=" + safeIndex(sessionState)
+                            + " urls=" + snapshotUrls(sessionState));
+                }
+            });
+            session.setContentDelegate(new GeckoSession.ContentDelegate() {
+                @Override
+                public void onTitleChange(@NonNull GeckoSession s,
+                        @Nullable String title) {
+                    mTitle = title;
+                    mClient.onTitleChanged(title);
+                }
+            });
+            return session;
         });
         mContentHost = null;
     }
@@ -670,7 +677,12 @@ public final class GeckoSessionBridge
     public void close() {
         long startMs = android.os.SystemClock.uptimeMillis();
         try {
-            mSession.close();
+            // session.close is @UiThread; the creator thread may be a
+            // background looper (CTS WebViewStartupTest) — hop, bounded.
+            org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+                mSession.close();
+                return null;
+            });
         } finally {
             android.util.Log.d(TAG, "session.close took "
                     + (android.os.SystemClock.uptimeMillis() - startMs)
