@@ -1,0 +1,61 @@
+From cfd5589cdb028a127b0d95b42f092b2063e839e9 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sat, 3 Oct 2026 07:41:30 +0800
+Subject: [PATCH] Sinytra patch 0019: Secure cookies readable over
+ loopback-http
+
+The 0011 read filter dropped Secure cookies on any non-https URL,
+but upstream only withholds them in non-trustworthy contexts
+(CookieServiceParent::SerializeCookieListTable) and loopback is
+trustworthy (IsPotentiallyTrustworthyLoopbackHost). The jar held
+the third-party Secure cookie on http://127.0.0.1 while getCookie
+returned empty (CTS CookieManagerTest.testThirdPartyCookie
+waitForCookie timeout with hasCookies=true).
+---
+ .../GeckoViewStorageController.sys.mjs        | 23 +++++++++++++++----
+ 1 file changed, 18 insertions(+), 5 deletions(-)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+index be9c8ab346c1..0a6a37399a9d 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewStorageController.sys.mjs
+@@ -300,10 +300,16 @@ export const GeckoViewStorageController = {
+   },
+ 
+   // Sinytra: Cookie header string for the URI, ordered per RFC 6265
+-  // (aSorted). Native-level read: HttpOnly included, Secure only for https.
+-  // Matches CookieService::GetCookiesForURI filtering (domain + path +
+-  // secure + expiry); getCookiesFromHost alone is base-domain-wide and
+-  // would leak sibling-subdomain cookies.
++  // (aSorted). Native-level read: HttpOnly included; Secure readable from
++  // https AND loopback-http (upstream parity: CookieServiceParent::
++  // SerializeCookieListTable clears Secure values only in
++  // non-trustworthy contexts; IsPotentiallyTrustworthyLoopbackHost
++  // covers localhost, 127/8, ::1). A scheme-only check dropped Secure
++  // cookies set over http://127.0.0.1 although the jar holds them (CTS
++  // CookieManagerTest.testThirdPartyCookie). Matches
++  // CookieService::GetCookiesForURI filtering otherwise (domain + path +
++  // expiry); getCookiesFromHost alone is base-domain-wide and would leak
++  // sibling-subdomain cookies.
+   getCookieString(aUriSpec) {
+     let uri;
+     try {
+@@ -317,7 +323,14 @@ export const GeckoViewStorageController = {
+       return "";
+     }
+     const path = uri.pathQueryRef || "/";
+-    const secureOrigin = uri.schemeIs("https");
++    // Sinytra 0019: loopback-http is trustworthy (see header comment).
++    const lowerHost = (host || "").toLowerCase();
++    const isLoopbackHost =
++      lowerHost === "localhost" ||
++      lowerHost === "[::1]" ||
++      lowerHost === "::1" ||
++      lowerHost.startsWith("127.");
++    const secureOrigin = uri.schemeIs("https") || isLoopbackHost;
+     const nowMs = Date.now();
+     // Host cookies match only their exact host; domain cookies (leading
+     // dot) match the cookie domain and its subdomains.
+-- 
+2.56.0
+

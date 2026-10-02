@@ -45,6 +45,7 @@
 | 0016 | removeSessionCookies 诚实返回值 | `CookieManager.removeSessionCookies/removeAllCookies` 回调语义 | 预删计数会谎报（删失败也 true）+ 空清恒 true；改为有删净才 true（CTS CookieManagerTest.testRemoveCookiesCallback:337 第二次空清必须 false） | **已定稿**：`0016-removeSessionCookies-honest-result.patch`（0007 同文件后续；provider 侧 removeAllCookies 同修 `bdb5cb9`） |
 | 0017 | Binder 有界失败+恢复（M5-A） | compositor teardown 的同步 Binder 依赖（1855536 类） | IPDL 跳有 1880503 的 10s 超时，Binder 跳（`ICompositorSurfaceManager.onSurfaceChanged`）无任何超时——UI 可被无限拖死（设计文档 `0017-binder-bounded-failure.md`；v1 watchdog 实射后证伪 kill 路线，v2 改异步永不进 transact；oneway 仅 M5-B 实验变体） | **验证中**：`0017-binder-async-surface.patch`（单文件；GPU ON 下 teardown 复现器转出 verdict + harness 46 PASS；验收 4/5 待多轮 verdicts） |
 | 0018 | 导航时推送待定 UA override 到顶 context | `WebSettings.getUserAgentString` 默认值落线（CTS User-Agent 三件套） | parent 侧 UpdateSettings 只在 Java bundle CHANGES 时触发，不变的 override 到不了重建的顶 context → necko 带默认 UA；导航提交前同步推送待定值（channel 在 AsyncOpen 读 UA） | **已定稿**：`0018-ua-override-top-context.patch`（firefox `3db89990f8e7`；provider 侧空串 no-op `ab0f327` 同批；CTS testAccessUserAgentString/testUserAgentString_default/testUserAgentStringTest 全过） |
+| 0019 | loopback-http 可读 Secure cookie | `CookieManager.getCookie` 第三方 Secure（CTS CookieManagerTest.testThirdPartyCookie） | 0011 读过滤只认 https scheme，与上游（非可信上下文才清 Secure 值；loopback 可信）偏离——jar 里有 cookie，读侧返回空 | **已定稿**：`0019-secure-cookie-loopback-read.patch`（firefox `cfd5589cdb02`；CTS testThirdPartyCookie 由 waitForCookie 超时翻绿） |
 
 设计文档：`0001/0002/0003/0006/0007/0008/0009/0010-*.md`（树内勘察、地基选型、边界、测试计划）。
 
