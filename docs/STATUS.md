@@ -937,15 +937,15 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   下次类级跑加间隔）。
 - WebBackForwardListTest：testGetCurrentItem **已过**（2026-10-03 单跑
   OK）——STATUS 旧判定的 mProgress=15 卡死随 UA/title 多米诺同愈。
-- WebHistoryItemTest：testWebHistoryItem 仍 FAIL，深挖结论（triage 日志已删，
-  树干净）：loader 三门（mLoaded/mNewPicture/mProgress=100）中我方
-  finish（success=true）与 terminal-100 均送达（WaitForLoadedClient
-  实例一致，反射实锤 mLoaded=true/mProgress=100），mNewPicture 门取决于
-  synthetic picture 的 main.post——通过 1 次（走到 icon PollingCheck，
-  :140），另 4 次连 PageStart 都没有（parent RUNNING、tab RUNNING、
-  filter 已下发但 observer 推送丢失 + actor 零派发 = §1v parent-JS
-  静默家族）。当晚内存掉到 417MB（hygiene 后 2.26G），压力是主嫌犯；
-  健康窗口重取 verdict。favicon（icon 门）是其后真正的产品项。
+- WebHistoryItemTest：testWebHistoryItem 仍 FAIL，但 load+icon 两门已通
+  （2026-10-03 健康窗口）：icon fallback 上限补丁 `6cd0fa0` 生效——
+  `/favicon.ico` 服务器 200、测试越过 icon 门（:140）走到第二 load
+ （br_tag，:153）。br_tag 服务器 200 但 10s 无 PageStart，随后
+  `[GFX1-]: Killing GPU process due to IPC reply timeout`——§1w
+  GPU/M5-A 域（0017 v2 已在运行构建内，验收未闭）。load 门此前
+  4 次 PageStart 缺席 = parent-JS 静默家族（压力相关，见内存线）。
+  结论：history-item 剩余失败归 M5-A，不再单测 chasing，等 0017
+  多轮验收后重取。
 - WebSettingsTest：大面积 `unexpected timeout`（PollingCheck 系）+ 
   testAccessUserAgentString 确定性 FAIL（server 回显 UA 为空）。
 - WebViewClientTest：大面积 `unexpected timeout` + 一例
