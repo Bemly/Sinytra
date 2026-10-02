@@ -920,6 +920,30 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - 设计文档：`firefox-patches/0017-binder-bounded-failure.md`（M5-A 主线；
   oneway 仅作 M5-B 实验变体，不预设根治；不碰 fence）。
 
+## 1x. CTS 19 类横扫（2026-10-02 在扫，GPU ON + 0017 v2；类间只清 CTS）
+
+- DateSorterTest OK 5 / MimeTypeMapTest OK 6 / URLUtilTest OK 16 /
+  TestProcessClientTest OK 4。
+- TracingControllerTest：7 跑 2 FAIL（testTracingControllerCallbacks[OnUI]）。
+- WebViewStartupTest：HANG（主 + testprocessA 双零 CPU 死锁，待 triage）。
+- WebBackForwardListTest：testGetCurrentItem FAIL（mProgress=15 卡死，
+  trivial localhost 页、合成后无 PageStop——与 UA title 空疑似同族）。
+- WebHistoryItemTest：testWebHistoryItem FAIL（同上签名待核）。
+- WebSettingsTest：大面积 `unexpected timeout`（PollingCheck 系）+ 
+  testAccessUserAgentString 确定性 FAIL（server 回显 UA 为空）。
+- WebViewClientTest：大面积 `unexpected timeout` + 一例
+  `mLoaded=true, mNewPicture=true, mProgress=0`（finished 但进度零）。
+- **UA 多米诺（已确认）**：`applyWebSettings` 推 Chrome UA，
+  necko 实际带 Firefox 默认 UA（`query UA` vs `applyWebSettings` 双日志
+  实锤）→ `setUserAgentOverride` 的 `dispatchUpdate` 异步传播疑与 load
+  竞争；title 空是否同源待 isol。triage 日志已合入（fb5963e）。
+- **扫表卫生教训**：19:10 的 harness 进程（25420）残留 2 小时且主线程
+  卡死（episode=12），疑毒化共享 GPU 致 batch4 团灭——此后类间必清
+  provider 全进程；batch4 结论待 hygiene 后重跑确认。
+- 待扫：WebViewTest（最大）、WebViewTransport、Ssl、Zoom、DataDir、
+  RenderProcess×2、ServiceWorker×2、DarkMode×2、Geolocation（已知不可跑）、
+  PacProcessor（已知要 patch）、SharedWebView。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~**切换路线主线化**~~（2026-09-26 完成，§1s）：metadata + versionCode
