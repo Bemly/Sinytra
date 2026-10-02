@@ -97,6 +97,37 @@ public final class GeckoBackForwardListTest {
     }
 
     @Test
+    public void targetUrl_confirmedArrivalOverridesStaleIndex() {
+        // Silent traversal: Gecko still reports index 2, but arrival at
+        // b was confirmed (LocationChange) — report 1.
+        GeckoBackForwardList list = new GeckoBackForwardList(
+                new FixedIndexList(items("https://a.example",
+                        "https://b.example", "https://c.example"), 2),
+                false, null, "https://b.example");
+        assertEquals(3, list.getSize());
+        assertEquals(1, list.getCurrentIndex());
+        assertEquals("https://b.example", list.getCurrentItem().getUrl());
+    }
+
+    @Test
+    public void targetUrl_absentFallsBackToDerivedIndex() {
+        GeckoBackForwardList list = new GeckoBackForwardList(
+                new FixedIndexList(items("https://a.example",
+                        "https://b.example", "https://c.example"), 2),
+                false, null, "https://z.example");
+        assertEquals(2, list.getCurrentIndex());
+    }
+
+    @Test
+    public void targetUrl_nullBehavesLikeThreeArgCtor() {
+        GeckoBackForwardList list = new GeckoBackForwardList(
+                new FixedIndexList(items("https://a.example",
+                        "https://b.example", "https://c.example"), 2),
+                false, null, null);
+        assertEquals(2, list.getCurrentIndex());
+    }
+
+    @Test
     public void emptyList_indexMinusOneAndNullCurrent() {
         GeckoBackForwardList list = new GeckoBackForwardList(
                 Collections.emptyList());

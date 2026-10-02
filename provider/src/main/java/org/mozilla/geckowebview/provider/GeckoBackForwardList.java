@@ -42,8 +42,25 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
     GeckoBackForwardList(
             @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history,
             boolean dropLeadingBlank, @Nullable IconLookup icons) {
+        this(history, dropLeadingBlank, icons, null);
+    }
+
+    // targetUrl: confirmed pending-traversal target (see GeckoSessionBridge
+    // confirmedTraversalUrl). When the trimmed list contains it, the reported
+    // current index follows the CONFIRMED arrival instead of Gecko's stale
+    // index — silent bfcache/history restores otherwise freeze the reported
+    // list (WebViewTest.testGoBackAndForward polls forever). Trim-safe: the
+    // target is located by URI in the same trimmed list being reported, so
+    // blank-trim shifts cannot misalign it. Null/other URLs behave exactly
+    // as the 3-arg ctor. JVM-locked below.
+    GeckoBackForwardList(
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> history,
+            boolean dropLeadingBlank, @Nullable IconLookup icons,
+            @Nullable String targetUrl) {
         this(translate(trim(history, dropLeadingBlank), icons),
-                deriveIndex(trim(history, dropLeadingBlank), history), icons);
+                deriveIndex(trim(history, dropLeadingBlank), history,
+                        targetUrl),
+                icons);
     }
 
     private static List<GeckoSession.HistoryDelegate.HistoryItem> trim(
@@ -84,7 +101,25 @@ final class GeckoBackForwardList extends android.webkit.WebBackForwardList {
     private static int deriveIndex(
             @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> trimmed,
             @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> original) {
+        return deriveIndex(trimmed, original, null);
+    }
+
+    private static int deriveIndex(
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> trimmed,
+            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> original,
+            @Nullable String targetUrl) {
         int current = -1;
+        if (targetUrl != null) {
+            try {
+                for (int i = 0; i < trimmed.size(); i++) {
+                    if (targetUrl.equals(uriOf(trimmed.get(i)))) {
+                        return i;
+                    }
+                }
+            } catch (RuntimeException e) {
+                // Hostile list: fall through to derived index.
+            }
+        }
         if (original instanceof GeckoSession.HistoryDelegate.HistoryList) {
             try {
                 current = ((GeckoSession.HistoryDelegate.HistoryList) original)

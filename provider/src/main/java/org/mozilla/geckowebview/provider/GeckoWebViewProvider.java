@@ -533,8 +533,14 @@ public final class GeckoWebViewProvider
 
     @Override
     public WebBackForwardList copyBackForwardList() {
+        // Confirmed pending traversal (silent history restore with
+        // LocationChange arrival but no history event): report the confirmed
+        // target index instead of Gecko's stale one, so back/forward polls
+        // observe the completed traversal (WebViewTest.testGoBackAndForward).
+        // Null (unconfirmed/absent) behaves exactly as before.
         return new GeckoBackForwardList(mBridge.historySnapshot(),
-                !mBridge.hasExplicitAboutLoad(), mFavicon.lookup());
+                !mBridge.hasExplicitAboutLoad(), mFavicon.lookup(),
+                mBridge.confirmedTraversalUrl());
     }
 
 

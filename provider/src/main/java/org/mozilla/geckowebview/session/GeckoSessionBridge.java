@@ -48,6 +48,14 @@ public final class GeckoSessionBridge
     // The translation layer drops that leading entry unless the app asked
     // for it (GeckoBackForwardList ctor flag).
     private boolean mExplicitAboutLoad;
+    // Pending history-traversal target (goBack/goForward/goBackOrForward):
+    // the URL we asked Gecko to traverse to. Silent traversals (bfcache
+    // restores with no history event) leave OUR translated list frozen, so
+    // the copy path may report this index once arrival is confirmed (see
+    // confirmedTraversalIndex). Cleared by new navigations and by Gecko
+    // catching up. Device-locked (WebViewTest.testGoBackAndForward).
+    @Nullable
+    private String mPendingTraversalUrl;
     // Latest SessionState from onSessionStateChange (Gecko owns history;
     // we only translate it — ARCHITECTURE.md §4).
     @Nullable
@@ -299,6 +307,33 @@ public final class GeckoSessionBridge
         if (current != null && !current.equals(mUrl)) {
             mUrl = current;
         }
+        // Gecko caught up to (or moved past) our pending target: drop it so
+        // the copy path reports Gecko state verbatim again. A stale
+        // pre-traversal update carries the OLD index URL, never the target,
+        // so it cannot clear prematurely.
+        if (mPendingTraversalUrl != null
+                && mPendingTraversalUrl.equals(current)) {
+            mPendingTraversalUrl = null;
+        }
+    }
+
+    /**
+     * Confirmed pending-traversal index for the copy path, or -1. Applies
+     * only when arrival is confirmed (current mUrl equals the recorded
+     * target — LocationChange arrived): an unconfirmed pending target
+     * reports nothing, so a lost traversal degrades to an honest stale
+     * list instead of a fabricated move. The returned index is resolved
+     * against the SAME snapshot the caller builds the list from.
+     */
+    // Cross-package (provider copy path): public by necessity, like the
+    // other bridge state accessors above.
+    @Nullable
+    public String confirmedTraversalUrl() {
+        if (mPendingTraversalUrl == null
+                || !mPendingTraversalUrl.equals(mUrl)) {
+            return null;
+        }
+        return mPendingTraversalUrl;
     }
 
     @Nullable
@@ -355,6 +390,7 @@ public final class GeckoSessionBridge
         // cannot be distinguished arriving — but the pre-redirect URL is
         // exactly what the app asked for (WebViewTest.testGetOriginalUrl).
         mOriginalUrl = url;
+        mPendingTraversalUrl = null;
         // Optimistic URL: the app asked for this document now. LocationChange
         // never fires for intercepted channels and history updates land after
         // PageStop, so without this getUrl() reads stale state until Gecko
@@ -367,6 +403,7 @@ public final class GeckoSessionBridge
     }
 
     public void reload() {
+        mPendingTraversalUrl = null;
         mSession.reload();
     }
 
@@ -375,11 +412,39 @@ public final class GeckoSessionBridge
     }
 
     public void goBack() {
+        recordTraversalTarget(-1);
         mSession.goBack();
     }
 
     public void goForward() {
+        recordTraversalTarget(1);
         mSession.goForward();
+    }
+
+    // Record the traversal target URL from the current snapshot (or null
+    // when unresolvable — provider then reports Gecko state verbatim).
+    private void recordTraversalTarget(int steps) {
+        GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
+        int target = live != null && !live.isEmpty()
+                ? targetIndex(live, steps) : -1;
+        List<GeckoSession.HistoryDelegate.HistoryItem> base = live;
+        if (target < 0) {
+            GeckoSession.SessionState state = mSessionState;
+            if (state != null && !state.isEmpty()) {
+                target = targetIndex(state, steps);
+                base = state;
+            }
+        }
+        String uri = null;
+        if (target >= 0 && base != null && target < base.size()) {
+            try {
+                uri = base.get(target).getUri();
+            } catch (UnsupportedOperationException
+                    | IndexOutOfBoundsException e) {
+                uri = null;
+            }
+        }
+        mPendingTraversalUrl = uri;
     }
 
     public boolean canGoBackOrForward(int steps) {
@@ -405,6 +470,7 @@ public final class GeckoSessionBridge
             reload();
             return;
         }
+        recordTraversalTarget(steps);
         GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
         int target = live != null && !live.isEmpty()
                 ? targetIndex(live, steps) : -1;
