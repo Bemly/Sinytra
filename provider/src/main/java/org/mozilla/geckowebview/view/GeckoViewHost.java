@@ -21,33 +21,10 @@ public class GeckoViewHost extends GeckoView {
 
     public GeckoViewHost(@NonNull Context context) {
         super(context);
-        useTextureBackend();
     }
 
     public GeckoViewHost(@NonNull Context context, @Nullable AttributeSet attrs) {
         super(context, attrs);
-        useTextureBackend();
-    }
-
-    // TextureView backend (public GeckoView.setViewBackend, no patch):
-    // a SurfaceView destroys its surface on every window-hide (any covering
-    // activity, including CTS's input-injection EmptyActivity), and Gecko's
-    // onSurfaceDestroyed performs an UNBOUNDED synchronous compositor IPC
-    // (GeckoSession.syncPauseCompositor) on the UI thread — a wedged GPU
-    // side wedges the host main thread, killing input-focus ACKs and the
-    // instrumentation verdict with it (device trace 2026-10-02: main stuck
-    // in BpBinder::transact via surfaceDestroyed). A TextureView keeps its
-    // surface across visibility changes (destroyed on detach only), so
-    // cover events no longer run the sync IPC. Tradeoff per the GeckoView
-    // javadoc: worse rendering performance than SurfaceView; correctness
-    // (never wedge the host) wins for a System WebView. Never breaks
-    // construction: falls back to the default backend on failure.
-    private void useTextureBackend() {
-        try {
-            setViewBackend(GeckoView.BACKEND_TEXTURE_VIEW);
-        } catch (Throwable t) {
-            Log.w(TAG, "texture backend unavailable, surface default", t);
-        }
     }
 
     public void bind(@NonNull Context context, @NonNull GeckoSessionBridge bridge) {
@@ -61,6 +38,16 @@ public class GeckoViewHost extends GeckoView {
 
     // View-side attach (ARCHITECTURE §3: session.open(runtime) +
     // view.setSession(session)); lives here so session/ never touches a View.
+    //
+    // Backend note (2026-10-02, device-trace verified): BACKEND_TEXTURE_VIEW
+    // was tried to dodge the unbounded sync compositor IPC on surface
+    // destroy — it does NOT dodge it. TextureView routes EVERY frame draw
+    // through onSurfaceTextureUpdated → onSurfaceChanged →
+    // syncResumeResizeCompositor (same unbounded IPC), wedging the host
+    // main thread during plain rendering with no cover event in sight.
+    // SurfaceView only runs the sync IPC on cover/detach. Keep the default
+    // backend; the real fix is bounding the IPC itself (firefox-patches
+    // candidate, Surface/compositor down-patch per ARCHITECTURE §6.4).
     public static void attach(@NonNull Context context, @NonNull GeckoView view,
             @NonNull GeckoSession session) {
         if (!session.isOpen()) {
