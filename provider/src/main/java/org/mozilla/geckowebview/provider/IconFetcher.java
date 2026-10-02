@@ -40,8 +40,22 @@ final class IconFetcher {
 
     private static final String TAG = "Sinytra/icon";
     private static final ExecutorService FETCH = Executors.newCachedThreadPool();
+    private static final java.util.concurrent.ScheduledExecutorService QUERY_TIMER =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "sinytra-icon-query");
+                t.setDaemon(true);
+                return t;
+            });
     private static final int TIMEOUT_MS = 15000;
     private static final int MAX_BYTES = 1 << 20;
+    // Page-world query cap: the query needs a content script in THIS
+    // document, and a document committed before extension install has none
+    // — its eval never answers (30s transport timeout). Never hold the
+    // icon hostage: after the cap, fall back to <origin>/favicon.ico
+    // (Chromium requests it natively; servers that have no icon 404 it and
+    // no icon is the honest state). A late eval answer with a real link
+    // still overwrites below.
+    private static final int QUERY_CAP_MS = 5000;
 
     // Page-world query: absolute icon URL or "" (no string ops on the
     // Java side — JSON-quoted result included).
@@ -63,19 +77,35 @@ final class IconFetcher {
                 || page.startsWith("data:")) {
             return;
         }
+        final String defaultTarget = defaultIconUrl(page);
+        final java.util.concurrent.atomic.AtomicBoolean settled =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+        // Cap the page-world query (see QUERY_CAP_MS): fall back to the
+        // default icon URL when the document has no content script yet.
+        QUERY_TIMER.schedule(() -> {
+            if (settled.compareAndSet(false, true) && defaultTarget != null) {
+                fetch(defaultTarget, page);
+            }
+        }, QUERY_CAP_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
         try {
             mHost.evaluate(ICON_QUERY, raw -> {
                 String link = unjson(raw);
-                String target = (link != null && !link.isEmpty())
-                        ? link
-                        : defaultIconUrl(page);
-                if (target == null) {
+                if (link != null && !link.isEmpty()) {
+                    // A real link answer wins even after the cap fired (the
+                    // default may have 404'd meanwhile — overwrite honest).
+                    settled.set(true);
+                    fetch(link, page);
                     return;
                 }
-                fetch(target, page);
+                if (settled.compareAndSet(false, true) && defaultTarget != null) {
+                    fetch(defaultTarget, page);
+                }
             });
         } catch (Throwable t) {
             android.util.Log.d(TAG, "icon query not issued", t);
+            if (settled.compareAndSet(false, true) && defaultTarget != null) {
+                fetch(defaultTarget, page);
+            }
         }
     }
 
