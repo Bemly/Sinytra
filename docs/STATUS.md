@@ -925,10 +925,27 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - DateSorterTest OK 5 / MimeTypeMapTest OK 6 / URLUtilTest OK 16 /
   TestProcessClientTest OK 4。
 - TracingControllerTest：7 跑 2 FAIL（testTracingControllerCallbacks[OnUI]）。
-- WebViewStartupTest：HANG（主 + testprocessA 双零 CPU 死锁，待 triage）。
-- WebBackForwardListTest：testGetCurrentItem FAIL（mProgress=15 卡死，
-  trivial localhost 页、合成后无 PageStop——与 UA title 空疑似同族）。
-- WebHistoryItemTest：testWebHistoryItem FAIL（同上签名待核）。
+- WebViewStartupTest：单跑 5/5（2026-10-03）：4 个原 OK + 后台创建经
+  MainThread 有界 hop 修好（`8648b30/b9da970/8e8e47e/c04d42d`：session
+  构造/open/close + delegate 安装 hop 到 main；creator looper 不变）。
+  全类跑仍卡第 4 位（testGetWebViewLooperOnUiThread，4th fresh process
+  在 `Loading provider` 后零输出——我方代码未进入； unmanaged 栈
+  （debuggerd/SIGQUIT 在此 ROM 无输出，procfs wchan 全员 get_signal
+  残疾）。同轮另有收获：连续单跑第 3 发 `failed to attach`
+  （zygote fork/attach 握手失速）——与 §1v 钩子栈+vendor burst
+  失速同族，产品侧不再追；全类跑改串行+间隔（已有 hygiene 仍不够，
+  下次类级跑加间隔）。
+- WebBackForwardListTest：testGetCurrentItem **已过**（2026-10-03 单跑
+  OK）——STATUS 旧判定的 mProgress=15 卡死随 UA/title 多米诺同愈。
+- WebHistoryItemTest：testWebHistoryItem 仍 FAIL，深挖结论（triage 日志已删，
+  树干净）：loader 三门（mLoaded/mNewPicture/mProgress=100）中我方
+  finish（success=true）与 terminal-100 均送达（WaitForLoadedClient
+  实例一致，反射实锤 mLoaded=true/mProgress=100），mNewPicture 门取决于
+  synthetic picture 的 main.post——通过 1 次（走到 icon PollingCheck，
+  :140），另 4 次连 PageStart 都没有（parent RUNNING、tab RUNNING、
+  filter 已下发但 observer 推送丢失 + actor 零派发 = §1v parent-JS
+  静默家族）。当晚内存掉到 417MB（hygiene 后 2.26G），压力是主嫌犯；
+  健康窗口重取 verdict。favicon（icon 门）是其后真正的产品项。
 - WebSettingsTest：大面积 `unexpected timeout`（PollingCheck 系）+ 
   testAccessUserAgentString 确定性 FAIL（server 回显 UA 为空）。
 - WebViewClientTest：大面积 `unexpected timeout` + 一例
