@@ -143,6 +143,27 @@ final class Interception {
     // never even reaches ShouldPrepare). The first PageStart proves the
     // module pipeline is alive, so the provider re-pushes once there;
     // repeats carry identical prefixes and are idempotent C++-side.
+    //
+    // The PageStart repush alone is not enough: a filter-waiting channel
+    // may never produce a PageStart (CTS single-test runs observed
+    // observer-registered → onLoadRequest → 20s silence, no PageStop).
+    // Every push therefore also schedules two time-based retries covering
+    // the onInit window. A newer push supersedes pending retries via the
+    // generation guard (repeats stay idempotent C++-side). Best-effort:
+    // without a Looper (JVM unit tests) the retries are skipped and only
+    // the synchronous push runs.
+    static final long REPUSH_DELAY_MS_FIRST = 500;
+    static final long REPUSH_DELAY_MS_SECOND = 2000;
+
+    private int mPushGeneration;
+
+    // Pure (JVM-testable): a scheduled retry is live only when its
+    // generation still matches the latest push.
+    static boolean isRepushLive(int scheduledGeneration,
+            int currentGeneration) {
+        return scheduledGeneration == currentGeneration;
+    }
+
     void repushFilters() {
         pushEffectiveFilters();
     }
@@ -162,6 +183,38 @@ final class Interception {
             mHost.bridge().session().setResponseDelegate(mResponses);
         } catch (Throwable t) {
             android.util.Log.w(TAG, "pushEffectiveFilters threw", t);
+            return;
+        }
+        final int generation = ++mPushGeneration;
+        scheduleDelayedRepush(generation, REPUSH_DELAY_MS_FIRST);
+        scheduleDelayedRepush(generation, REPUSH_DELAY_MS_SECOND);
+    }
+
+    private void scheduleDelayedRepush(final int generation, long delayMs) {
+        final android.os.Handler handler;
+        try {
+            handler = new android.os.Handler(
+                    android.os.Looper.getMainLooper());
+        } catch (Throwable t) {
+            // No Looper (JVM unit tests): retries are skipped, the
+            // synchronous push above already ran.
+            return;
+        }
+        try {
+            handler.postDelayed(() -> {
+                if (!isRepushLive(generation, mPushGeneration)
+                        || mHost.destroyed()) {
+                    return;
+                }
+                try {
+                    mHost.bridge().session()
+                            .setResponseDelegate(mResponses);
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG, "delayed repush threw", t);
+                }
+            }, delayMs);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "scheduleDelayedRepush threw", t);
         }
     }
 }
