@@ -74,6 +74,18 @@ std；`~/.cargo/bin` 已放 rustc/cargo/rustdoc shim，构建 PATH 需前置）�
 杀掉链接且管道吞退出码——2026-09-25 踩过）；管道后必须显式 `echo $?`
 核对 mach 退出码。
 
+JS patch（`.sys.mjs` 等 omni 内容）验证铁律（2026-10-03，0018 三小时
+乌龙）：`mach build binaries` 与 `mach build` 都不重打 omni；唯一重打
+路径是 `make -C objdir-158/mobile/android/installer stage-package`
+（packager.py `--format omni` 直出 `dist/geckoview/assets/omni.ja`）。
+且**验 omni 内容必须解包查条目，不许裸搜二进制**：`dist` 那份是
+store（字符串可见），AAR/APK 链压出来的是 deflate（字符串被压缩藏
+住）——裸搜会误判"没进包"（0018 教训：四份全有， verdict 不动另有
+原因）。标准动作：
+`python3 -c "import zipfile; z=zipfile.ZipFile(<omni>); print(<marker> in
+z.read(<entry>).decode())"`，逐级验 dist → merge 中间件 → AAR →
+APK（APK 里 omni 本体又是一层 zip，先解外层再解内层）。
+
 升级 Firefox 版本时：逐个 rebase，冲突不解决不许升级（AGENTS.md §5）。
 2026-09-25 153→158 重放实录：9 commits 仅 1 冲突
 （`ParentChannelListener.cpp` include 区重排），`GeckoSession.java`/
