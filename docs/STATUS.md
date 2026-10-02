@@ -1093,7 +1093,9 @@ HistoryList=0, SessionState=0         → Gecko 没 flush，再测 hidden GeckoV
 provider/src/main/java/org/mozilla/geckowebview/
 ├── provider/
 │   ├── GeckoWebViewFactoryProvider.java  # WebViewFactoryProvider 实现 + Statics 单例族
-│   ├── GeckoWebViewProvider.java         # WebViewProvider 实现（P0-P2 接线，扇出到下两行）
+│   ├── GeckoWebViewProvider.java         # WebViewProvider 实现（P0-P2 接线，扇出到下两行；1053→986，
+│   │                                     # 消息端口 plumbing 已抽到 ProviderMessagePorts，§7 行数合规）
+│   ├── ProviderMessagePorts.java         # framework WebMessage 通道 + 端口路由表（Host 取 MessageBridge）
 │   ├── ClientFanOut.java                 # app 回调扇出（WebViewClient/WebChromeClient 分发）
 │   ├── ProviderAdapters.java / FrameworkTokens.java  # framework token 注册表 + adapters
 │   ├── GeckoBackForwardList.java         # SessionState/HistoryList → WebBackForwardList 转译
