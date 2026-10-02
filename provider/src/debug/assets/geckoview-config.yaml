@@ -7,3 +7,11 @@ prefs:
   network.captive-portal-service.enabled: false
   services.settings.server: http://127.0.0.1:1
   sinytra.log.enabled: true
+  # M3 experiment (2026-10-02, 0017 triage): GPU process OFF to isolate
+  # whether the provider-scoped GPU process boundary is a necessary
+  # condition for the sync-compositor UI hang (1855536 class). With no GPU
+  # process, UiCompositorControllerChild.OnCompositorSurfaceChanged
+  # early-returns and the unwatched Binder hop disappears. mirror:once —
+  # read at GeckoRuntime.create, before any GPU decision (GeckoRuntimeHolder).
+  # Debug-only: shipping this needs the perf/memory tradeoff decision.
+  layers.gpu-process.enabled: false
