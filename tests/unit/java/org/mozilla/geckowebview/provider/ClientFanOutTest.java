@@ -15,67 +15,67 @@ public final class ClientFanOutTest {
 
     @Test
     public void https_isSecure() {
-        assertTrue(ClientFanOut.isSecureOriginForGeolocation("https://example.com"));
-        assertTrue(ClientFanOut.isSecureOriginForGeolocation(
+        assertTrue(ClientPrompts.isSecureOriginForGeolocation("https://example.com"));
+        assertTrue(ClientPrompts.isSecureOriginForGeolocation(
                 "https://sub.example.com:8443/path?q=1"));
     }
 
     @Test
     public void loopbackHttp_isSecure() {
-        assertTrue(ClientFanOut.isSecureOriginForGeolocation("http://localhost/"));
-        assertTrue(ClientFanOut.isSecureOriginForGeolocation(
+        assertTrue(ClientPrompts.isSecureOriginForGeolocation("http://localhost/"));
+        assertTrue(ClientPrompts.isSecureOriginForGeolocation(
                 "http://localhost:34567/geo.html"));
-        assertTrue(ClientFanOut.isSecureOriginForGeolocation(
+        assertTrue(ClientPrompts.isSecureOriginForGeolocation(
                 "http://127.0.0.1:8000/"));
-        assertTrue(ClientFanOut.isSecureOriginForGeolocation("http://[::1]/"));
+        assertTrue(ClientPrompts.isSecureOriginForGeolocation("http://[::1]/"));
     }
 
     @Test
     public void plainHttp_isInsecure() {
-        assertFalse(ClientFanOut.isSecureOriginForGeolocation("http://example.com/"));
+        assertFalse(ClientPrompts.isSecureOriginForGeolocation("http://example.com/"));
         assertFalse(
-                ClientFanOut.isSecureOriginForGeolocation("http://example.com:80/"));
-        assertFalse(ClientFanOut.isSecureOriginForGeolocation(
+                ClientPrompts.isSecureOriginForGeolocation("http://example.com:80/"));
+        assertFalse(ClientPrompts.isSecureOriginForGeolocation(
                 "http://sub.example.com/path"));
     }
 
     @Test
     public void lookalikeHosts_areInsecure() {
         // Prefix/suffix tricks must not pass as loopback.
-        assertFalse(ClientFanOut.isSecureOriginForGeolocation(
+        assertFalse(ClientPrompts.isSecureOriginForGeolocation(
                 "http://localhost.example.com/"));
-        assertFalse(ClientFanOut.isSecureOriginForGeolocation(
+        assertFalse(ClientPrompts.isSecureOriginForGeolocation(
                 "http://example.localhost/"));
-        assertFalse(ClientFanOut.isSecureOriginForGeolocation(
+        assertFalse(ClientPrompts.isSecureOriginForGeolocation(
                 "http://127.0.0.1.example.com/"));
     }
 
     @Test
     public void malformed_isInsecure() {
-        assertFalse(ClientFanOut.isSecureOriginForGeolocation(null));
-        assertFalse(ClientFanOut.isSecureOriginForGeolocation(""));
-        assertFalse(ClientFanOut.isSecureOriginForGeolocation("not-a-url"));
-        assertFalse(ClientFanOut.isSecureOriginForGeolocation("file:///sdcard/"));
+        assertFalse(ClientPrompts.isSecureOriginForGeolocation(null));
+        assertFalse(ClientPrompts.isSecureOriginForGeolocation(""));
+        assertFalse(ClientPrompts.isSecureOriginForGeolocation("not-a-url"));
+        assertFalse(ClientPrompts.isSecureOriginForGeolocation("file:///sdcard/"));
     }
 
     @Test
     public void realmOf_extractsBareRealm() {
-        assertEquals("Android CTS", ClientFanOut.realmOf(
+        assertEquals("Android CTS", ClientPrompts.realmOf(
                 "http://localhost:41387 is requesting your username and password."
                         + " The site says: \"Android CTS\""));
     }
 
     @Test
     public void realmOf_extractsCurlyQuotedRealm() {
-        assertEquals("Android CTS", ClientFanOut.realmOf(
+        assertEquals("Android CTS", ClientPrompts.realmOf(
                 "http://localhost:41387 is requesting your username and password."
                         + " The site says: \u201CAndroid CTS\u201D"));
     }
 
     @Test
     public void realmOf_fallsBackToFullMessage() {
-        assertEquals("", ClientFanOut.realmOf(null));
-        assertEquals("plain", ClientFanOut.realmOf("plain"));
+        assertEquals("", ClientPrompts.realmOf(null));
+        assertEquals("plain", ClientPrompts.realmOf("plain"));
     }
 
     @Test

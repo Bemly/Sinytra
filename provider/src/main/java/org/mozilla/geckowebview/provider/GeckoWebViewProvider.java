@@ -217,7 +217,7 @@ public final class GeckoWebViewProvider
                 return mBridge.getUrl();
             }
         });
-        mBridge.setExtraDelegates(mFanOut, mFanOut, mFanOut);
+        mBridge.setExtraDelegates(mFanOut.prompts(), mFanOut.prompts(), mFanOut);
         mBridge.setInterceptBridge(mIntercept);
         // Runtime create + session open are @UiThread (GeckoView contract),
         // but the framework may create the provider on a background looper
