@@ -791,8 +791,17 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   RemoveCookies/RemoveCookiesNullCallback/RemoveCookiesCallback/
   SameSiteNoneRequiresSecure/SchemefulSameSite/b3167208 全过；
   testSameSiteLaxByDefault 挂（第三方无 SameSite 读侧未拦，engine 网络
-  set 路径行为对齐，open）；testThirdPartyCookie 超时待 triage。
+  set 路径行为对齐，open）；testThirdPartyCookie 两度跑到第二 load 无
+  verdict（teardown/GPU 卷入，待健康窗口重取）。
   附带修好：removeAll/removeSession 空清谎报（0016 + `bdb5cb9`）。
+- **HttpAuth（2026-10-02）：testCancel 单过**；testProceed 卡在第三 load
+  静默（前两 load 各 2 prompt 正常，realm 正确；signon 假说证伪已回退；
+  首要怀疑 session↔新 tab prompt 链就绪竞态，需专用复现）。
+- **标题去重已上机待验**（WebChromeClientTest.testOnJsBeforeUnloadIsCalled
+  的双静态标题；`c0c3811`）；console-on-data 确认为架构缺口（data: 页无
+  content script，match_origin_as_fallback 只管 frame 继承）：记 honest
+  缺口，ConsoleService 补丁待拍板；GeolocationTest 整类不可跑
+  （UiAutomation 空，裸 instrument 环境限制，非产品信号）。
 
 - **0013 resource://android 指 provider APK**（firefox `9202aa4`，本仓
   `b41f070`）：`GeckoAppShell.getPackageResourcePath()`（`nsResProtocolHandler::
