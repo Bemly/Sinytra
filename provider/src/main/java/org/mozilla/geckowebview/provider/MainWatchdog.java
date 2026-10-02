@@ -28,6 +28,11 @@ final class MainWatchdog {
     private static final java.util.concurrent.atomic.AtomicBoolean
             sInstalled = new java.util.concurrent.atomic.AtomicBoolean(false);
 
+    // Pure (JVM-testable): FLAG_DEBUGGABLE set in the app flags.
+    static boolean flagsDebuggable(int flags) {
+        return (flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+    }
+
     // Pure (JVM-testable): stuck when the last main-loop ack is older than
     // the threshold. Strictly greater: exactly-at-threshold is not stuck.
     static boolean isStuck(long nowMs, long lastAckMs) {
@@ -38,12 +43,20 @@ final class MainWatchdog {
         if (!sInstalled.compareAndSet(false, true)) {
             return;
         }
+        // Gate on the PROVIDER build, not the host: the watchdog must run
+        // inside CTS/real-host processes (non-debuggable) whenever the
+        // installed provider itself is a debug build. The provider identity
+        // comes from the framework's current-webview-package answer.
         boolean debuggable = false;
         try {
-            android.content.pm.ApplicationInfo info =
-                    context.getApplicationInfo();
-            debuggable = info != null
-                    && (info.flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+            android.content.pm.PackageInfo current =
+                    android.webkit.WebView.getCurrentWebViewPackage();
+            if (current != null) {
+                android.content.pm.ApplicationInfo info = context
+                        .getPackageManager().getApplicationInfo(
+                                current.packageName, 0);
+                debuggable = info != null && flagsDebuggable(info.flags);
+            }
         } catch (Throwable t) {
             return;
         }

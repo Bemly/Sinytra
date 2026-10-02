@@ -31,4 +31,11 @@ public final class MainWatchdogTest {
     public void clockSkew_notStuck() {
         assertFalse(MainWatchdog.isStuck(9_000L, 10_000L));
     }
+
+    @Test
+    public void debuggableFlag_matrix() {
+        assertTrue(MainWatchdog.flagsDebuggable(
+                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE));
+        assertFalse(MainWatchdog.flagsDebuggable(0));
+    }
 }
