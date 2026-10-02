@@ -287,9 +287,10 @@ final class CompatWebSettings extends WebSettings {
     }
 
     @Override public void setUserAgentString(@Nullable String ua) {
-        // CTS testAccessUserAgentString: setting null is a no-op, setting
-        // "" sticks verbatim. Never store null (get must stay non-null).
-        if (ua != null) {
+        // CTS testAccessUserAgentString: null and "" are both no-ops —
+        // the default stays (get must keep returning it, and the wire UA
+        // must not go empty). Never store null or "".
+        if (ua != null && !ua.isEmpty()) {
             mDelegate.setUserAgentString(ua);
         }
     }
