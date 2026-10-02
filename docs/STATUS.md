@@ -933,10 +933,16 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   testAccessUserAgentString 确定性 FAIL（server 回显 UA 为空）。
 - WebViewClientTest：大面积 `unexpected timeout` + 一例
   `mLoaded=true, mNewPicture=true, mProgress=0`（finished 但进度零）。
-- **UA 多米诺（已确认）**：`applyWebSettings` 推 Chrome UA，
+- **UA 多米诺（已闭案，2026-10-03）**：`applyWebSettings` 推 Chrome UA，
   necko 实际带 Firefox 默认 UA（`query UA` vs `applyWebSettings` 双日志
-  实锤）→ `setUserAgentOverride` 的 `dispatchUpdate` 异步传播疑与 load
-  竞争；title 空是否同源待 isol。triage 日志已合入（fb5963e）。
+  实锤）→ `setUserAgentOverride` 的 `dispatchUpdate` 只在 bundle CHANGES
+  时触发，不变的 override 到不了重建的顶 context。修：Gecko 侧 0018
+  （导航提交前同步推送待定值，firefox `3db89990f8e7`，本仓 patch 落栈
+  `896bb3e`）+ provider 侧空串 no-op（`ab0f327`；CTS 要求 `set("")`
+  保持默认，我方旧实现存 verbatim 致线上传空）。验证：CTS
+  `testAccessUserAgentString`（曾 FAIL）/`testUserAgentString_default`/
+  `testUserAgentStringTest` 三过；JVM 140 锁全绿。title 空同源（回显空
+  UA 所致），随之消除。
 - **扫表卫生教训**：19:10 的 harness 进程（25420）残留 2 小时且主线程
   卡死（episode=12），疑毒化共享 GPU 致 batch4 团灭——此后类间必清
   provider 全进程；batch4 结论待 hygiene 后重跑确认。
