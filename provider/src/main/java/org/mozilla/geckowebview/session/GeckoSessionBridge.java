@@ -387,6 +387,10 @@ public final class GeckoSessionBridge
         try {
             org.mozilla.geckoview.GeckoSessionSettings settings =
                     mSession.getSettings();
+            // CTS triage log (UA-empty domino): the exact override string
+            // pushed onto the live session.
+            android.util.Log.d(TAG, "applyWebSettings js=" + javaScriptEnabled
+                    + " uaOverride=" + userAgentOverride);
             settings.setAllowJavascript(javaScriptEnabled);
             settings.setUserAgentMode(desktopMode
                     ? org.mozilla.geckoview.GeckoSessionSettings

@@ -97,6 +97,18 @@ final class Interception {
                 // 0002: the necko query carries the request surface —
                 // isTopLevel maps to WebResourceRequest.isForMainFrame,
                 // method/headers pass through unchanged.
+                // CTS triage log (UA-empty domino): what necko actually
+                // carries, so a silent session-UA failure is visible.
+                if (info.requestHeaders != null) {
+                    for (String h : info.requestHeaders) {
+                        if (h != null && h.regionMatches(true, 0,
+                                "user-agent:", 0, 11)) {
+                            android.util.Log.d(TAG,
+                                    "query UA for " + info.uri + " :: " + h);
+                            break;
+                        }
+                    }
+                }
                 android.webkit.WebResourceResponse app = query.queryApp(
                         info.uri, false, false, info.isTopLevel, info.method,
                         info.requestHeaders);
