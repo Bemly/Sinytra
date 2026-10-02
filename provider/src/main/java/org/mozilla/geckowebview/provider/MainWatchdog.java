@@ -81,7 +81,7 @@ final class MainWatchdog {
 
     private static void watchLoop(@NonNull Handler main) {
         final long[] lastAck = {SystemClock.uptimeMillis()};
-        final boolean[] inEpisode = {false};
+        final int[] episodes = {0};
         while (true) {
             try {
                 Thread.sleep(CHECK_INTERVAL_MS);
@@ -102,19 +102,19 @@ final class MainWatchdog {
             }
             long now = SystemClock.uptimeMillis();
             if (isStuck(now, lastAck[0])) {
-                if (!inEpisode[0]) {
-                    inEpisode[0] = true;
-                    dumpStacks(now - lastAck[0]);
-                }
-            } else {
-                inEpisode[0] = false;
+                // 0017 v2: dump on EVERY stuck check, not once per episode.
+                // Post-recovery parks (main alive again but wedged elsewhere)
+                // are the evidence M5-A acceptance needs; one dump per
+                // episode hides them. Cadence is ~4 s, debug builds only.
+                episodes[0]++;
+                dumpStacks(now - lastAck[0], episodes[0]);
             }
         }
     }
 
-    private static void dumpStacks(long stuckMs) {
+    private static void dumpStacks(long stuckMs, int episode) {
         android.util.Log.w(TAG, "main looper stuck for " + stuckMs
-                + "ms; dumping stacks");
+                + "ms; dumping stacks episode=" + episode);
         java.util.Map<Thread, StackTraceElement[]> all;
         try {
             all = Thread.getAllStackTraces();
