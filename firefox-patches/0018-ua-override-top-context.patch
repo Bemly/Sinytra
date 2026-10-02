@@ -1,0 +1,69 @@
+From 3db89990f8e7082b457e8f3eaa8c2bb6a72d804a Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sat, 3 Oct 2026 01:48:22 +0800
+Subject: [PATCH] Sinytra patch 0018: push pending UA override to top context
+ at navigation
+
+Parent-side UpdateSettings only fires on Java-bundle CHANGES, so an
+unchanged override never reaches the re-created top context of a
+fresh navigation and necko keeps the default UA (CTS User-Agent
+suites read empty). Push the pending override onto the current top
+context synchronously before fixupAndLoadURIString; the channel
+reads the UA at AsyncOpen so the synchronous set wins the race.
+---
+ .../modules/geckoview/GeckoViewNavigation.sys.mjs | 12 ++++++++++++
+ .../modules/geckoview/GeckoViewSettings.sys.mjs   | 15 +++++++++++++++
+ 2 files changed, 27 insertions(+)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+index 49c3a9e53889..e50e1c2f8fc6 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+@@ -302,6 +302,18 @@ export class GeckoViewNavigation extends GeckoViewModule {
+         // referring session, the referrerInfo is null.
+         //
+         // policyContainer is only present if we have a referring document, null otherwise.
++        //
++        // Sinytra 0018: push the pending userAgentOverride onto the CURRENT
++        // top context before navigation commits. Parent-side UpdateSettings
++        // only fires on Java-bundle CHANGES, so an unchanged override never
++        // reaches a re-created top context (fresh navigation → default UA).
++        // fixupAndLoadURIString runs synchronously here, but the channel
++        // reads the UA at AsyncOpen; top-context UA set now wins that race
++        // (CTS User-Agent suites). Unknown module name → no-op via ?.
++        try {
++          this.moduleManager?._modules?.get("GeckoViewSettings")?.impl
++            ?.pushUserAgentOverrideToTop?.();
++        } catch (e) {}
+         this.browser.fixupAndLoadURIString(uri, {
+           loadFlags: navFlags,
+           referrerInfo,
+diff --git a/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
+index 8fb59f0a7f72..93bb66179475 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
+@@ -151,6 +151,21 @@ export class GeckoViewSettings extends GeckoViewModule {
+     return this.browser.browsingContext.top;
+   }
+ 
++  // Sinytra 0018: push the pending override onto the CURRENT top context.
++  // onSettingsUpdate only fires when the Java settings bundle CHANGES; an
++  // unchanged override (same UA pushed before every loadUrl) never reaches
++  // the re-created top context of a fresh navigation, so necko keeps the
++  // default UA (CTS User-Agent suites read ""). Navigation code calls this
++  // after LoadUri dispatch, when the new top context exists.
++  pushUserAgentOverrideToTop() {
++    try {
++      const ua = this.customUserAgent;
++      if (ua !== null && ua !== undefined) {
++        this.browser.browsingContext.top.customUserAgent = ua;
++      }
++    } catch (e) {}
++  }
++
+   get userAgentOverride() {
+     return this._userAgentOverride;
+   }
+-- 
+2.56.0
+
