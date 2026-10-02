@@ -786,6 +786,14 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 
 ## 1v. CTS 定向收敛轮（2026-10-01/02，round6：0013/0014 落栈 + transport 两轮重写）
 
+- **CookieManagerTest 12/14（2026-10-02，单测串行）**：GetInstance/Flush/
+  AcceptCookie/SetCookie/SetCookieNullCallback/SetCookieCallback/
+  RemoveCookies/RemoveCookiesNullCallback/RemoveCookiesCallback/
+  SameSiteNoneRequiresSecure/SchemefulSameSite/b3167208 全过；
+  testSameSiteLaxByDefault 挂（第三方无 SameSite 读侧未拦，engine 网络
+  set 路径行为对齐，open）；testThirdPartyCookie 超时待 triage。
+  附带修好：removeAll/removeSession 空清谎报（0016 + `bdb5cb9`）。
+
 - **0013 resource://android 指 provider APK**（firefox `9202aa4`，本仓
   `b41f070`）：`GeckoAppShell.getPackageResourcePath()`（`nsResProtocolHandler::
   GetApkURI` 经 JNI 调）返回宿主 APK → CTS 进程里 sinytra-js 扩展
