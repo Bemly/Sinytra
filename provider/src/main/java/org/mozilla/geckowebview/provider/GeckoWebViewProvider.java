@@ -217,7 +217,11 @@ public final class GeckoWebViewProvider
         // Session must be opened on the UI thread (GeckoView @UiThread contract).
         // Real framework calls create() on the UI thread; assert here so the
         // harness (or future callers) fail fast instead of hanging on load.
-        mBridge.session().setResponseDelegate(mInterception.responses());
+        // Initial filter dispatch goes through Interception so the
+        // time-based retries cover the onInit race from the very first
+        // push (a bare setResponseDelegate here would be fire-and-forget
+        // with no recovery until the first PageStart).
+        mInterception.repushFilters();
         mBridge.session().open(GeckoRuntimeHolder.get(
                 webView.getContext().getApplicationContext()));
         // Bind the JS extension transport (built-in WebExtension, public API;
