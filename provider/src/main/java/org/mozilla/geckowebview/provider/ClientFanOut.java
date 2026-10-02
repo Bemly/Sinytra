@@ -88,7 +88,9 @@ final class ClientFanOut
     private String mLastTitle;
     // Last progress value forwarded to the WebChromeClient this navigation
     // (terminal-100 completion below needs to know whether 100 went out).
-    private int mLastProgress;
+    // Starts at 100 (fresh-WebView contract, mirrors bridge state) so a
+    // finish with zero Gecko ticks still completes exactly once.
+    private int mLastProgress = 100;
 
     ClientFanOut(@NonNull Owner owner) {
         mOwner = owner;

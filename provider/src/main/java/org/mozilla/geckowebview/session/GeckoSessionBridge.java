@@ -31,7 +31,10 @@ public final class GeckoSessionBridge
     private final Client mClient;
     private String mUrl;
     private String mTitle;
-    private int mProgress;
+    // Fresh WebView reports 100 (CTS INITIAL_PROGRESS): nothing is loading.
+    // A new navigation drops it to 0 (onPageStarted) and a finished load
+    // completes it back to 100 (onPageFinished) — Chromium contract.
+    private int mProgress = 100;
     private boolean mCanGoBack;
     private boolean mCanGoForward;
     // True once the app explicitly loaded an about: URL. Gecko seeds every
