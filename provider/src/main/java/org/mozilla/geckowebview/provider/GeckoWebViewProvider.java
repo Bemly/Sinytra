@@ -222,9 +222,16 @@ public final class GeckoWebViewProvider
         });
         mBridge.setExtraDelegates(mFanOut, mFanOut, mFanOut);
         mBridge.setInterceptBridge(mIntercept);
-        // Session must be opened on the UI thread (GeckoView @UiThread contract).
-        // Real framework calls create() on the UI thread; assert here so the
-        // harness (or future callers) fail fast instead of hanging on load.
+        // Runtime create + session open are @UiThread (GeckoView contract),
+        // but the framework may create the provider on a background looper
+        // (CTS WebViewStartupTest) — hop there, bounded (MainThread); the
+        // session itself always lives on main, the creator looper stays the
+        // WebView's looper. Genuine failures throw fast, never hang.
+        org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+            mBridge.session().open(GeckoRuntimeHolder.get(
+                    webView.getContext().getApplicationContext()));
+            return null;
+        });
         // Liveness gate for filter retries (set before the first push):
         // the JS transport bring-up rides the same parent-JS bring-up as
         // the filter module, so a retry that waits for it can never push
@@ -236,8 +243,6 @@ public final class GeckoWebViewProvider
         // push (a bare setResponseDelegate here would be fire-and-forget
         // with no recovery until the first PageStart).
         mInterception.repushFilters();
-        mBridge.session().open(GeckoRuntimeHolder.get(
-                webView.getContext().getApplicationContext()));
         // Bind the JS extension transport (built-in WebExtension, public API;
         // install is async — eval answers honest-null until ready).
         try {
