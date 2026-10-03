@@ -981,6 +981,12 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   （Pause async + 摘 sync 备案）→ P0Render HOME 盖掉 watchdog 零 episode
   （此前 Round 11 必 park）+ 返回满页像素；noCache park 消失、收尾干净
   （失败仍在：load#2 取数静默 ~20s 独立 open 项）。M5-A1 pause 面关闭。
+- **Round 14（2026-10-03，M5-A2 显式验证）**：pause 中（HOME）`kill -9`
+  :gpu → 新 :gpu 拉起、tabs 重连（CompositorBridgeChild
+  AbnormalShutdown 照常处理）→ 返回满页像素（example.com 全文三语+，
+  与 kill 前一致），零 resume-null。**recovery 恢复到 intended resumed
+  state（非 stale-paused/blank）——1880503 companion 课交卷**，
+  M5-A acceptance item 7 关闭。
 - **Round 12（2026-10-03，harness 全绿补上）**：GPU ON + 0022 + 策略门
   构建（`dea324d`+`5990c7f`），§7 清场（7.9G）→ P0Glue **47 PASS /
   0 FAIL / P0 GLUE PASS**（uiautomator 全文计数；屏显只到首屏，
