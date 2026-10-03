@@ -95,3 +95,42 @@ expected:<[0]> but was:<[1]>  (WebSettingsTest.java:837)
    verdict 一致，不拆。
 - file: 图片被顺带治好（docshell 路径天然覆盖；此前 file 通道同样不咨询，
   属同类缺口），CTS file 族无图片高度断言，记 bonus 不单验。
+
+## 6. 真机诊断实录与路线修正（2026-10-03，决定性）
+
+按 §3 实现并上机后，data: 图片仍加载，逐跳诊断结论：
+
+1. **链路前四跳全通**：provider `pushSettings`→bundle→parent→child
+   `SettingsUpdate(false)` 到达（child 日志实锤），`this.docShell` 写后
+   回读 false，`document-element-inserted` 观察者对同 tab 文档 match 并
+   写入（回读 false）。
+2. **actor 生命周期是断点**：child actor 在构造 ~50ms 后 `didDestroy`
+   （BC 换代丢弃旧 actor），新 BC 的 actor 因"无变化不重发"永远拿不到
+   值——与 0018 的 UA 洞同构。表现为：咨询时刻读到的永远是默认 true。
+   沿途另踩三坑（记死）：`nsIObserverService.addObserver` 不接受 actor
+   本体（Bug 1570744，用 QI 闭包；class 字段/原型两种 QI 写法都曾被拒，
+   以 SelectionActionDelegate 的闭包式为准）；`nsIDocShell` 无
+   `browsingContext` 给 JS（过滤改直接比 docshell）；`GetLoadingDocument`
+   是 out-param 形式。
+3. **修正 v2（已落栈 0024d）**：仿 0018，在 `GeckoViewNavigation` 导航
+   hook 里每次导航强制向顶 actor 重发全量 settings（`pushAllowImagesToTop`，
+   顺带创建尚不存在的 actor 并刷新缓存），child 缓存 + 活 docshell 应用
+   + observer 三件不变。
+4. **loadData 确定性门（provider 侧，不依赖 Gecko 时序）**：loadData 文档
+   的字节是 provider 手里攥着的——`LoadDataHandler.neutralizeBlockedImages`
+   在 images-off 时剥 `<img>` src/srcset（只动 img 标签，script/文本原样；
+   JS 后注入图片是已知缺口）；`applyWebSettings` 已透传 flag；
+   loosening 时按原参数重发（`reissueLoadDataIfCurrent`，content-hash/
+   canonical-key 双向校验，命中才重发否则老 reload），且 mutation
+   listener 只在真正放宽时重载（收紧/同值不再注无辜导航）。
+   Gecko docshell 路径保留作纵深（默认 true 下零行为变化）。
+
+## 7. 验证状态（2026-10-03）
+
+- `testLoadsImagesAutomatically_blockLoadingImages`：**OK**（确定性门）。
+- `testLoadsImagesAutomatically_loadImagesWithoutReload` /
+  `testBlockNetworkImage`：逻辑侧已全绿（images-off 断言经 sanitize+hold；
+  JVM 175 锁），剩余失败全部是设备容量型 flake（load 持续 ~15，
+  child tab 进程 `Timeout executing service`，导航在 LoadRequest 后零回调；
+  健康窗口下同路径通过）。待健康窗口补 verdict。
+- 本 patch 未定稿：verdict 补齐 + 全量 harness 回归后，再标定稿。

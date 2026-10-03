@@ -1092,6 +1092,29 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   RenderProcess×2、ServiceWorker×2、DarkMode×2、Geolocation（已知不可跑）、
   PacProcessor（已知要 patch）、SharedWebView。
 
+## 1y. 空标题竞态 + image 族三测试（2026-10-03，1/3 绿 + reboot 后设备失联）
+
+- **空标题竞态闭案**：Gecko TitleChange 比 PageStop 晚 ~500ms（JS-onload
+  标题）+ commit 先报空占位 → CTS 完成后立即读标题必空。修两处
+  （`GeckoSessionBridge`）：成功完成在标题"非空且属本页"前 hold（静态标题/
+  about/失败零延迟；JsTitleProbe G/H titleLagMs 501→1ms）+ 导航中不把标题
+  回退到空占位（Chromium 语义；保 `waitForNonEmptyImage` 类 poll）。
+  JVM TitleHold 锁，harness 全绿不退。
+- **image 族**：`blockLoadingImages` **OK**；另两条逻辑侧全绿但缺健康窗口
+  verdict。链路：`0024` Gecko 栈（settings 键 + ImageBlocker docshell 检查
+  + child 应用 + 每导航强制推送，patch 文件已落）作纵深；loadData 确定性门
+  作主（sanitize 剥 src + loosening 按原参数重发 + 仅放宽才 reload）。
+  诊断副产品记死：actor 随 BC 换代 ~50ms 即死（0018 同款洞，v2 已补）；
+  `addObserver` 不收 actor 本体（Bug 1570744，QI 闭包为准）；IDL 无
+  `browsingContext`（直接比 docshell）；`GetLoadingDocument` 是 out-param；
+  substitute 构建必须每次 export MOZCONFIG（缺则 1 秒挂，屡踩）。
+- **JVM 175 锁全绿**，lint 绿。
+- **设备（2026-10-03 夜）**：load 持续 ~15（MTK D 态堆积，僵尸已排除），
+  child tab `Timeout executing service`，导航 LoadRequest 后零回调——容量型
+  flake，非逻辑。`su -c reboot` 已发（含目的 ledger），之后 USB 层无设备
+  15 分钟+，疑卡启动/掉线，待人手确认。回来后：卫生 → T2/T3 verdict →
+  全量 harness → 0024 定稿。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~**切换路线主线化**~~（2026-09-26 完成，§1s）：metadata + versionCode

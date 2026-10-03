@@ -1,0 +1,315 @@
+From 1812b24d0ca16c18c5f9f968e297a6a1f880ffd9 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sat, 3 Oct 2026 21:05:29 +0800
+Subject: [PATCH 1/4] Sinytra patch 0024a: GeckoSessionSettings.allowImages key
+ (default true, live)
+
+---
+ .../geckoview/GeckoSessionSettings.java       | 34 +++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSessionSettings.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSessionSettings.java
+index 2229122e7051..eca8e7ff041e 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSessionSettings.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSessionSettings.java
+@@ -168,6 +168,17 @@ public final class GeckoSessionSettings implements Parcelable {
+       return this;
+     }
+ 
++    /**
++     * Set whether image loading should be enabled.
++     *
++     * @param flag A flag determining whether images should be loaded. Default is true.
++     * @return This Builder instance.
++     */
++    public @NonNull Builder allowImages(final boolean flag) {
++      mSettings.setAllowImages(flag);
++      return this;
++    }
++
+     /**
+      * Set whether the entire accessible tree should be exposed with no caching.
+      *
+@@ -335,6 +346,10 @@ public final class GeckoSessionSettings implements Parcelable {
+   private static final Key<Boolean> ALLOW_JAVASCRIPT =
+       new Key<Boolean>("allowJavascript", /* initOnly */ false, /* values */ null);
+ 
++  /** Key to specify if images should be allowed on this session. */
++  private static final Key<Boolean> ALLOW_IMAGES =
++      new Key<Boolean>("allowImages", /* initOnly */ false, /* values */ null);
++
+   /** Key to specify if entire accessible tree should be exposed with no caching. */
+   private static final Key<Boolean> FULL_ACCESSIBILITY_TREE =
+       new Key<Boolean>("fullAccessibilityTree", /* initOnly */ false, /* values */ null);
+@@ -387,6 +402,7 @@ public final class GeckoSessionSettings implements Parcelable {
+     mBundle.putBoolean(USE_PRIVATE_MODE.name, false);
+     mBundle.putBoolean(SUSPEND_MEDIA_WHEN_INACTIVE.name, false);
+     mBundle.putBoolean(ALLOW_JAVASCRIPT.name, true);
++    mBundle.putBoolean(ALLOW_IMAGES.name, true);
+     mBundle.putBoolean(FULL_ACCESSIBILITY_TREE.name, false);
+     mBundle.putBoolean(IS_EXTENSION_POPUP.name, false);
+     mBundle.putInt(USER_AGENT_MODE.name, USER_AGENT_MODE_MOBILE);
+@@ -434,6 +450,15 @@ public final class GeckoSessionSettings implements Parcelable {
+     setBoolean(ALLOW_JAVASCRIPT, value);
+   }
+ 
++  /**
++   * Set whether image loading should be enabled.
++   *
++   * @param value A flag determining whether images should be loaded. Default is true.
++   */
++  public void setAllowImages(final boolean value) {
++    setBoolean(ALLOW_IMAGES, value);
++  }
++
+   /**
+    * Set whether the entire accessible tree should be exposed with no caching.
+    *
+@@ -502,6 +527,15 @@ public final class GeckoSessionSettings implements Parcelable {
+     return getBoolean(ALLOW_JAVASCRIPT);
+   }
+ 
++  /**
++   * Whether image loading is allowed.
++   *
++   * @return true if images are loaded, false if not.
++   */
++  public boolean getAllowImages() {
++    return getBoolean(ALLOW_IMAGES);
++  }
++
+   /**
+    * Whether entire accessible tree is exposed with no caching.
+    *
+-- 
+2.56.0
+
+
+From 3d2933c15786c9ddaf3c0cc987e4c7d6f46b0e21 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sat, 3 Oct 2026 21:05:32 +0800
+Subject: [PATCH 2/4] Sinytra patch 0024b: ImageBlocker honors content docshell
+ allowImages
+
+---
+ image/ImageBlocker.cpp | 42 ++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+
+diff --git a/image/ImageBlocker.cpp b/image/ImageBlocker.cpp
+index 84dd375f1183..14604510cba1 100644
+--- a/image/ImageBlocker.cpp
++++ b/image/ImageBlocker.cpp
+@@ -5,7 +5,9 @@
+ #include "ImageBlocker.h"
+ 
+ #include "mozilla/StaticPrefs_permissions.h"
++#include "mozilla/dom/Document.h"
+ #include "nsContentUtils.h"
++#include "nsIDocShell.h"
+ #include "nsIPermissionManager.h"
+ #include "nsNetUtil.h"
+ 
+@@ -14,6 +16,39 @@ using namespace mozilla::image;
+ 
+ NS_IMPL_ISUPPORTS(ImageBlocker, nsIContentPolicy)
+ 
++// Sinytra 0024: per-session docshell policy (WebView
++// loadsImagesAutomatically). Applies to every web-content scheme: data:/
++// file: image loads never consult the embedder necko hook, so this is their
++// only gate. Browser-internal schemes stay untouched.
++static bool ShouldBlockForDocShell(nsIURI* aContentLocation,
++                                   nsILoadInfo* aLoadInfo) {
++  if (!aContentLocation || !aLoadInfo) {
++    return false;
++  }
++  for (const char* scheme : {"chrome", "resource", "moz-icon"}) {
++    bool isScheme = false;
++    if (NS_SUCCEEDED(aContentLocation->SchemeIs(scheme, &isScheme)) &&
++        isScheme) {
++      return false;
++    }
++  }
++  nsCOMPtr<mozilla::dom::Document> doc;
++  if (NS_FAILED(aLoadInfo->GetLoadingDocument(getter_AddRefs(doc))) || !doc) {
++    // No loading document (e.g. parent-side navigation): fall back to the
++    // global-pref path below.
++    return false;
++  }
++  nsIDocShell* docShell = doc->GetDocShell();
++  if (!docShell) {
++    return false;
++  }
++  bool allowed = true;
++  if (NS_FAILED(docShell->GetAllowImages(&allowed)) || allowed) {
++    return false;
++  }
++  return true;
++}
++
+ NS_IMETHODIMP
+ ImageBlocker::ShouldLoad(nsIURI* aContentLocation, nsILoadInfo* aLoadInfo,
+                          int16_t* aShouldLoad) {
+@@ -30,6 +65,13 @@ ImageBlocker::ShouldLoad(nsIURI* aContentLocation, nsILoadInfo* aLoadInfo,
+     return NS_OK;
+   }
+ 
++  if (ShouldBlockForDocShell(aContentLocation, aLoadInfo)) {
++    NS_SetRequestBlockingReason(
++        aLoadInfo, nsILoadInfo::BLOCKING_REASON_CONTENT_POLICY_CONTENT_BLOCKED);
++    *aShouldLoad = nsIContentPolicy::REJECT_TYPE;
++    return NS_OK;
++  }
++
+   if (ImageBlocker::ShouldBlock(aContentLocation)) {
+     NS_SetRequestBlockingReason(
+         aLoadInfo, nsILoadInfo::BLOCKING_REASON_CONTENT_POLICY_CONTENT_BLOCKED);
+-- 
+2.56.0
+
+
+From 1b882c04cbb7095a09c08df1a9c11607b57fb0e0 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sat, 3 Oct 2026 21:05:35 +0800
+Subject: [PATCH 3/4] Sinytra patch 0024c: child caches allowImages and applies
+ it to own docshells
+
+---
+ .../actors/GeckoViewSettingsChild.sys.mjs     | 54 +++++++++++++++++++
+ 1 file changed, 54 insertions(+)
+
+diff --git a/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs b/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
+index 625905caab66..cb2cbec48416 100644
+--- a/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
++++ b/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
+@@ -6,6 +6,50 @@ import { GeckoViewActorChild } from "resource://gre/modules/GeckoViewActorChild.
+ 
+ // Handles GeckoView content settings
+ export class GeckoViewSettingsChild extends GeckoViewActorChild {
++  constructor() {
++    super();
++    // Sinytra 0024: per-session image policy. The docshell flag must be in
++    // place before any subresource loads (data: images load during parse),
++    // so every new document re-applies the cached session value. This also
++    // covers new tabs, which never see a SettingsUpdate without a value
++    // change (same hole as 0018's UA push).
++    this._allowImages = true;
++    // Bug 1570744: a JSWindowActorChild cannot act as nsIObserver directly,
++    // so a QI-tagged closure forwards to observe (SelectionActionDelegate
++    // precedent).
++    this._docObserver = (subject, topic) => {
++      this.observe(subject, topic);
++    };
++    this._docObserver.QueryInterface = ChromeUtils.generateQI(["nsIObserver"]);
++    Services.obs.addObserver(this._docObserver, "document-element-inserted");
++  }
++
++  didDestroy() {
++    try {
++      Services.obs.removeObserver(this._docObserver, "document-element-inserted");
++    } catch (e) {}
++  }
++
++  observe(aSubject, aTopic) {
++    if (aTopic !== "document-element-inserted") {
++      return;
++    }
++    try {
++      const docShell = aSubject.defaultView?.docShell;
++      if (!docShell) {
++        return;
++      }
++      // Own tab only (nsIDocShell exposes no browsingContext to JS, so
++      // compare docshells directly): sessions share this process-wide
++      // observer, and subframes inherit the top docshell value natively
++      // (nsDocShell) and need no explicit set.
++      if (docShell !== this.docShell) {
++        return;
++      }
++      docShell.allowImages = this._allowImages;
++    } catch (e) {}
++  }
++
+   receiveMessage(message) {
+     const { name } = message;
+     debug`receiveMessage: ${name}`;
+@@ -14,6 +58,16 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+       case "SettingsUpdate": {
+         const settings = message.data;
+ 
++        // Sinytra 0024: cache + apply to the live docshell (covers flag
++        // flips on the current document; fresh documents are covered by the
++        // document-element-inserted observer above).
++        if (typeof settings.allowImages === "boolean") {
++          this._allowImages = settings.allowImages;
++          try {
++            this.docShell.allowImages = this._allowImages;
++          } catch (e) {}
++        }
++
+         if (settings.isExtensionPopup) {
+           // Allow web extensions to close their own action popups (bz1612363)
+           this.contentWindow.windowUtils.allowScriptsToClose();
+-- 
+2.56.0
+
+
+From c543efb0619ff6cff8ef9aabc3e3e6532d9eee05 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sat, 3 Oct 2026 21:05:37 +0800
+Subject: [PATCH 4/4] Sinytra patch 0024d: per-navigation allowImages push
+ (stale-actor fix)
+
+---
+ .../geckoview/GeckoViewNavigation.sys.mjs       |  7 +++++++
+ .../modules/geckoview/GeckoViewSettings.sys.mjs | 17 +++++++++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+index e50e1c2f8fc6..a020e640eeb2 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+@@ -314,6 +314,13 @@ export class GeckoViewNavigation extends GeckoViewModule {
+           this.moduleManager?._modules?.get("GeckoViewSettings")?.impl
+             ?.pushUserAgentOverrideToTop?.();
+         } catch (e) {}
++        // Sinytra 0024: same staleness hole as 0018's UA override (see
++        // pushAllowImagesToTop): refresh the top actor's image-policy cache
++        // on every navigation, not just on bundle changes.
++        try {
++          this.moduleManager?._modules?.get("GeckoViewSettings")?.impl
++            ?.pushAllowImagesToTop?.();
++        } catch (e) {}
+         this.browser.fixupAndLoadURIString(uri, {
+           loadFlags: navFlags,
+           referrerInfo,
+diff --git a/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
+index 93bb66179475..79c5e02e89d9 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
+@@ -157,6 +157,23 @@ export class GeckoViewSettings extends GeckoViewModule {
+   // the re-created top context of a fresh navigation, so necko keeps the
+   // default UA (CTS User-Agent suites read ""). Navigation code calls this
+   // after LoadUri dispatch, when the new top context exists.
++  // Sinytra 0024: push the current allowImages to the top actor on EVERY
++  // navigation (SIBLING of the 0018 UA push, called from the same navigation
++  // hook). SettingsUpdate only fires on Java-bundle CHANGES, so actors born
++  // after the last change — BC swaps discarding the primed actor, new tabs
++  // racing module init — never learn the value and ImageBlocker reads
++  // default-true (device: primed actor destroyed ~50ms after construction,
++  // image consults after that read true). Re-sending the full bundle also
++  // re-primes the cache the document-element-inserted observer applies.
++  pushAllowImagesToTop() {
++    try {
++      this.getActor("GeckoViewSettings")?.sendAsyncMessage(
++        "SettingsUpdate",
++        this.settings
++      );
++    } catch (e) {}
++  }
++
+   pushUserAgentOverrideToTop() {
+     try {
+       const ua = this.customUserAgent;
+-- 
+2.56.0
+
