@@ -134,3 +134,14 @@ expected:<[0]> but was:<[1]>  (WebSettingsTest.java:837)
   child tab 进程 `Timeout executing service`，导航在 LoadRequest 后零回调；
   健康窗口下同路径通过）。待健康窗口补 verdict。
 - 本 patch 未定稿：verdict 补齐 + 全量 harness 回归后，再标定稿。
+
+## 8. 设备对照实验（2026-10-04，image 族 verdict 被迫暂停）
+
+- T1（`blockLoadingImages`，此前绿 3 次）在同一设备上连挂两次，失败形态与
+  T2/T3 完全一致（首个 loadData 在 LoadRequest 后零回调）。此前绿、未改
+  相关代码——纯环境退化，与逻辑无关。
+- 设备状态：重启后 load 依然 ~15（非堆积，是开机即有；CPU 全闲、Mem 7G），
+  系 vendor D 态线程基线（STATUS §1v 旧判）。`Timeout executing service
+  ...tabN` + 新 tab 进程出生后仍无提交。
+- 结论：当前设备做不了 verdict 轮。等自然恢复（静置/日常使用后 load 回落）
+  或用户决策后再跑；不再为此改代码、不再自行 reboot（DEVICE §6 + 请示约束）。
