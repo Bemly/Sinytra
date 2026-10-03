@@ -35,6 +35,20 @@ public final class GeckoSessionBridge
     @Nullable
     private String mOriginalUrl;
     private String mTitle;
+    // Title-freshness clock (CTS WebSettingsTest image family): Gecko delivers
+    // ContentDelegate.onTitleChange up to ~500ms AFTER
+    // ProgressDelegate.onPageStop for JS-onload titles (document.title set in
+    // body/img onload; the TitleChange IPC lands later — JsTitleProbeActivity
+    // G/H: title "0" reachable ~500ms after PageFinished). Chromium delivers
+    // title BEFORE finished and CTS asserts getTitle() immediately after
+    // loadDataAndWaitForCompletion (no poll), so forwarding PageStop at once
+    // reads stale "". A success finish whose page produced no title yet is
+    // held until the first post-stop title or TITLE_HOLD_TIMEOUT_MS (bridge
+    // mirror state, same kind as mTitle/mUrl/mProgress above).
+    private long mLastPageStartMs;
+    private long mLastTitleMs;
+    @Nullable
+    private Hold mPendingHold;
     // Fresh WebView reports 100 (CTS INITIAL_PROGRESS): nothing is loading.
     // A new navigation drops it to 0 (onPageStarted) and a finished load
     // completes it back to 100 (onPageFinished) — Chromium contract.
@@ -139,8 +153,7 @@ public final class GeckoSessionBridge
                 @Override
                 public void onTitleChange(@NonNull GeckoSession s,
                         @Nullable String title) {
-                    mTitle = title;
-                    mClient.onTitleChanged(title);
+                    onTitleArrived(title);
                 }
             });
             return session;
@@ -169,8 +182,7 @@ public final class GeckoSessionBridge
 
             @Override
             public void onTitleChanged(@Nullable String title) {
-                mTitle = title;
-                mClient.onTitleChanged(title);
+                onTitleArrived(title);
                 contentHost.onTitleChanged(title);
             }
 
@@ -250,6 +262,13 @@ public final class GeckoSessionBridge
 
     @Override
     public void onPageStarted(@NonNull String url) {
+        // Chromium order: finished-before-next-start. A held success-finish
+        // belongs to the previous navigation and must fire before this one
+        // begins (CTS issues the next load right after the assert, so holds
+        // never overlap there; redirects/app races flush here instead of
+        // leaking order).
+        firePendingHold();
+        mLastPageStartMs = now();
         // Chromium resets progress on every new navigation; Gecko only emits
         // progress ticks while bytes are in flight (instant local loads may
         // emit none at all — CTS WebViewTest.testLoadUrl reads 0 forever).
@@ -280,19 +299,115 @@ public final class GeckoSessionBridge
                 return;
             }
             mBlankStartOutstanding = false;
-            // Terminal-100 completion (Chromium contract): a finished load
-            // always reports progress 100, even when Gecko emitted no (or
-            // partial) ticks for it. State here, event in ClientFanOut
-            // (which fires 100 before forwarding finished — order locked by
-            // JVM test).
-            if (mProgress < 100) {
-                mProgress = 100;
+            // Title-freshness hold (see mLastPageStartMs): about: documents
+            // cannot have a title — forward at once. Otherwise forward at
+            // once only when the title is both present and from this
+            // navigation; fresh-title stops (static <title> lands between
+            // start and stop) pay zero delay. Empty/stale stops hold: Gecko
+            // reports a placeholder empty title at commit BEFORE PageStop,
+            // which would fake a timestamp-only check (confirmed on device:
+            // no hold armed, first getTitle() read still ""), and JS-onload titles
+            // land after the stop.
+            if (!isAboutBlank(mUrl)
+                    && shouldHoldForTitle(mTitle, mLastTitleMs,
+                            mLastPageStartMs)) {
+                armFinishHold();
+                return;
             }
+        } else {
+            mClient.onPageFinished(false);
+            return;
         }
-        mClient.onPageFinished(success);
-        if (success) {
-            flushHistory();
+        fireFinishedSuccess();
+    }
+
+    // Title arrival: mirror state, stamp the clock, fan out, then release a
+    // held success-finish (if any) so getTitle() is fresh when the app's
+    // onPageFinished runs. Single funnel for both content-delegate sites.
+    private void onTitleArrived(@Nullable String title) {
+        mTitle = title;
+        mLastTitleMs = now();
+        mClient.onTitleChanged(title);
+        firePendingHold();
+    }
+
+    // Pure (JVM-locked in TitleHoldTest): forward at once only when the
+    // title is both present and from this navigation. Times are
+    // SystemClock.uptimeMillis() samples; same-ms ties read fresh (a title
+    // stamped in the navigation's own start ms cannot predate it). An empty
+    // title always holds: it is either the commit placeholder (a real title
+    // follows after the stop) or a genuinely title-less page (the timeout
+    // releases it unchanged — slow but correct).
+    static boolean shouldHoldForTitle(@Nullable String currentTitle,
+            long lastTitleMs, long lastPageStartMs) {
+        if (currentTitle == null || currentTitle.isEmpty()) {
+            return true;
         }
+        return lastTitleMs < lastPageStartMs;
+    }
+
+    // Upper bound for the title-freshness hold: ~2x the observed ~500ms
+    // TitleChange-after-PageStop lag (JsTitleProbeActivity G/H), covering
+    // burst-slowness without stalling title-less pages forever.
+    private static final long TITLE_HOLD_TIMEOUT_MS = 1000L;
+
+    /** Pending success-finish awaiting title freshness. Single-fire. */
+    private static final class Hold {
+        boolean fired;
+    }
+
+    private void armFinishHold() {
+        if (mPendingHold != null && !mPendingHold.fired) {
+            // Defensive: PageStart flushes first so holds never overlap;
+            // keep the earliest rather than stacking.
+            Log.w(TAG, "finish hold already armed");
+            return;
+        }
+        final Hold hold = new Hold();
+        mPendingHold = hold;
+        Log.d(TAG, "finish hold armed url=" + mUrl);
+        final android.os.Handler handler;
+        try {
+            handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        } catch (Throwable t) {
+            // No Looper (JVM unit tests): nowhere to wait, forward at once.
+            firePendingHold();
+            return;
+        }
+        try {
+            handler.postDelayed(() -> {
+                if (hold.fired) {
+                    return;
+                }
+                Log.d(TAG, "finish hold timeout url=" + mUrl);
+                firePendingHold();
+            }, TITLE_HOLD_TIMEOUT_MS);
+        } catch (Throwable t) {
+            Log.w(TAG, "finish hold schedule threw", t);
+            firePendingHold();
+        }
+    }
+
+    private void firePendingHold() {
+        Hold hold = mPendingHold;
+        if (hold == null || hold.fired) {
+            return;
+        }
+        hold.fired = true;
+        mPendingHold = null;
+        fireFinishedSuccess();
+    }
+
+    // Terminal-100 completion (Chromium contract): a finished load always
+    // reports progress 100, even when Gecko emitted no (or partial) ticks
+    // for it. State here, event in ClientFanOut (which fires 100 before
+    // forwarding finished — order locked by JVM test).
+    private void fireFinishedSuccess() {
+        if (mProgress < 100) {
+            mProgress = 100;
+        }
+        mClient.onPageFinished(true);
+        flushHistory();
     }
 
     // Pairing bit for the pristine-blank finish swallow (see
@@ -304,6 +419,14 @@ public final class GeckoSessionBridge
         // NOTE: compare full strings — a hardcoded length here was once 12
         // for the 11-char "about:blank" and silently never matched.
         return "about:blank".equalsIgnoreCase(url);
+    }
+
+    private static long now() {
+        try {
+            return android.os.SystemClock.uptimeMillis();
+        } catch (Throwable t) {
+            return 0L;
+        }
     }
 
     /**
@@ -463,6 +586,9 @@ public final class GeckoSessionBridge
      * verdict boolean is JVM-locked, the DENY value is not (Looper).
      */
     public void completeBlockedNavigation() {
+        // A DENY produces no Gecko PageStart to flush a held success-finish
+        // (see onPageStarted): flush here so finished order never inverts.
+        firePendingHold();
         mProgress = 100;
         mClient.onProgressChanged(100);
         mClient.onPageFinished(false);
