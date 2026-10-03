@@ -996,6 +996,29 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   G/H 探针证明 blocked/error-img 页标题"0"最终可达（~500ms 滞后于
   PageFinished，快页 D 滞后仅 1ms）：PageFinished-标题新鲜度竞态，
   待排（filter 冷带宽 vs TitleChange IPC，见下轮）。
+- **WebSettingsTest 串行单测全扫（2026-10-03，51/51：36 OK / 15 FAIL）**：
+  整类跑 24 FAIL 含压力假象（UA/镜像单测在整类里挂、单跑全过——§1v
+  burst 家族；`adb shell` 吞循环 stdin 坑已记：`< /dev/null`）。
+  单测真相（fresh process/个，`fail` 全为产品信号）：
+  - file:// 族 4（`AllowFileAccess/LocalImageLoads/Iframes+XHR*Enabled`，
+    全 `but was:<null>`）：`file:///android_asset/` 对 Gecko 是字面路径
+    `/android_asset/...`（Android 虚拟路径，necko 直接 ENOENT 静默死——
+    onLoadRequest 后无 PageStart/PageStop/error，history 恒 blank）；
+    `file:///data/...` 另有 provider-uid 无权读（0700 对方 uid，见下）。
+    0020 方向：`file:///android_asset/` → host APK jar 映射（Gecko 小 patch，
+    0013 同构；APK 0644 world-readable，child 可读）+ provider 侧读
+    app 私有文件合成（见下条）。
+  - 空标题族 3（`blockLoadingImages/loadImagesWithoutReload/BlockNetworkImage`，
+    `expected 0 but was ""`）：blocked/error-img 页标题"0"滞后 PageFinished
+    约一 poll（G/H 探针；D 快页 1ms）——新鲜度竞态，未闭。
+  - `BlockNetworkLoads`（`Values should be different. Actual: test hello world`）：
+    主帧 http 未被拦（DENY/清缓存二选一待查）。
+  - cache 族 3（`cacheElseNetwork/noCache/cacheOnly`，单跑即
+    `mLoaded=false` 真 stall）：缓存语义未对齐，待查。
+  - file-XHR/iframe `*Disabled` 全过（拦截侧正确）、`UseWideViewPort`/
+    `PluginsEnabled`/`JavaScriptCanOpenWindowsAutomatically`（20s future 超时，
+    无 onCreateWindow 桥）各 1，`AllowMixedMode`（`Path not set: /secure.html`
+    测试 infra 侧）、`XHR*Enabled` 见 file 族。
 - 待扫：WebViewTest（最大）、WebViewTransport、Ssl、Zoom、DataDir、
   RenderProcess×2、ServiceWorker×2、DarkMode×2、Geolocation（已知不可跑）、
   PacProcessor（已知要 patch）、SharedWebView。
