@@ -48,4 +48,19 @@ public final class TitleHoldTest {
         assertFalse(GeckoSessionBridge.shouldHoldForTitle(
                 "Hello World", 1500L, 1000L));
     }
+
+    @Test
+    public void placeholderDoesNotRegressMidNavigation() {
+        // Commit placeholder: keep the previous title while navigating.
+        assertFalse(GeckoSessionBridge.shouldAdoptTitle("", "0", true));
+        assertFalse(GeckoSessionBridge.shouldAdoptTitle(null, "48", true));
+    }
+
+    @Test
+    public void emptyAdoptedOutsideNavigations() {
+        // Settled pages report honestly, including empty.
+        assertTrue(GeckoSessionBridge.shouldAdoptTitle("", "0", false));
+        assertTrue(GeckoSessionBridge.shouldAdoptTitle(null, null, true));
+        assertTrue(GeckoSessionBridge.shouldAdoptTitle("48", "0", true));
+    }
 }

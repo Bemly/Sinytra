@@ -47,6 +47,10 @@ public final class GeckoSessionBridge
     // mirror state, same kind as mTitle/mUrl/mProgress above).
     private long mLastPageStartMs;
     private long mLastTitleMs;
+    // True between PageStart and the forwarded finish (holds delay the
+    // forward; the flag clears when the app-visible completion fires).
+    // Guards the mid-navigation title adoption rule below.
+    private boolean mNavigating;
     @Nullable
     private Hold mPendingHold;
     // Fresh WebView reports 100 (CTS INITIAL_PROGRESS): nothing is loading.
@@ -269,6 +273,7 @@ public final class GeckoSessionBridge
         // leaking order).
         firePendingHold();
         mLastPageStartMs = now();
+        mNavigating = true;
         // Chromium resets progress on every new navigation; Gecko only emits
         // progress ticks while bytes are in flight (instant local loads may
         // emit none at all — CTS WebViewTest.testLoadUrl reads 0 forever).
@@ -296,6 +301,7 @@ public final class GeckoSessionBridge
             if (isAboutBlank(mUrl) && !mExplicitAboutLoad
                     && mBlankStartOutstanding) {
                 mBlankStartOutstanding = false;
+                mNavigating = false;
                 return;
             }
             mBlankStartOutstanding = false;
@@ -315,6 +321,7 @@ public final class GeckoSessionBridge
                 return;
             }
         } else {
+            mNavigating = false;
             mClient.onPageFinished(false);
             return;
         }
@@ -325,10 +332,35 @@ public final class GeckoSessionBridge
     // held success-finish (if any) so getTitle() is fresh when the app's
     // onPageFinished runs. Single funnel for both content-delegate sites.
     private void onTitleArrived(@Nullable String title) {
+        if (!shouldAdoptTitle(title, mTitle, mNavigating)) {
+            // Commit placeholder: Gecko reports "" for the new document
+            // before its real title arrives. Adopting it would regress
+            // getTitle() mid-navigation (Chromium keeps the previous title
+            // until the new one lands) and spuriously satisfy title polls
+            // (CTS waitForNonEmptyImage exits on "" and asserts too early).
+            return;
+        }
         mTitle = title;
         mLastTitleMs = now();
         mClient.onTitleChanged(title);
-        firePendingHold();
+        // An empty arrival carries no news for a held finish (the hold
+        // waits for a present, fresh title); only non-empty arrivals and
+        // the timeout release it.
+        if (title != null && !title.isEmpty()) {
+            firePendingHold();
+        }
+    }
+
+    // Pure (JVM-locked): adopt an incoming title unless it would regress a
+    // known title to empty mid-navigation. Outside navigations (settled
+    // pages, history rest state) empty is adopted honestly.
+    static boolean shouldAdoptTitle(@Nullable String incoming,
+            @Nullable String current, boolean navigating) {
+        if ((incoming == null || incoming.isEmpty()) && navigating
+                && current != null && !current.isEmpty()) {
+            return false;
+        }
+        return true;
     }
 
     // Pure (JVM-locked in TitleHoldTest): forward at once only when the
@@ -403,6 +435,7 @@ public final class GeckoSessionBridge
     // for it. State here, event in ClientFanOut (which fires 100 before
     // forwarding finished — order locked by JVM test).
     private void fireFinishedSuccess() {
+        mNavigating = false;
         if (mProgress < 100) {
             mProgress = 100;
         }
@@ -589,6 +622,7 @@ public final class GeckoSessionBridge
         // A DENY produces no Gecko PageStart to flush a held success-finish
         // (see onPageStarted): flush here so finished order never inverts.
         firePendingHold();
+        mNavigating = false;
         mProgress = 100;
         mClient.onProgressChanged(100);
         mClient.onPageFinished(false);
