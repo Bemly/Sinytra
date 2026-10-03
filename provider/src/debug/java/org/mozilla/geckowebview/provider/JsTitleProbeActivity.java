@@ -71,6 +71,14 @@ public class JsTitleProbeActivity extends Activity {
                 if (match(only, "H")) {
                     runProbe("H-data-errorimg", blockedImgHtml(), false, 0);
                 }
+                // Sinytra 0024 single-session discriminator: loadable data:
+                // image with images OFF. Blocked -> "0", loaded -> "1".
+                // (G/H cannot discriminate: refused imgs read 0 either way.)
+                if (match(only, "I")) {
+                    mImagesAuto = false;
+                    runProbe("I-data-blockedimg", CTS_SHAPE_HTML, false, 0);
+                    mImagesAuto = true;
+                }
                 Log.i(TAG, "PROBE DONE");
             } catch (Throwable t) {
                 Log.e(TAG, "PROBE FAILED", t);
