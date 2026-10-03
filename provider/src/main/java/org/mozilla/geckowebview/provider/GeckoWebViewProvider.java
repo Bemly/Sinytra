@@ -478,13 +478,41 @@ public final class GeckoWebViewProvider
     @Override
     public void loadUrl(String url, Map<String, String> additionalHttpHeaders) {
         pushSettings();
+        if (serveLocalFileIfAllowed(url)) {
+            return;
+        }
         mBridge.loadUrl(url);
     }
 
     @Override
     public void loadUrl(String url) {
         pushSettings();
+        if (serveLocalFileIfAllowed(url)) {
+            return;
+        }
         mBridge.loadUrl(url);
+    }
+
+    // file:// documents the Gecko child cannot read itself (FileBridge):
+    // read in-process and serve as data:. True when served (caller skips
+    // the normal load); false falls through (policy-denied android_asset
+    // included — LoadRequest DENY / 0020 own those paths).
+    private boolean serveLocalFileIfAllowed(@Nullable String url) {
+        try {
+            if (!FileBridge.shouldServeLocalFile(url, mSettings.gecko())) {
+                return false;
+            }
+            byte[] data = FileBridge.readLocalFile(url);
+            if (data == null) {
+                return false;
+            }
+            mBridge.loadFileUrl(url,
+                    data, FileBridge.mimeForPath(FileBridge.filePathOf(url)));
+            return true;
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "serveLocalFile threw", t);
+            return false;
+        }
     }
 
     @Override

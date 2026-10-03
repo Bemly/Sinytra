@@ -418,6 +418,21 @@ public final class GeckoSessionBridge
         mSession.loadUri(url);
     }
 
+    /**
+     * Serves a file:// document the Gecko child cannot read itself
+     * (provider-UID sandbox, FileBridge): same navigation bookkeeping as
+     * loadUrl, but the bytes go through Loader.data (identity becomes
+     * data:, the documented LoadDataHandler edge).
+     */
+    public void loadFileUrl(@NonNull String url, @NonNull byte[] data,
+            @NonNull String mimeType) {
+        mExplicitAboutLoad = false;
+        mOriginalUrl = url;
+        mPendingTraversalUrl = null;
+        mUrl = url;
+        mSession.load(new GeckoSession.Loader().data(data, mimeType));
+    }
+
     public void reload() {
         mPendingTraversalUrl = null;
         mSession.reload();
