@@ -607,6 +607,29 @@ public final class GeckoSessionBridge
     }
 
     /**
+     * Serves a loadData document through Loader.data with the same
+     * navigation bookkeeping as loadUrl. The data: identity is optimistic
+     * (mirrors GeckoSession.Loader.createDataUri byte-for-byte:
+     * {@code data:<mime>;base64,<NO_WRAP bytes>}, verified against the
+     * GeckoView source, no reflection): without it mUrl stays null until
+     * history adoption lands after PageStop, and a PageStop arriving first
+     * is silently dropped for null URL (CTS load gates hang forever —
+     * WebViewSyncLoader triple gate). Later history adoption overwrites an
+     * identical value (no-op) or corrects drift exactly like loadUrl.
+     * Device-locked (every CTS loadData test asserts through getUrl()).
+     */
+    public void loadDataUri(@NonNull byte[] data, @NonNull String mimeType) {
+        mExplicitAboutLoad = false;
+        String url = "data:" + mimeType + ";base64,"
+                + android.util.Base64.encodeToString(data,
+                        android.util.Base64.NO_WRAP);
+        mOriginalUrl = url;
+        mPendingTraversalUrl = null;
+        mUrl = url;
+        mSession.load(new GeckoSession.Loader().data(data, mimeType));
+    }
+
+    /**
      * Completes a main-frame navigation the settings policy blocked
      * (P2NavigationDelegate DENY): Gecko fires nothing after a
      * LoadRequest DENY, so without this every load-gate (CTS

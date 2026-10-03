@@ -44,8 +44,10 @@ final class Interception {
 
             @Override
             public void loadDataUri(byte[] data, @NonNull String mimeType) {
-                mHost.bridge().session().load(
-                        new GeckoSession.Loader().data(data, mimeType));
+                // Bridge-owned navigation (optimistic data: URL bookkeeping;
+                // a direct session.load would leave getUrl() null until
+                // history adoption and drop early PageStops).
+                mHost.bridge().loadDataUri(data, mimeType);
             }
 
             @Override
