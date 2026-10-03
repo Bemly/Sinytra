@@ -105,3 +105,29 @@ adb -s V885Q49L8TAMFEEE shell cmd webviewupdate set-webview-implementation com.g
 - 全仓审计：没有任何文档要求以重启为常规步骤（BOOTSTRAP §1 与
   STATUS §3 早已证伪"必须重启"；LSPosed 改作用域需重启是 Android
   机制要求，与本条无关）。
+
+## 7. 内存清腾与 shell 泄漏纪律（2026-10-03 实测）
+
+> 起因：`MemAvailable` 跌到 ~1G，force-stop + drop_caches 纹丝不动。
+> 根因：机上 shell 命令审计（`content://moe.bemly.kokoro.provider`）给
+> **每次 `adb shell` 调用留一个 ~90MB 的 `app_process` 僵尸**（`ps` 可见
+> 上百个，`AnonPages` 7.7G）。清掉即回 8.5G——真正的内存大户是调试
+> 行为本身，不是被测对象。
+
+- **批量原则**：一个目的只用一次 `adb shell`，多命令用 `;` 串起来；
+  循环里调 `adb shell` 必须 `< /dev/null`（它会吞掉循环的 stdin，
+  2026-10-03 扫表循环只跑一轮即退出的教训），且循环体禁用逐项 shell。
+- **verdict 轮前必清僵尸**（一次调用，防自杀写法——朴素
+  `pkill -f kokoro.provider` 会连本次会话一起杀掉，本次会话的
+  logger 同样匹配，退出码 137）：
+
+```bash
+adb -s V885Q49L8TAMFEEE shell "su -c 'for p in \$(pgrep -f kokoro.provider); do if tr \"\0\" \" \" < /proc/\$p/cmdline 2>/dev/null | grep -q pkill; then continue; fi; kill -9 \$p 2>/dev/null; done; sleep 2; cat /proc/meminfo | grep MemAvailable'" < /dev/null
+```
+
+- **不碰**：`lspd`（切换依赖）、`system_server`、`systemui`、
+  `zygote64`、`webview_zygote`、`phone`、adbd。只清审计僵尸 +
+  常规双 force-stop；GMS/messaging/vending 等停后 ~60s 会自动复活，
+  不要追杀（它们不是大头）。
+- 门槛不变：`MemAvailable` ≥ 2G 才开 verdict 轮（本轮实测 1.07G →
+  8.5G）。`MemAvailable` 看这一行，不要看 `free`。
