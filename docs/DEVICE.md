@@ -91,3 +91,17 @@ adb -s V885Q49L8TAMFEEE shell cmd webviewupdate set-webview-implementation com.g
 - 重装 provider（`install -r`）会让 WebViewUpdateService 重新评估，装完再核一次
   Current；新包若判无效（如 versionCode 低于下限）会自动回落到其他 Valid 包。
 - 不需要系统签名、不需要预装、不改 framework；不许为此刷机或改 `/system`。
+
+## 6. 测试卫生与 reboot 纪律（2026-10-03 拍板）
+
+- **reboot 是诊断工具，不是常规回归步骤；当前阶段没有必要主动重启。**
+  常规卫生按梯度来：双 force-stop（CTS + provider uid，顺带清其 child）
+  → `su -c 'echo 3 > /proc/sys/vm/drop_caches'` → 静置数分钟；
+  健康看 `MemAvailable`（`free` 列误导），<2G 不开 verdict 轮。
+- 只有具备明确实验目的才 reboot（例如：force-stop 已排除单进程
+  状态，需区分"跨进程持久态"与"确定性缺陷"——2026-10-03 白屏
+  诊断即此例；或改动 kernel/driver 需重初始化）。reboot 需在
+  STATUS/设计文档留下目的 + 前后对照，否则不做。
+- 全仓审计：没有任何文档要求以重启为常规步骤（BOOTSTRAP §1 与
+  STATUS §3 早已证伪"必须重启"；LSPosed 改作用域需重启是 Android
+  机制要求，与本条无关）。
