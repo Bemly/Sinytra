@@ -105,6 +105,9 @@ adb -s V885Q49L8TAMFEEE shell cmd webviewupdate set-webview-implementation com.g
 - 全仓审计：没有任何文档要求以重启为常规步骤（BOOTSTRAP §1 与
   STATUS §3 早已证伪"必须重启"；LSPosed 改作用域需重启是 Android
   机制要求，与本条无关）。
+- **reboot 前必须先请示用户（2026-10-04 硬约束）**：本机重启/开机要电源键
+  手动确认，远端 `su -c reboot` 可能把设备扔在 USB 之外回不来
+  （2026-10-03 夜实锤）。Agent 不得自行 reboot；需要时说明理由等拍板。
 
 ## 7. 内存清腾与 shell 泄漏纪律（2026-10-03 实测）
 
