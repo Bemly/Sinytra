@@ -469,7 +469,8 @@ public final class GeckoWebViewProvider
             // settings default (CTS testAccessUserAgentString echoes it).
             mBridge.applyWebSettings(state.getJavaScriptEnabled(),
                     mSettings.resolvedUserAgentString(),
-                    state.getDesktopMode(), state.getUseWideViewPort());
+                    state.getDesktopMode(), state.getUseWideViewPort(),
+                    state.getLoadsImagesAutomatically());
         } catch (Throwable t) {
             android.util.Log.w(TAG, "pushSettings threw", t);
         }

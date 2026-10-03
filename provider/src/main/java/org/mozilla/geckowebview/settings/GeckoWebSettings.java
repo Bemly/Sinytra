@@ -408,6 +408,7 @@ public final class GeckoWebSettings {
     public GeckoSessionSettings toSessionSettings() {
         GeckoSessionSettings.Builder builder = new GeckoSessionSettings.Builder()
                 .allowJavascript(mJavaScriptEnabled)
+                .allowImages(mLoadsImagesAutomatically)
                 .viewportMode(mUseWideViewPort
                         ? GeckoSessionSettings.VIEWPORT_MODE_MOBILE
                         : GeckoSessionSettings.VIEWPORT_MODE_DESKTOP)

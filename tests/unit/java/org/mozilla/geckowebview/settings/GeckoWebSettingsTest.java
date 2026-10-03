@@ -182,6 +182,20 @@ public final class GeckoWebSettingsTest {
     }
 
     @Test
+    public void toSessionSettings_loadsImagesMapsToAllowImages()
+            throws Exception {
+        // Facade default true (Chromium parity): the session allows images
+        // unless the app opts out (CTS WebSettingsTest image family —
+        // data:/file: images are gated docshell-side by 0024).
+        GeckoWebSettings on = new GeckoWebSettings();
+        assertTrue(on.toSessionSettings().getAllowImages());
+
+        GeckoWebSettings off = new GeckoWebSettings();
+        off.setLoadsImagesAutomatically(false);
+        assertFalse(off.toSessionSettings().getAllowImages());
+    }
+
+    @Test
     public void toSessionSettings_desktopModeMapsToUserAgentMode()
             throws Exception {
         GeckoWebSettings mobile = new GeckoWebSettings();
