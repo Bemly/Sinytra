@@ -144,7 +144,9 @@ public final class FrameworkEntryActivity extends Activity {
             // enables it; so does this probe.
             onUi(() -> {
                 webView.getSettings().setJavaScriptEnabled(true);
-                webView.loadUrl("https://example.com/");
+                String entryUrl = getIntent().getStringExtra("url");
+                webView.loadUrl(entryUrl != null && !entryUrl.isEmpty()
+                        ? entryUrl : "https://example.com/");
                 return null;
             });
             if (!loaded.await(60, TimeUnit.SECONDS)) {
