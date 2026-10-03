@@ -957,6 +957,12 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   "多试几次就好"，见 0017 设计文档 M5-A1/A2/A3）。
 - 措辞纪律：内存只记 MemAvailable 压力现象，不叫 leak 实锤；M3 只证明
   domain 必要性，不做 driver 归因；reboot 只是诊断性 reset。
+- **Round 9（2026-10-03，0021 判别 A）**：P0Render 全新进程 GPU ON 白屏
+  复现（screencap×3 纯白，`P0 PASS success=true`），`Sinytra/surface`
+  三 handoff（non-null→null→non-null）send→ENTER→EXIT 全齐、rv=0、
+  毫秒级。handoff 已送达 GPU 侧并存下——**0017 v2 async 排序嫌疑洗脱**，
+  故障在 remote/state/compositor 下游。下一步：compositor 是否取用
+  surface / paused-state 恢复是否正确（M5-A2/A3），见 0021 文档 §4。
 
 ## 1x. CTS 19 类横扫（2026-10-02 在扫，GPU ON + 0017 v2；类间只清 CTS）
 

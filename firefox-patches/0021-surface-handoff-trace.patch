@@ -1,0 +1,147 @@
+From e3930d2585c835974d683f21373d6d15b025a256 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sat, 3 Oct 2026 11:46:46 +0800
+Subject: [PATCH] Sinytra patch 0021: surface-handoff ENTER/EXIT trace (Phase-1
+ discriminator)
+
+Caller (UiCompositorControllerChild v2 worker): monotonic seq + handoff
+send/finish logs under the 0005 pref gate (Sinytra/surface). Remote
+(GeckoServiceGpuProcess): ENTER/EXIT under BuildConfig.DEBUG. Transact
+success never proves GPU-side execution; correlate by
+(widgetId, surfaceNull, CLOCK_MONOTONIC timestamps). Diagnostic only.
+---
+ .../ipc/UiCompositorControllerChild.cpp       | 53 ++++++++++++++++++-
+ .../gecko/process/GeckoServiceGpuProcess.java | 17 ++++++
+ 2 files changed, 69 insertions(+), 1 deletion(-)
+
+diff --git a/gfx/layers/ipc/UiCompositorControllerChild.cpp b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+index 55ef663c2676..b32247507810 100644
+--- a/gfx/layers/ipc/UiCompositorControllerChild.cpp
++++ b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+@@ -10,6 +10,8 @@
+ #include "mozilla/gfx/GPUProcessManager.h"
+ #include "mozilla/ipc/Endpoint.h"
+ #include "mozilla/layers/CompositorThread.h"
++#include "mozilla/Atomics.h"
++#include "mozilla/Preferences.h"
+ #include "mozilla/TimeStamp.h"
+ #include "mozilla/layers/SynchronousTask.h"
+ #include "mozilla/layers/UiCompositorControllerMessageTypes.h"
+@@ -17,6 +19,10 @@
+ #include "nsIWidget.h"
+ #include "nsProxyRelease.h"
+ #include "nsThreadUtils.h"
++#include <time.h>
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#endif
+ 
+ #if defined(MOZ_WIDGET_ANDROID)
+ #  include "mozilla/layers/AndroidHardwareBuffer.h"
+@@ -33,6 +39,38 @@ static RefPtr<nsThread> GetUiThread() {
+ namespace mozilla {
+ namespace layers {
+ 
++// 0021 surface-handoff trace (Phase-1 discriminator, STATUS §1w): the v2
++// async worker only logs slow/failed transacts, and transact success never
++// proves the GPU side ran (fire-and-forget). Every handoff therefore gets a
++// sequence number + send log; the GPU-side ENTER/EXIT lives in
++// GeckoServiceGpuProcess.java (BuildConfig.DEBUG-gated). Correlate by
++// (seq-implied order, widgetId, surface-null, monotonic timestamps — both
++// sides use CLOCK_MONOTONIC). C++ side reuses the 0005 runtime pref gate
++// (sinytra.log.enabled, default false); tag Sinytra/surface.
++static bool SinytraSurfaceLogEnabled() {
++  static const bool sEnabled =
++      Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++
++#define SINYTRA_SURFACE_LOG(...)                                      \
++  do {                                                                \
++    if (SinytraSurfaceLogEnabled()) {                                 \
++      __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/surface",        \
++                          __VA_ARGS__);                               \
++    }                                                                 \
++  } while (0)
++
++static Atomic<uint64_t> sSurfaceHandoffSeq{0};
++
++// CLOCK_MONOTONIC ms since boot — same clock as Java
++// SystemClock.uptimeMillis(), so caller/remote logs correlate.
++static uint64_t MonotonicMs() {
++  struct timespec ts;
++  clock_gettime(CLOCK_MONOTONIC, &ts);
++  return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
++}
++
+ // public:
+ /* static */
+ RefPtr<UiCompositorControllerChild>
+@@ -390,15 +428,28 @@ void UiCompositorControllerChild::OnCompositorSurfaceChanged(
+   // keeps the Surface alive until the worker runs.
+   java::sdk::Surface::GlobalRef surface =
+       java::sdk::Surface::GlobalRef::From(aSurface);
++  // 0021: capture nullness on the calling thread (tracks pause vs resume).
++  const bool surfaceNull = (aSurface.Get() == nullptr);
+   (void)CompositorThread()->Dispatch(NS_NewRunnableFunction(
+       "UiCompositorControllerChild::AsyncSurfaceChanged",
+-      [self, aWidgetId, surface]() {
++      [self, aWidgetId, surface, surfaceNull]() {
++        // 0021: sequence + send log precede the transact so a white-screen
++        // startup (fast, healthy-looking transact) still leaves a trail.
++        const uint64_t seq = ++sSurfaceHandoffSeq;
+         const mozilla::TimeStamp transactStart = mozilla::TimeStamp::Now();
++        SINYTRA_SURFACE_LOG(
++            "handoff send seq=%llu widget=%d surfaceNull=%d t=%llu",
++            (unsigned long long)seq, aWidgetId, surfaceNull ? 1 : 0,
++            (unsigned long long)MonotonicMs());
+         nsresult result =
+             self->mCompositorSurfaceManager->OnSurfaceChanged(aWidgetId,
+                                                               surface);
+         const mozilla::TimeDuration elapsed =
+             mozilla::TimeStamp::Now() - transactStart;
++        SINYTRA_SURFACE_LOG(
++            "handoff finish seq=%llu widget=%d ms=%f rv=0x%x",
++            (unsigned long long)seq, aWidgetId,
++            elapsed.ToMilliseconds(), static_cast<uint32_t>(result));
+         if (NS_FAILED(result) || elapsed.ToMilliseconds() > 1000.0) {
+           gfxCriticalNote << "Async surface transact finished"
+                           << " ms=" << elapsed.ToMilliseconds()
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoServiceGpuProcess.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoServiceGpuProcess.java
+index a7e9c1a8e3a0..c85bb7a20c3f 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoServiceGpuProcess.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoServiceGpuProcess.java
+@@ -48,6 +48,18 @@ public class GeckoServiceGpuProcess extends GeckoServiceChildProcess {
+ 
+     @Override
+     public synchronized void onSurfaceChanged(final int widgetId, final Surface surface) {
++      // 0021 remote ENTER/EXIT (Phase-1 discriminator, STATUS §1w): caller
++      // transact success never proves this ran. Correlate with the C++
++      // handoff send/finish logs by (widgetId, surface-null, monotonic
++      // timestamps). BuildConfig.DEBUG-gated: silent in release (0005
++      // logging discipline).
++      final boolean debug = org.mozilla.geckoview.BuildConfig.DEBUG;
++      final long enterMs = debug ? android.os.SystemClock.uptimeMillis() : 0;
++      if (debug) {
++        android.util.Log.d("Sinytra/surface",
++            "remote ENTER widget=" + widgetId + " surfaceNull=" + (surface == null)
++            + " t=" + enterMs + " thread=" + Thread.currentThread().getName());
++      }
+       final Surface prevSurface = mSurfaces.get(widgetId);
+       if (prevSurface != null) {
+         prevSurface.release();
+@@ -56,6 +68,11 @@ public class GeckoServiceGpuProcess extends GeckoServiceChildProcess {
+       if (surface != null) {
+         mSurfaces.put(widgetId, surface);
+       }
++      if (debug) {
++        android.util.Log.d("Sinytra/surface",
++            "remote EXIT widget=" + widgetId + " dtMs="
++            + (android.os.SystemClock.uptimeMillis() - enterMs));
++      }
+     }
+ 
+     @WrapForJNI
+-- 
+2.56.0
+
