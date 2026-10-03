@@ -176,3 +176,24 @@ expected:<[0]> but was:<[1]>  (WebSettingsTest.java:837)
   + `MOZ_LOG` 进入 Gecko 可观测性。要求：先定目标 module → 验证配置进入
   child → 再跑故障；分 navigation/docshell 与 child/IPC 两条线；目标是找到
   PASS 与 FAIL 时间线的第一个 diverge 点（T0 onLoadRequest(ALLOW) → T5 PageStart）。
+
+## 10. MOZ_LOG diverge 定位（2026-10-04）：停在 real-channel 交棒之后
+
+- 手段：`src/debug/assets/geckoview-config.yaml` 加
+  `env: MOZ_LOG: DocumentChannel:5,nsDocShell:5,Process:5`（automation.md
+  在树内已核；`GeckoDebugConfig` 日志确认读取；`[Child xxxx]` 日志确认进
+  child；provider-only 构建即可）。
+- PASS 与 FAIL 在 channel 层**完全一致**：`DocumentChannel ctor →
+  DocumentChannelChild ctor → RecvRedirectToRealChannel →
+  OnRedirectVerifyCallback(rv=0) → dtor`（dtor 是正常交棒）。
+- **diverge 点在其后**：PASS 继续解析到 PageStart；FAIL 的 real data:
+  channel 再无任何动静（`nsDataChannel` 无 MOZ_LOG 点，`nsDocShell`
+  全程零输出），child 进程活着（20 秒后干净退出），UI 主循环健康，
+  tab 出生+连上。父侧 `RedirectToRealChannelFinished(0)` →
+  `FinishReplacementChannelSetup(0)` → `ResumeSuspendedChannel` 全绿。
+- 即：parent 把棒交出去了，child 接棒后 data: 真通道静默。剩余假说只剩
+  content 主循环任务级停顿（lost wakeup / sync IPC 长尾，UI watchdog 看
+  不到 tab 线程）。待手段：hang 住时抓 tab child 线程栈（debuggerd 在本
+  ROM 无输出是已知限制）或 parser/docshell-inner module 日志。
+- 纪律重申：verdict 轮按标准 CTS 流程走（双清 + 静置 + 串行 + 记录），
+  不再为 flake 改逻辑；reboot 先请示。

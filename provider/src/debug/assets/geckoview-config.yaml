@@ -2,6 +2,12 @@
 # Same hygiene prefs as the base file, plus the 0005 instrumentation gate.
 # Release builds package only the base file — sinytra.log.enabled stays
 # default-false there and no Sinytra instrumentation reaches logcat.
+env:
+  # Navigation/docshell + child-process triumvirate for the image-family
+  # pre-commit stall (0024 §9): find the first PASS-vs-FAIL diverge point
+  # between onLoadRequest(ALLOW) and PageStart. Debug-only; verbose enough
+  # to perturb timing, so verdict runs keep this OFF (see below).
+  # MOZ_LOG: DocumentChannel:5,nsDocShell:5,Process:5
 prefs:
   network.connectivity-service.enabled: false
   network.captive-portal-service.enabled: false
