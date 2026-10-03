@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.provider;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 // Unit locks for the loadData byte shaping (pure-Java paths). The base64
@@ -80,11 +81,54 @@ public final class LoadDataBytesTest {
             @Override
             public void logWarning(String message) {
             }
+
+            @Override
+            public boolean imagesAllowed() {
+                return true;
+            }
         };
         String html = "<html><head><title>T</title></head><body>hi</body></html>";
         new LoadDataHandler(host).loadDataWithBaseURL(
                 null, html, "text/html", "UTF-8", null);
         assertArrayEquals(html.getBytes("UTF-8"), captured[0]);
         assertEquals("text/html", capturedMime[0]);
+    }
+
+    // imagesAllowed=false: the data: document handed to the session has no
+    // image sources left (naturalHeight reads 0 on device).
+    @Test
+    public void dataPath_stripsImgSourcesWhenImagesOff() throws Exception {
+        final byte[][] captured = new byte[1][];
+        LoadDataHandler.Host host = new LoadDataHandler.Host() {
+            @Override
+            public void navigateTo(String url) {
+                throw new AssertionError("data: path must not navigate");
+            }
+
+            @Override
+            public void loadDataUri(byte[] data, String mimeType) {
+                captured[0] = data;
+            }
+
+            @Override
+            public void addInterceptFilter(String prefix) {
+                throw new AssertionError("data: path must not filter");
+            }
+
+            @Override
+            public void logWarning(String message) {
+            }
+
+            @Override
+            public boolean imagesAllowed() {
+                return false;
+            }
+        };
+        new LoadDataHandler(host).loadDataWithBaseURL(null,
+                "<html><body><img src=\"http://h/i.png\"></body></html>",
+                "text/html", "UTF-8", null);
+        String served = new String(captured[0], "UTF-8");
+        assertTrue(!served.contains("http://h/i.png"));
+        assertTrue(served.contains("<img"));
     }
 }

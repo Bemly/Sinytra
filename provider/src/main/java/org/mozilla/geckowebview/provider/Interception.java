@@ -58,6 +58,16 @@ final class Interception {
             public void logWarning(@NonNull String message) {
                 android.util.Log.w(TAG, message);
             }
+
+            @Override
+            public boolean imagesAllowed() {
+                try {
+                    return mHost.settings().getLoadsImagesAutomatically();
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG, "imagesAllowed threw", t);
+                    return true;
+                }
+            }
         });
         final InterceptBridge query = intercept;
         mResponses = new ResponseBridge(new ResponseBridge.Host() {

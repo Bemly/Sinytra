@@ -21,6 +21,9 @@ final class LoadDataHandler {
         void addInterceptFilter(@NonNull String prefix);
 
         void logWarning(@NonNull String message);
+
+        /** WebSettings.getLoadsImagesAutomatically (CTS image family). */
+        boolean imagesAllowed();
     }
 
     static final class OneShotBody {
@@ -112,13 +115,40 @@ final class LoadDataHandler {
         // Legacy data: URI path (no necko surface for non-http targets).
         // baseUrl still resolves relative URLs via an injected <base>.
         String html = body;
+        // Deterministic image gate for loadData documents: data:/file:
+        // subresources never consult the 0001 necko hook (nsDataChannel/
+        // nsFileChannel have no interception point — 0020's conclusion),
+        // and the docshell flag (0024) races content-process lifecycle, so
+        // a renderer-dependent block is not observable here. The document
+        // bytes are ours, so strip image sources up front when the app
+        // disabled images: <img> without src never loads (naturalHeight 0)
+        // while body onload still fires the title update (CTS image family:
+        // "0"). Only <img> tags are touched — <script src> and page text
+        // pass through verbatim. JS-injected images after load are NOT
+        // covered (documented gap; no CTS coverage).
+        boolean htmlType = type.startsWith("text/html");
+        if (!mHost.imagesAllowed() && htmlType) {
+            html = neutralizeBlockedImages(body);
+        }
         if (baseUrl != null && !baseUrl.isEmpty()
                 && type.startsWith("text/html")) {
             html = "<base href=\"" + baseUrl.replace("\"", "%22") + "\">"
-                    + body;
+                    + html;
         }
         if ("base64".equalsIgnoreCase(encoding)) {
-            mHost.loadDataUri(loadDataBytes(body, "base64"), type);
+            byte[] decoded = loadDataBytes(body, "base64");
+            if (!mHost.imagesAllowed() && htmlType) {
+                try {
+                    String decodedHtml =
+                            new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
+                    decoded = neutralizeBlockedImages(decodedHtml).getBytes(
+                            java.nio.charset.StandardCharsets.UTF_8);
+                } catch (Throwable t) {
+                    mHost.logWarning("loadDataWithBaseURL: image sanitize "
+                            + "skipped undecodable base64 body");
+                }
+            }
+            mHost.loadDataUri(decoded, type);
         } else {
             String charset =
                     encoding != null && !encoding.isEmpty() ? encoding : "UTF-8";
@@ -148,6 +178,42 @@ final class LoadDataHandler {
     static boolean isHttpUrl(@NonNull String url) {
         return url.regionMatches(true, 0, "http://", 0, 7)
                 || url.regionMatches(true, 0, "https://", 0, 8);
+    }
+
+    // Matches an <img ...> open tag (ASCII case-insensitive; tags never
+    // contain a nested '<' or '>' so the negated class cannot run away).
+    private static final java.util.regex.Pattern IMG_TAG =
+            java.util.regex.Pattern.compile("<img\\b[^<>]*>",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+    // Matches one src/srcset assignment inside a tag (double-quoted,
+    // single-quoted, or bare value; leading whitespace included so removal
+    // leaves no double spaces).
+    private static final java.util.regex.Pattern IMG_SOURCE =
+            java.util.regex.Pattern.compile(
+                    "\\s+(?:src|srcset)\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s\"'`=<>]+)",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Strips src/srcset from <img> tags so the images never load
+     * (naturalHeight reads 0) while inline scripts and body onload keep
+     * running. Pure string surgery for the loadData path (see caller);
+     * null-safe (null in, null out).
+     */
+    @Nullable
+    static String neutralizeBlockedImages(@Nullable String html) {
+        if (html == null) {
+            return null;
+        }
+        java.util.regex.Matcher tags = IMG_TAG.matcher(html);
+        StringBuffer out = new StringBuffer(html.length());
+        while (tags.find()) {
+            String tag = tags.group();
+            String stripped = IMG_SOURCE.matcher(tag).replaceAll("");
+            tags.appendReplacement(out,
+                    java.util.regex.Matcher.quoteReplacement(stripped));
+        }
+        tags.appendTail(out);
+        return out.toString();
     }
 
     @NonNull
