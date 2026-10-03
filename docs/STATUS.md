@@ -1064,11 +1064,13 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
     约一 poll（G/H 探针；D 快页 1ms）——新鲜度竞态，未闭。
   - `BlockNetworkLoads`（2026-10-03 已闭，`dea324d`+`5990c7f`：主帧策略门
     + 失败终局合成，单测 OK）：主帧 http 未被拦（历史）。
-  - cache 族 3（2026-10-03 复核：`noCache` 走的是 http localhost
-    `loadAssetUrl`（`TestHtmlConstants`：`loadAssetUrl`=WebServer http，
-    `getFileUrl`=file，两码事—— ledger 初版误记 file，已纠正），纯 http
-    load 即 `mLoaded=false` 真 stall；BYPASS_CACHE 已接（`7e2e87a`），
-    stall 另有根因，待 logcat 定位）：缓存语义未对齐，待查。
+  - cache 族 3（2026-10-03 根因锁定，非 cache 语义）：`noCache` 第二 load
+    的 consult 应答正常，但主线程 park 在 `syncPauseCompositor`（native，
+    watchdog 10s 转储实锤（SurfaceView visibility 链）——M5-A1
+    teardown hang 在测试中途发作，后续 delegate 全停，triple-gate 超时。
+    0022 只动了 resume，pause 路未覆盖。BYPASS_CACHE 保留（重取语义仍需
+    它，待 M5-A1 后验证）。`eval timeout`（IconFetcher 查询）与 icon 等待
+    同为连带受害者。
   - file-XHR/iframe `*Disabled` 全过（拦截侧正确）、`UseWideViewPort`/
     `PluginsEnabled`/`JavaScriptCanOpenWindowsAutomatically`（20s future 超时，
     无 onCreateWindow 桥）各 1，`AllowMixedMode`（`Path not set: /secure.html`
