@@ -117,6 +117,10 @@ adb -s V885Q49L8TAMFEEE shell cmd webviewupdate set-webview-implementation com.g
 - **批量原则**：一个目的只用一次 `adb shell`，多命令用 `;` 串起来；
   循环里调 `adb shell` 必须 `< /dev/null`（它会吞掉循环的 stdin，
   2026-10-03 扫表循环只跑一轮即退出的教训），且循环体禁用逐项 shell。
+- **每次手机测试前必清进程（强制步骤）**：任何上机（单测/探针/复现/screencap）
+  前，先跑 §7 清僵尸命令 + 常规双 force-stop（CTS + provider uid），再看
+  门限。不是"内存看着还行就跳过"——僵尸按调用次数线性涨，一轮串行扫表
+  （50+ 次 shell）不中途清一次就会把后面 verdict 毒掉。
 - **verdict 轮前必清僵尸**（一次调用，防自杀写法——朴素
   `pkill -f kokoro.provider` 会连本次会话一起杀掉，本次会话的
   logger 同样匹配，退出码 137）：
@@ -131,3 +135,8 @@ adb -s V885Q49L8TAMFEEE shell "su -c 'for p in \$(pgrep -f kokoro.provider); do 
   不要追杀（它们不是大头）。
 - 门槛不变：`MemAvailable` ≥ 2G 才开 verdict 轮（本轮实测 1.07G →
   8.5G）。`MemAvailable` 看这一行，不要看 `free`。
+  2G 是**实验健康门（reproducibility gate），不是产品运行最低要求**：
+  已证明的只是"低 MemAvailable → flake 增加"，不是因果阈值；以后调
+  成 2.5G/1.8G 不影响任何技术结论。
+- 不为"健康"主动 reboot（§6 纪律）：轻量 hygiene 建健康窗口即可，
+  除非某轮实验明确要验证跨进程/系统状态。

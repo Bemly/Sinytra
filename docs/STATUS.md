@@ -877,6 +877,14 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 
 ## 1w. GPU-process hang / fallback status（2026-10-02，用户拍板）
 
+> 主题（2026-10-03 修订）：0017 不再是"Binder 超时补丁"，而是
+> **GPU-process Surface lifecycle recovery**（当前落地机制为 Binder
+> bounded failure；startup 首帧 + 状态恢复待 Phase 1 判别后扩展，
+> 拆成 M5-A1/A2/A3 三个 acceptance 面，见 0017 设计文档）。
+> 出货门（写死）：**当前 GPU-ON 构建不满足出货条件，直到 startup
+> 首帧呈现与 teardown failure 均被修复并完成 GPU-ON 全量回归**；
+> M3/M3b 只做 fallback，不做正常模式。
+
 ### 已确认
 
 - GPU-process ON 路径存在 compositor teardown hang：`syncPauseCompositor()`
@@ -911,12 +919,15 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 
 ### Root-fix
 
-- **M5-A：保留 GPU process，修复同步 Binder failure handling**。目标：
+- **M5-A：保留 GPU process 的当前主线 root-fix（"正解"降级，2026-10-03：
+  未经验证前不称正解）**。目标：
   `ICompositorSurfaceManager.onSurfaceChanged()` 同步 Binder IPC →
   bounded failure → GPU/provider recovery → 复用现有
   `NotifyRemoteActorDestroyed` / GPU reinitialization 路径。设计原则沿用
   1880503：**超时后恢复/重建，而不是假设 remote 已经成功完成操作。**
   M5-A 完成后，重新开启 GPU process 做完整回归；M3/M3b 保留为 fallback。
+  M5-A 是否同时消除 teardown hang 与 startup white screen，需实现后
+  实测确认（见下）。
 - 上游参照：1855536（同类 ANR，NEW/P3）/ 1880503（IPDL 10s 超时 + kill
   GPU + minidump，已在 158 树；不覆盖 Binder 跳——即本次靶子）/
   1929209（同症状不同病因：Adreno shader，133/134 已修；Mali 本机不适用）。
@@ -934,9 +945,16 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   （domain 内还有 compositor/Binder/Surface/BufferQueue 层）。
 - reboot 诊断性 reset 结果：**白屏依旧**——"跨进程持久污染"假设被削弱；
   不是单个 App 进程状态（force-stop 已排除），也不是 reboot 可清的
-  全局 rot。问题收敛为 **GPU ON 下启动呈现路径本身的确定性缺陷**
-  （0017 原只覆盖 teardown/pause-resume 的 Binder hop，启动 resume
-  的 null-surface 需纳入覆盖或另立根因）。
+  全局 rot。问题收敛为 **GPU ON 下 Surface attach/resume → 首帧
+  presentation 的确定性失败**（钉死的是 buffer=0x0 + null Surface +
+  never present，不是某个具体方法；0017 原只覆盖 teardown/pause-resume
+  的 Binder hop，启动 resume 的 null-surface 需纳入覆盖或另立根因）。
+  teardown（destroy/pause 路 Binder hang）与 startup（attach/resume 路
+  零 buffer）很可能属同一 Surface/compositor lifecycle state machine
+  的两面——扩展 0017 时不预设"两个无关 bug"，也不预设"null Surface
+  = 重试即可"（先定 null 合法性：瞬态还是非法状态，再选 ordering
+  修复还是 recovery/recreate；贸然 retry 会把 ordering bug 遮成
+  "多试几次就好"，见 0017 设计文档 M5-A1/A2/A3）。
 - 措辞纪律：内存只记 MemAvailable 压力现象，不叫 leak 实锤；M3 只证明
   domain 必要性，不做 driver 归因；reboot 只是诊断性 reset。
 

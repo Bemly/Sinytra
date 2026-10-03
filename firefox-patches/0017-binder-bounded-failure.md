@@ -1,13 +1,23 @@
-# 0017 — Binder bounded failure (M5-A design)
+# 0017 — GPU-process Surface lifecycle recovery (M5-A design)
 
-> Root-fix for the GPU-process compositor hang (STATUS §1w): keep the GPU
-> process, but turn the synchronous Binder dependency from "hang the UI
-> forever" into bounded failure + recovery. Follows the 1880503 philosophy
+> 主题（2026-10-03 修订）：不再是"Binder 超时补丁"，而是
+> **Surface lifecycle recovery**——teardown hang（Binder bounded
+> failure，M5-A1，已落地 v2 async）+ 状态恢复（M5-A2）+ startup
+> 首帧正确性（M5-A3）三个 acceptance 面。A1/A2/A3 共享 root-fix
+> 主题，不预设同一具体 bug；若 Phase 1 证实 A2/A3 系独立 startup
+> state bug，再拆独立 patch（一次一 patch 纪律保留）。
+>
+> Root-fix 定位：当前主线 root-fix（"正解"降级：未经验证前不称
+> 正解——M5-A 是否同时消除 teardown hang 与 startup white screen，
+> 需实现后实测确认）。
+>
+> Follows the 1880503 philosophy
 > (timeout → kill/rebuild, never assume the remote completed).
 >
 > Non-goals (explicit): no fence hunting (fence-as-cause unproven, §4);
 > oneway is M5-B experimental only, never presumed the cure (§5);
-> no behavior change on the healthy path.
+> no behavior change on the healthy path; no blind retry/recreate on
+> null Surface (legality first, §4a).
 
 ## 1. Failure model (device-verified)
 
@@ -127,6 +137,22 @@ Never-pretend-paused holds trivially: no wait exists to pretend about.
   not need the GPU-side cause: it bounds the UI-side wait regardless.
 - That killing the GPU always recovers video/WebGL mid-stream. Covered
   by acceptance §6 items 3–5.
+- That `transact()` returning success means the GPU received it.
+  Fire-and-forget/oneway success only proves Binder accepted/queued the
+  transaction — NOT that `RemoteCompositorSurfaceManager.onSurfaceChanged`
+  ran. Phase-1 discrimination REQUIRES remote-side ENTER/EXIT (sequence /
+  generation ID + caller timestamp + ENTER + EXIT); without it, "handoff
+  delivered vs remote/state/compositor fault" is undecidable.
+
+## 4a. Null-Surface legality first (M5-A3 precondition)
+
+A null Surface at resume is not automatically "retry and recreate":
+first determine WHY it is null (legal transient vs illegal state —
+in particular whether 0017 v2 async let `ResumeAndResizeCompositor`
+run past a late `onSurfaceChanged`, leaving stale state). If the cause
+is handoff ordering, the fix is an ordering/barrier fix, not retry —
+blind retry would wallpaper an ordering bug into "eventually works".
+Retry/recreate/recovery only after legality is settled.
 
 ## 5. M5-B (experimental variant, separate patch)
 
@@ -147,6 +173,13 @@ without that evidence.
    became "restart GPU each time but black next surface" — not fixed).
 6. Healthy-path behavior unchanged (perf/features; M3/M3b harness deltas
    as the comparison baseline).
+7. Startup first-present (M5-A3): the white-screen reproducer (P0Render
+   fresh process, GPU ON) presents ≥3 consecutive rounds, screencap
+   triplicates; BOTH state transitions verified —
+   initial NONE→ATTACHED→RESUMED→PRESENTED and recovery
+   PAUSED/LOST→rebuild→ATTACHED→RESUMED→PRESENTED (same state machine
+   until proven otherwise; 1880503's paused-after-reinit lesson:
+   rebuild must restore the INTENDED state, never a stale paused).
 
 ## 7. Test plan
 
