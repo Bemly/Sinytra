@@ -21,7 +21,7 @@ public final class GeckoWebSettingsTest {
         GeckoWebSettings settings = new GeckoWebSettings();
         assertFalse(settings.getJavaScriptEnabled());
         assertFalse(settings.getLoadWithOverviewMode());
-        assertTrue(settings.getUseWideViewPort());
+        assertFalse(settings.getUseWideViewPort());
         assertTrue(settings.supportZoom());
         assertFalse(settings.getBuiltInZoomControls());
         assertTrue(settings.getDisplayZoomControls());
@@ -59,6 +59,7 @@ public final class GeckoWebSettingsTest {
         assertFalse(settings.getDomStorageEnabled());
         assertFalse(settings.getDatabaseEnabled());
         assertFalse(settings.getSupportMultipleWindows());
+        assertFalse(settings.getPluginsEnabled());
     }
 
     @Test
@@ -78,6 +79,7 @@ public final class GeckoWebSettingsTest {
         settings.setBlockNetworkLoads(true);
         settings.setBlockNetworkImage(true);
         settings.setLoadsImagesAutomatically(false);
+        settings.setPluginsEnabled(true);
 
         assertTrue(settings.getJavaScriptEnabled());
         assertTrue(settings.getLoadWithOverviewMode());
@@ -93,6 +95,7 @@ public final class GeckoWebSettingsTest {
         assertTrue(settings.getBlockNetworkLoads());
         assertTrue(settings.getBlockNetworkImage());
         assertFalse(settings.getLoadsImagesAutomatically());
+        assertTrue(settings.getPluginsEnabled());
     }
 
     @Test
@@ -195,8 +198,10 @@ public final class GeckoWebSettingsTest {
     public void toSessionSettings_wideViewportMapsToMobileRendering()
             throws Exception {
         // Wide viewport = mobile rendering (the bridge's chosen mapping —
-        // locked here so a change is deliberate, not accidental).
+        // locked here so a change is deliberate, not accidental). Default
+        // is narrow (Chromium parity, CTS testAccessUseWideViewPort).
         GeckoWebSettings wide = new GeckoWebSettings();
+        wide.setUseWideViewPort(true);
         assertEquals(GeckoSessionSettings.VIEWPORT_MODE_MOBILE,
                 wide.toSessionSettings().getViewportMode());
 

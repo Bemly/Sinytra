@@ -12,7 +12,9 @@ import org.mozilla.geckoview.GeckoSessionSettings;
 public final class GeckoWebSettings {
     private boolean mJavaScriptEnabled;
     private boolean mLoadWithOverviewMode;
-    private boolean mUseWideViewPort = true;
+    // CTS WebSettingsTest.testAccessUseWideViewPort asserts the default is
+    // false (Chromium parity).
+    private boolean mUseWideViewPort;
     private boolean mSupportZoom = true;
     private boolean mBuiltInZoomControls;
     private boolean mDisplayZoomControls = true;
@@ -54,6 +56,9 @@ public final class GeckoWebSettings {
     private boolean mDomStorageEnabled;
     private boolean mDatabaseEnabled;
     private boolean mSupportMultipleWindows;
+    // Deprecated plugin API (CTS testAccessPluginsEnabled): long dead, no
+    // engine effect — stored verbatim for set/get parity, default false.
+    private boolean mPluginsEnabled;
 
     public boolean getJavaScriptEnabled() {
         return mJavaScriptEnabled;
@@ -387,6 +392,14 @@ public final class GeckoWebSettings {
 
     public void setSupportMultipleWindows(boolean support) {
         mSupportMultipleWindows = support;
+    }
+
+    public boolean getPluginsEnabled() {
+        return mPluginsEnabled;
+    }
+
+    public void setPluginsEnabled(boolean flag) {
+        mPluginsEnabled = flag;
     }
 
     // Build GeckoSessionSettings for a NEW session. userAgentMode/viewportMode/

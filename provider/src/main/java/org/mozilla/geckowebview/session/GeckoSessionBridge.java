@@ -397,6 +397,17 @@ public final class GeckoSessionBridge
     // --- P0 navigation surface (called by GeckoWebViewProvider) ---
 
     public void loadUrl(@NonNull String url) {
+        loadUrl(url, false);
+    }
+
+    /**
+     * Navigation with an optional cache bypass (WebSettings.LOAD_NO_CACHE
+     * must re-fetch instead of serving cache; the flag has no other
+     * mapping — LOAD_CACHE_ONLY/ELSE_NETWORK stay honest gaps). The
+     * one-shot path (Interception.navigateTo) always uses the plain form:
+     * synthetic bodies never interact with the HTTP cache.
+     */
+    public void loadUrl(@NonNull String url, boolean bypassCache) {
         if (url != null && url.regionMatches(true, 0, "about:", 0, 6)) {
             mExplicitAboutLoad = true;
         }
@@ -415,7 +426,12 @@ public final class GeckoSessionBridge
         if (url != null) {
             mUrl = url;
         }
-        mSession.loadUri(url);
+        if (bypassCache) {
+            mSession.load(new GeckoSession.Loader().uri(url)
+                    .flags(GeckoSession.LOAD_FLAGS_BYPASS_CACHE));
+        } else {
+            mSession.loadUri(url);
+        }
     }
 
     /**

@@ -434,13 +434,14 @@ final class CompatWebSettings extends WebSettings {
     // Deprecated plugin API: absent from android.jar (stripped) but still
     // abstract on the API-34 device framework — without these declarations
     // any call dies with AbstractMethodError (CTS
-    // WebSettingsTest.testAccessPluginsEnabled). Plugins are long dead:
-    // always false, setter is a no-op. No @Override (android.jar has no
-    // such member to override against).
+    // WebSettingsTest.testAccessPluginsEnabled). Plugins are long dead with
+    // no engine effect: verbatim facade state, default false. No @Override
+    // (android.jar has no such member to override against).
     public boolean getPluginsEnabled() {
-        return false;
+        return mDelegate.getPluginsEnabled();
     }
 
     public void setPluginsEnabled(boolean flag) {
+        mDelegate.setPluginsEnabled(flag);
     }
 }

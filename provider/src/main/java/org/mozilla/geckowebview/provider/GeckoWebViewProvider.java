@@ -481,7 +481,7 @@ public final class GeckoWebViewProvider
         if (serveLocalFileIfAllowed(url)) {
             return;
         }
-        mBridge.loadUrl(url);
+        mBridge.loadUrl(url, bypassCache());
     }
 
     @Override
@@ -490,7 +490,20 @@ public final class GeckoWebViewProvider
         if (serveLocalFileIfAllowed(url)) {
             return;
         }
-        mBridge.loadUrl(url);
+        mBridge.loadUrl(url, bypassCache());
+    }
+
+    // WebSettings.LOAD_NO_CACHE must re-fetch from the network
+    // (CTS testAccessCacheMode_noCache counts server hits). Gecko expresses
+    // it per-load (LOAD_FLAGS_BYPASS_CACHE); other modes have no GV
+    // mapping and stay honest gaps.
+    private boolean bypassCache() {
+        try {
+            return mSettings.gecko().getCacheMode()
+                    == android.webkit.WebSettings.LOAD_NO_CACHE;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     // file:// documents the Gecko child cannot read itself (FileBridge):
