@@ -1021,6 +1021,15 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **扫表卫生教训**：19:10 的 harness 进程（25420）残留 2 小时且主线程
   卡死（episode=12），疑毒化共享 GPU 致 batch4 团灭——此后类间必清
   provider 全进程；batch4 结论待 hygiene 后重跑确认。
+- **三修复验证（2026-10-03，`dea324d`+`5990c7f`）**：
+  `testBlockNetworkLoads` **OK**（主帧策略门 + 失败终局合成；装包后首轮
+  冷启动抖动一次，复跑绿——cold-burst 家族）；`testAccessAllowFileAccess`
+  datadir 半绿（FileBridge 端到端实锤，失败移到 291 行 asset 半）；
+  `testAccessCacheMode_noCache` 仍 stall——根因是第一步 `loadAssetUrl`
+  即 `file:///android_asset/`（0020 缺口），不是 cache 语义；
+  BYPASS_CACHE 随 0020 通后才能验证（代码无害保留）。
+  0020 现为 WebSettingsTest 最大剩余杠杆（file 4 + cache 3 + asset 半
+  约 10 项全卡它），归属设计优先。
 - **loadData 双重编码根因（已修，2026-10-03，`8b3c848`）**：data: 回退路径把
   文档 percent-encode 后交 `loadDataUri(byte[], mime)`，而 byte[] 重载自己包
   `data:<mime>;base64,<BASE64>`——base64 体按字面解码，所有 loadData 页渲染成
@@ -1038,21 +1047,23 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   整类跑 24 FAIL 含压力假象（UA/镜像单测在整类里挂、单跑全过——§1v
   burst 家族；`adb shell` 吞循环 stdin 坑已记：`< /dev/null`）。
   单测真相（fresh process/个，`fail` 全为产品信号）：
-  - file:// 族 4（`AllowFileAccess/LocalImageLoads/Iframes+XHR*Enabled`，
-    全 `but was:<null>`）：`file:///android_asset/` 对 Gecko 是字面路径
-    `/android_asset/...`（Android 虚拟路径，necko 直接 ENOENT 静默死——
-    onLoadRequest 后无 PageStart/PageStop/error，history 恒 blank）；
+  - file:// 族 4（2026-10-03 进展：`AllowFileAccess` datadir 半已绿，
+    FileBridge `178fd50` 端到端实锤，失败移到 291 行 asset 半；余下全卡
+    `file:///android_asset/`）：对 Gecko 是字面路径 `/android_asset/...`
+    （Android 虚拟路径，necko 直接 ENOENT 静默死——onLoadRequest 后无
+    PageStart/PageStop/error，history 恒 blank）；
     `file:///data/...` 另有 provider-uid 无权读（0700 对方 uid，见下）。
     0020 方向：`file:///android_asset/` → host APK jar 映射（Gecko 小 patch，
     0013 同构；APK 0644 world-readable，child 可读）+ provider 侧读
-    app 私有文件合成（见下条）。
+    app 私有文件合成（见下条，已落地）。
   - 空标题族 3（`blockLoadingImages/loadImagesWithoutReload/BlockNetworkImage`，
     `expected 0 but was ""`）：blocked/error-img 页标题"0"滞后 PageFinished
     约一 poll（G/H 探针；D 快页 1ms）——新鲜度竞态，未闭。
-  - `BlockNetworkLoads`（`Values should be different. Actual: test hello world`）：
-    主帧 http 未被拦（DENY/清缓存二选一待查）。
-  - cache 族 3（`cacheElseNetwork/noCache/cacheOnly`，单跑即
-    `mLoaded=false` 真 stall）：缓存语义未对齐，待查。
+  - `BlockNetworkLoads`（2026-10-03 已闭，`dea324d`+`5990c7f`：主帧策略门
+    + 失败终局合成，单测 OK）：主帧 http 未被拦（历史）。
+  - cache 族 3（2026-10-03 复核：`noCache` 第一步 `loadAssetUrl` 即
+    `file:///android_asset/`，0020 缺口，非 cache 语义；BYPASS_CACHE
+    待 0020 通后验证）：缓存语义未对齐，待查。
   - file-XHR/iframe `*Disabled` 全过（拦截侧正确）、`UseWideViewPort`/
     `PluginsEnabled`/`JavaScriptCanOpenWindowsAutomatically`（20s future 超时，
     无 onCreateWindow 桥）各 1，`AllowMixedMode`（`Path not set: /secure.html`
