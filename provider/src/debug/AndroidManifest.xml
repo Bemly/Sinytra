@@ -22,5 +22,9 @@
         <activity
             android:name="org.mozilla.geckowebview.provider.FrameworkEntryActivity"
             android:exported="true" />
+        <!-- CTS triage probes (STATUS §1x); debug-only. -->
+        <activity
+            android:name="org.mozilla.geckowebview.provider.JsTitleProbeActivity"
+            android:exported="true" />
     </application>
 </manifest>
