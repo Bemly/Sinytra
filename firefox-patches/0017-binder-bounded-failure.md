@@ -192,7 +192,7 @@ without that evidence.
 - Upstream report: land with paired minidump intact (1880503's
   diagnostics must keep working — the kill path is shared).
 
-## 8. Validation log (GPU ON + 0017 v1)
+## 8. Validation log (GPU ON; rounds 1–3 v1 watchdog-kill, rounds 4+ v2 async)
 
 - **Round 1 (2026-10-02, `testThirdPartyCookie`)**: both loads green
   (HIT+OnSuccess+PageStop), then teardown cover → main stuck in
@@ -255,3 +255,18 @@ without that evidence.
   startup-present defect under GPU ON. 0017 scope must expand to the
   startup resume / null-surface path (or another cause found). See
   STATUS §1w White-pixel outage.
+- **Round 11 (2026-10-03, CTS noCache singleton teardown)**:
+  independent M5-A1 park reproduction. `testAccessCacheMode_noCache`
+  load#2 (plain http localhost) consulted fine (HIT/Intercepted/OnSuccess
+  4ms after request) then fetched nothing for ~20s → test wait timed out
+  → teardown launched infra EmptyActivity → activity stop →
+  surfaceDestroyed → main parked in `syncPauseCompositor` native
+  (watchdog 10s stack) → `Killing GPU process due to IPC reply timeout`
+  fired (1880503 works on our builds) → **main still parked past the
+  kill** → Activity destroy timeout → ragged instrument end. Lessons:
+  (a) kill ≠ recovery (Round-1 limbo, third instance) — M5-A1 needs
+  post-kill unpark + app-level recovery, not just kill; (b) the park
+  outlives the remote, mirroring Round 3 (transact survives kills) —
+  pause path needs the v2 treatment (never block UI on remote, not
+  even via IPDL); (c) load#2's 20s fetch stall itself is UNEXPLAINED
+  (server-side single-thread vs Gecko-side — open, not M5-A1).

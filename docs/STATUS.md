@@ -1064,13 +1064,16 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
     约一 poll（G/H 探针；D 快页 1ms）——新鲜度竞态，未闭。
   - `BlockNetworkLoads`（2026-10-03 已闭，`dea324d`+`5990c7f`：主帧策略门
     + 失败终局合成，单测 OK）：主帧 http 未被拦（历史）。
-  - cache 族 3（2026-10-03 根因锁定，非 cache 语义）：`noCache` 第二 load
-    的 consult 应答正常，但主线程 park 在 `syncPauseCompositor`（native，
-    watchdog 10s 转储实锤（SurfaceView visibility 链）——M5-A1
-    teardown hang 在测试中途发作，后续 delegate 全停，triple-gate 超时。
-    0022 只动了 resume，pause 路未覆盖。BYPASS_CACHE 保留（重取语义仍需
-    它，待 M5-A1 后验证）。`eval timeout`（IconFetcher 查询）与 icon 等待
-    同为连带受害者。
+  - cache 族 3（2026-10-03 根因分层，非 cache 语义）：`noCache` load#2
+    consult 正常（HIT/OnSuccess），随后 localhost 取数静默 ~20s（根因未明：
+    server 单线程 vs Gecko 侧，open）→ 测试等待超时 → teardown 起 infra
+    EmptyActivity 盖掉 WebViewCtsActivity → stop → surfaceDestroyed →
+    主线程 park 在 `syncPauseCompositor`（watchdog 10s 转储）→ 1880503
+    kill 照发 → **main 在 kill 后仍 park** → destroy 超时收尾（Round 1
+    limbo 第三实例）。M5-A1 形状就此定稿：kill ≠ recovery，需要
+    post-kill unpark + 应用层恢复；pause 路要吃 v2 同款待遇（永不在 UI
+    上等 remote，连 IPDL 也不等）。BYPASS_CACHE 保留（重取语义仍需它）。
+    `eval timeout`/icon 等待同为连带受害者。
   - file-XHR/iframe `*Disabled` 全过（拦截侧正确）、`UseWideViewPort`/
     `PluginsEnabled`/`JavaScriptCanOpenWindowsAutomatically`（20s future 超时，
     无 onCreateWindow 桥）各 1，`AllowMixedMode`（`Path not set: /secure.html`
