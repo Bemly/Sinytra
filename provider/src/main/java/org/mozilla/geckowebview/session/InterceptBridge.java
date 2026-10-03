@@ -79,15 +79,10 @@ public final class InterceptBridge {
         if (uri == null) {
             return null;
         }
-        try {
-            if (mHost.policyBlocksNavigation(uri, isMainFrame, triggerUri)) {
-                android.util.Log.i("Sinytra/intercept",
-                        "policy blocks navigation " + uri);
-                return GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.DENY);
-            }
-        } catch (Throwable t) {
-            android.util.Log.w("Sinytra/intercept",
-                    "Host.policyBlocksNavigation threw", t);
+        if (policyBlocksNavigation(uri, isMainFrame, triggerUri)) {
+            android.util.Log.i("Sinytra/intercept",
+                    "policy blocks navigation " + uri);
+            return GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.DENY);
         }
         if (mHost.responseSurfaceOwns(uri)) {
             // 0001/0002: the necko controller answers this URI with the
@@ -147,6 +142,26 @@ public final class InterceptBridge {
             android.util.Log.w("Sinytra/intercept",
                     "Host.shouldIntercept threw", t);
             return null;
+        }
+    }
+
+    /**
+     * Settings-policy navigation verdict shared by the subframe path and
+     * the main-frame path (P2NavigationDelegate): true = DENY the load.
+     * Host exceptions degrade to allow (never break navigation on a
+     * logging/metrics throwable).
+     */
+    public boolean policyBlocksNavigation(@Nullable String uri,
+            boolean isMainFrame, @Nullable String triggerUri) {
+        if (uri == null) {
+            return false;
+        }
+        try {
+            return mHost.policyBlocksNavigation(uri, isMainFrame, triggerUri);
+        } catch (Throwable t) {
+            android.util.Log.w("Sinytra/intercept",
+                    "Host.policyBlocksNavigation threw", t);
+            return false;
         }
     }
 

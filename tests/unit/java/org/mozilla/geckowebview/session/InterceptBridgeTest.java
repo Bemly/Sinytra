@@ -148,6 +148,62 @@ public final class InterceptBridgeTest {
         assertTrue(host.lastRequest.getRequestHeaders().isEmpty());
     }
 
+    // --- main-frame policy gate (P2NavigationDelegate shares this) ---
+
+    private static InterceptBridge.Host policyHost(final boolean blocked,
+            final boolean throwing) {
+        return new InterceptBridge.Host() {
+            @Override
+            public android.webkit.WebResourceResponse shouldIntercept(
+                    InterceptBridge.SinytraResourceRequest request) {
+                return null;
+            }
+
+            @Override
+            public void onInterceptDeny(String uri, boolean isRedirect,
+                    boolean hasUserGesture) {
+            }
+
+            @Override
+            public boolean responseSurfaceOwns(String uri) {
+                return false;
+            }
+
+            @Override
+            public boolean policyBlocksNavigation(String uri,
+                    boolean isMainFrame, String triggerUri) {
+                if (throwing) {
+                    throw new IllegalStateException("policy host bug");
+                }
+                return blocked;
+            }
+        };
+    }
+
+    @Test
+    public void policyBlocksNavigation_trueWhenHostBlocks() {
+        assertTrue(new InterceptBridge(policyHost(true, false))
+                .policyBlocksNavigation("https://example.com/", true, null));
+    }
+
+    @Test
+    public void policyBlocksNavigation_falseWhenHostAllows() {
+        assertFalse(new InterceptBridge(policyHost(false, false))
+                .policyBlocksNavigation("https://example.com/", true, null));
+    }
+
+    @Test
+    public void policyBlocksNavigation_nullUriNeverBlocks() {
+        assertFalse(new InterceptBridge(policyHost(true, false))
+                .policyBlocksNavigation(null, true, null));
+    }
+
+    @Test
+    public void policyBlocksNavigation_hostThrowDegradesToAllow() {
+        assertFalse(new InterceptBridge(policyHost(false, true))
+                .policyBlocksNavigation("https://example.com/", true, null));
+    }
+
     // --- 0002 Group A: response-surface stand-down ---
 
     @Test

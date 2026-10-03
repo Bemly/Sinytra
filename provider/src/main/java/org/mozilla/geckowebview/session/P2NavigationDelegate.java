@@ -8,7 +8,11 @@ import org.mozilla.geckoview.GeckoSession;
 
 // P2 navigation fan-out: main-frame loads go through NavigationBridge
 // (shouldOverrideUrlLoading + error mapping); subframe loads go through
-// InterceptBridge (allow/deny via app shouldInterceptRequest).
+// InterceptBridge (allow/deny via app shouldInterceptRequest). Settings
+// policy (blockNetworkLoads, mixed frames, file access) gates BOTH paths
+// first — Chromium never consults the app for policy-blocked loads, and
+// the main-frame path historically skipped the check entirely (CTS
+// testBlockNetworkLoads loaded despite the flag).
 final class P2NavigationDelegate implements GeckoSession.NavigationDelegate {
     private final NavigationBridge mMain;
     private final InterceptBridge mIntercept;
@@ -25,6 +29,12 @@ final class P2NavigationDelegate implements GeckoSession.NavigationDelegate {
             @NonNull LoadRequest request) {
         android.util.Log.d("Sinytra/navigation",
                 "onLoadRequest " + request.uri);
+        if (request.uri != null && mIntercept.policyBlocksNavigation(
+                request.uri, true, request.triggerUri)) {
+            android.util.Log.i("Sinytra/navigation",
+                    "policy blocks main-frame " + request.uri);
+            return GeckoResult.fromValue(AllowOrDeny.DENY);
+        }
         return mMain.onLoadRequest(session, request);
     }
 
