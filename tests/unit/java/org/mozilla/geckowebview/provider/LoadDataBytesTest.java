@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.provider;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -51,6 +52,12 @@ public final class LoadDataBytesTest {
     public void canonicalKey_distinctPathsStayDistinct() {
         assertEquals(false, LoadDataHandler.canonicalKey("http://h/a").equals(
                 LoadDataHandler.canonicalKey("http://h/b")));
+    }
+
+    @Test
+    public void canonicalKey_foldsLoneTrailingSlash() {
+        assertEquals(LoadDataHandler.canonicalKey("http://h/p"),
+                LoadDataHandler.canonicalKey("http://h/p/"));
     }
 
     // CTS WebSettingsTest image family (data: title ""): the data: path
@@ -130,5 +137,55 @@ public final class LoadDataBytesTest {
         String served = new String(captured[0], "UTF-8");
         assertTrue(!served.contains("http://h/i.png"));
         assertTrue(served.contains("<img"));
+    }
+
+    @Test
+    public void reissue_reservesOneShotByCanonicalKey() {
+        final String[] navigated = new String[1];
+        LoadDataHandler.Host host = new LoadDataHandler.Host() {
+            @Override
+            public void navigateTo(String url) {
+                navigated[0] = url;
+            }
+
+            @Override
+            public void loadDataUri(byte[] data, String mimeType) {
+                throw new AssertionError("http path must navigate");
+            }
+
+            @Override
+            public void addInterceptFilter(String prefix) {
+            }
+
+            @Override
+            public void logWarning(String message) {
+            }
+
+            @Override
+            public boolean imagesAllowed() {
+                return true;
+            }
+        };
+        LoadDataHandler handler = new LoadDataHandler(host);
+        handler.loadDataWithBaseURL("http://h/p", "<html></html>",
+                "text/html", "UTF-8", null);
+        // Same page (trailing-slash form Gecko reports) re-serves.
+        assertTrue(handler.reissueIfCurrent("http://h/p/"));
+        assertEquals("http://h/p", navigated[0]);
+        // A moved-on page falls back to plain reload (false).
+        assertTrue(!handler.reissueIfCurrent("http://h/other"));
+        // Nothing served yet on a fresh handler.
+        assertTrue(!new LoadDataHandler(host).reissueIfCurrent("http://h/p/"));
+    }
+
+    @Test
+    public void dataUrlPayloadHash_rejectsNonData() {
+        assertNull(LoadDataHandler.dataUrlPayloadHash(null));
+        assertNull(LoadDataHandler.dataUrlPayloadHash("http://h/p"));
+        assertNull(LoadDataHandler.dataUrlPayloadHash("data:nocomma"));
+        // sha-256 is stable and 64 hex chars (pure Java, no framework).
+        String hash = LoadDataHandler.sha256Hex(new byte[]{1, 2, 3});
+        assertEquals(64, hash.length());
+        assertEquals(hash, LoadDataHandler.sha256Hex(new byte[]{1, 2, 3}));
     }
 }

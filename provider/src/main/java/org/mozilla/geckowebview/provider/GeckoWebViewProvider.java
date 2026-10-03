@@ -139,34 +139,6 @@ public final class GeckoWebViewProvider
         mFanOut = new ClientFanOut(this);
         mBridge = new GeckoSessionBridge(mFanOut);
         mSettings = new CompatWebSettings(new GeckoWebSettings());
-        // Image-policy flips take effect without an app reload (CTS
-        // LoadsImagesAutomatically_/BlockNetworkImage families poll for the
-        // re-render): when the app loosens image loading on a live page,
-        // re-issue the current navigation internally. ONLY genuine loosening
-        // transitions reload (tracked below): firing on tightening (or on a
-        // same-value set, which the facade still reports) would inject a
-        // spurious navigation that races the app's next load and confuses
-        // completion gates (CTS WebViewSyncLoader triple gate).
-        mSettings.setMutationListener(() -> {
-            try {
-                String url = mBridge.getUrl();
-                if (url == null || url.startsWith("about:")) {
-                    return;
-                }
-                org.mozilla.geckowebview.settings.GeckoWebSettings state =
-                        mSettings.gecko();
-                boolean auto = state.getLoadsImagesAutomatically();
-                boolean block = state.getBlockNetworkImage();
-                if (LoadPolicy.shouldReloadForImagesPolicy(mLastImagesAuto, auto,
-                        mLastBlockNetworkImage, block)) {
-                    mBridge.reload();
-                }
-                mLastImagesAuto = auto;
-                mLastBlockNetworkImage = block;
-            } catch (Throwable t) {
-                android.util.Log.w(TAG, "images policy reload threw", t);
-            }
-        });
         mFind = new FindBridge(mBridge.session(), mFanOut);
         mPrint = new PrintBridge(mBridge.session());
         mJs = new JsEvaluator();
@@ -198,6 +170,42 @@ public final class GeckoWebViewProvider
                 return mDestroyed;
             }
         }, mIntercept);
+        // Image-policy flips take effect without an app reload (CTS
+        // LoadsImagesAutomatically_/BlockNetworkImage families poll for the
+        // re-render): when the app loosens image loading on a live page,
+        // re-issue the current navigation internally. ONLY genuine loosening
+        // transitions reload (tracked below): firing on tightening (or on a
+        // same-value set, which the facade still reports) would inject a
+        // spurious navigation that races the app's next load and confuses
+        // completion gates (CTS WebViewSyncLoader triple gate). Installed
+        // after mInterception (the listener re-serves through it).
+        mSettings.setMutationListener(() -> {
+            try {
+                String url = mBridge.getUrl();
+                if (url == null || url.startsWith("about:")) {
+                    return;
+                }
+                org.mozilla.geckowebview.settings.GeckoWebSettings state =
+                        mSettings.gecko();
+                boolean auto = state.getLoadsImagesAutomatically();
+                boolean block = state.getBlockNetworkImage();
+                if (LoadPolicy.shouldReloadForImagesPolicy(mLastImagesAuto, auto,
+                        mLastBlockNetworkImage, block)) {
+                    // Prefer re-serving the loadData originals (a plain
+                    // reload would re-parse the already-sanitized data: URL
+                    // and loosened images would stay unloaded); anything
+                    // else re-fetches normally.
+                    if (!mInterception.reissueLoadDataIfCurrent(
+                            mBridge.getUrl())) {
+                        mBridge.reload();
+                    }
+                }
+                mLastImagesAuto = auto;
+                mLastBlockNetworkImage = block;
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "images policy reload threw", t);
+            }
+        });
         mRenderProcess = new RenderProcessBridge();
         mFavicon = new ProviderFavicon(new ProviderFavicon.Host() {
             @Override

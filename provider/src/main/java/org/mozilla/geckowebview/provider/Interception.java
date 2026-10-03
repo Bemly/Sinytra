@@ -127,6 +127,20 @@ final class Interception {
         return mResponses;
     }
 
+    /**
+     * Re-serves the last loadData document when the current page is proven
+     * to be that serve (loosening image policy without an app reload).
+     * False = nothing to re-serve or page moved on (caller reloads).
+     */
+    boolean reissueLoadDataIfCurrent(@Nullable String currentUrl) {
+        try {
+            return mLoadData.reissueIfCurrent(currentUrl);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "reissueLoadData threw", t);
+            return false;
+        }
+    }
+
     @NonNull
     String[] appFilters() {
         return mFilters.appFilters();

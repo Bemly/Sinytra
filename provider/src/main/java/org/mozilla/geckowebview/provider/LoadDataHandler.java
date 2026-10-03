@@ -42,6 +42,29 @@ final class LoadDataHandler {
     @NonNull
     private final Map<String, OneShotBody> mOneShotBodies =
             new ConcurrentHashMap<>();
+    // Last loadDataWithBaseURL arguments (ORIGINAL body, pre-sanitize) so a
+    // loosening image-policy flip can re-serve them: a plain reload() would
+    // re-parse the already-sanitized data: URL and the images would stay
+    // unloaded forever (CTS waitForNonEmptyImage). Re-issued only when the
+    // current page is proven to be that serve (see reissueIfCurrent);
+    // otherwise the caller falls back to a plain reload.
+    @Nullable
+    private String mLastBaseUrl;
+    @Nullable
+    private String mLastData;
+    @Nullable
+    private String mLastMimeType;
+    @Nullable
+    private String mLastEncoding;
+    @Nullable
+    private String mLastHistoryUrl;
+    // Identity of the served document: sha-256 of the served bytes (legacy
+    // data: path — the data: URL Gecko builds is self-contained but its
+    // exact textual form is Gecko-internal, so compare content hashes) or
+    // the canonical one-shot key (http path).
+    @Nullable
+    private String mLastServedIdentity;
+    private boolean mLastWasOneShot;
 
     LoadDataHandler(@NonNull Host host) {
         mHost = host;
@@ -77,6 +100,8 @@ final class LoadDataHandler {
     // entries, and serving the same bytes post-upgrade keeps the
     // document (and its base-URL resolution) intact. Honest edge: getUrl
     // reports the upgraded https URL while the app passed http.
+    // A lone trailing slash is folded too (store and reissue/query sides
+    // all pass through here, so "http://h/p" and "http://h/p/" meet).
     @NonNull
     static String canonicalKey(@NonNull String url) {
         String rest = url;
@@ -87,6 +112,9 @@ final class LoadDataHandler {
         int slash = rest.indexOf('/');
         String host = slash >= 0 ? rest.substring(0, slash) : rest;
         String path = slash >= 0 ? rest.substring(slash) : "/";
+        if (path.length() > 1 && path.endsWith("/")) {
+            path = path.substring(0, path.length() - 1);
+        }
         return host.toLowerCase(java.util.Locale.ROOT) + path;
     }
 
@@ -98,6 +126,13 @@ final class LoadDataHandler {
                 ? mimeType : "text/html";
         String target = (historyUrl != null && !historyUrl.isEmpty())
                 ? historyUrl : baseUrl;
+        // Remember the ORIGINAL arguments for a later policy-loosening
+        // re-serve (see field comment).
+        mLastBaseUrl = baseUrl;
+        mLastData = data;
+        mLastMimeType = mimeType;
+        mLastEncoding = encoding;
+        mLastHistoryUrl = historyUrl;
         if (target != null && isHttpUrl(target)) {
             if (historyUrl != null && !historyUrl.isEmpty()
                     && baseUrl != null && !baseUrl.isEmpty()
@@ -109,6 +144,8 @@ final class LoadDataHandler {
             mOneShotBodies.put(canonicalKey(target),
                     new OneShotBody(type, loadDataBytes(body, encoding)));
             mHost.addInterceptFilter(target);
+            mLastWasOneShot = true;
+            mLastServedIdentity = canonicalKey(target);
             mHost.navigateTo(target);
             return;
         }
@@ -149,6 +186,8 @@ final class LoadDataHandler {
                 }
             }
             mHost.loadDataUri(decoded, type);
+            mLastWasOneShot = false;
+            mLastServedIdentity = sha256Hex(decoded);
         } else {
             String charset =
                     encoding != null && !encoding.isEmpty() ? encoding : "UTF-8";
@@ -167,6 +206,8 @@ final class LoadDataHandler {
             // document into literal "%3Chtml%3E..." text — no <title>,
             // no scripts (CTS WebSettingsTest image family: title "").
             mHost.loadDataUri(raw, type);
+            mLastWasOneShot = false;
+            mLastServedIdentity = sha256Hex(raw);
         }
         if (historyUrl != null && !historyUrl.isEmpty()) {
             mHost.logWarning("loadDataWithBaseURL: historyUrl " + historyUrl
@@ -178,6 +219,79 @@ final class LoadDataHandler {
     static boolean isHttpUrl(@NonNull String url) {
         return url.regionMatches(true, 0, "http://", 0, 7)
                 || url.regionMatches(true, 0, "https://", 0, 8);
+    }
+
+    /**
+     * Re-serves the last loadData arguments when the current page is proven
+     * to be that serve (see field comment); returns false when there is
+     * nothing to re-serve or the page moved on (caller falls back to a
+     * plain reload). The re-serve flows through loadDataWithBaseURL again,
+     * so the CURRENT policy applies (loosened images load; still-tight
+     * images stay stripped).
+     */
+    boolean reissueIfCurrent(@Nullable String currentUrl) {
+        if (mLastServedIdentity == null) {
+            return false;
+        }
+        if (mLastWasOneShot) {
+            if (currentUrl != null && canonicalKey(currentUrl)
+                    .equals(mLastServedIdentity)) {
+                loadDataWithBaseURL(mLastBaseUrl, mLastData, mLastMimeType,
+                        mLastEncoding, mLastHistoryUrl);
+                return true;
+            }
+            return false;
+        }
+        String payloadHash = dataUrlPayloadHash(currentUrl);
+        if (payloadHash != null && payloadHash.equals(mLastServedIdentity)) {
+            loadDataWithBaseURL(mLastBaseUrl, mLastData, mLastMimeType,
+                    mLastEncoding, mLastHistoryUrl);
+            return true;
+        }
+        return false;
+    }
+
+    /** sha-256 of a data: URL's payload, or null when not a data: URL. */
+    @Nullable
+    static String dataUrlPayloadHash(@Nullable String url) {
+        if (url == null || !url.regionMatches(true, 0, "data:", 0, 5)) {
+            return null;
+        }
+        int comma = url.indexOf(',');
+        if (comma < 0) {
+            return null;
+        }
+        try {
+            byte[] payload = android.util.Base64.decode(
+                    url.substring(comma + 1), android.util.Base64.DEFAULT);
+            // data: URLs may carry percent-escapes around the base64 body;
+            // second attempt keeps the comparison total (still pure).
+            if (payload == null || payload.length == 0) {
+                return null;
+            }
+            return sha256Hex(payload);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    @NonNull
+    static String sha256Hex(@NonNull byte[] data) {
+        try {
+            java.security.MessageDigest digest =
+                    java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(data);
+            StringBuilder hex = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
+                hex.append(Character.forDigit(b & 0xF, 16));
+            }
+            return hex.toString();
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            // SHA-256 is mandatory on every JVM/Android; fall back to a
+            // length-tagged identity rather than crashing the navigation.
+            return "len" + data.length;
+        }
     }
 
     // Matches an <img ...> open tag (ASCII case-insensitive; tags never
