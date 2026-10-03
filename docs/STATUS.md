@@ -1031,11 +1031,8 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   `testBlockNetworkLoads` **OK**（主帧策略门 + 失败终局合成；装包后首轮
   冷启动抖动一次，复跑绿——cold-burst 家族）；`testAccessAllowFileAccess`
   datadir 半绿（FileBridge 端到端实锤，失败移到 291 行 asset 半）；
-  `testAccessCacheMode_noCache` 仍 stall——根因是第一步 `loadAssetUrl`
-  即 `file:///android_asset/`（0020 缺口），不是 cache 语义；
-  BYPASS_CACHE 随 0020 通后才能验证（代码无害保留）。
-  0020 现为 WebSettingsTest 最大剩余杠杆（file 4 + cache 3 + asset 半
-  约 10 项全卡它），归属设计优先。
+  cache 族 stall 待 logcat 定位（`loadAssetUrl` 是 http 非 file）。
+  0020 现为 file 族剩余杠杆（asset 3 + AllowFileAccess 半），归属设计优先。
 - **loadData 双重编码根因（已修，2026-10-03，`8b3c848`）**：data: 回退路径把
   文档 percent-encode 后交 `loadDataUri(byte[], mime)`，而 byte[] 重载自己包
   `data:<mime>;base64,<BASE64>`——base64 体按字面解码，所有 loadData 页渲染成
@@ -1067,9 +1064,11 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
     约一 poll（G/H 探针；D 快页 1ms）——新鲜度竞态，未闭。
   - `BlockNetworkLoads`（2026-10-03 已闭，`dea324d`+`5990c7f`：主帧策略门
     + 失败终局合成，单测 OK）：主帧 http 未被拦（历史）。
-  - cache 族 3（2026-10-03 复核：`noCache` 第一步 `loadAssetUrl` 即
-    `file:///android_asset/`，0020 缺口，非 cache 语义；BYPASS_CACHE
-    待 0020 通后验证）：缓存语义未对齐，待查。
+  - cache 族 3（2026-10-03 复核：`noCache` 走的是 http localhost
+    `loadAssetUrl`（`TestHtmlConstants`：`loadAssetUrl`=WebServer http，
+    `getFileUrl`=file，两码事—— ledger 初版误记 file，已纠正），纯 http
+    load 即 `mLoaded=false` 真 stall；BYPASS_CACHE 已接（`7e2e87a`），
+    stall 另有根因，待 logcat 定位）：缓存语义未对齐，待查。
   - file-XHR/iframe `*Disabled` 全过（拦截侧正确）、`UseWideViewPort`/
     `PluginsEnabled`/`JavaScriptCanOpenWindowsAutomatically`（20s future 超时，
     无 onCreateWindow 桥）各 1，`AllowMixedMode`（`Path not set: /secure.html`
