@@ -977,6 +977,10 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   PASS，后段 UI 疑似 park（25min 无进展、无 FAIL——teardown hang 家族
   M5-A1 形态；barrier 超时 2s 即放行且零超时日志，不构成新 park 类，
   暂判非回归）。46 PASS 全绿仍欠，M5-A acceptance 缺口如实记。
+- **Round 13（2026-10-03，0023 pause 验证）**：firefox `0a39bc4251fe`
+  （Pause async + 摘 sync 备案）→ P0Render HOME 盖掉 watchdog 零 episode
+  （此前 Round 11 必 park）+ 返回满页像素；noCache park 消失、收尾干净
+  （失败仍在：load#2 取数静默 ~20s 独立 open 项）。M5-A1 pause 面关闭。
 - **Round 12（2026-10-03，harness 全绿补上）**：GPU ON + 0022 + 策略门
   构建（`dea324d`+`5990c7f`），§7 清场（7.9G）→ P0Glue **47 PASS /
   0 FAIL / P0 GLUE PASS**（uiautomator 全文计数；屏显只到首屏，

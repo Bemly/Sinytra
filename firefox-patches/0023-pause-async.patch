@@ -1,0 +1,53 @@
+From 0a39bc4251fe78e8bfc14ec71cb1763717bddaed Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sat, 3 Oct 2026 17:21:59 +0800
+Subject: [PATCH] Sinytra patch 0023: async Pause() (M5-A1 pause path never
+ blocks UI)
+
+Round 11: activity stop parks main in syncPauseCompositor (IPDL SendPause
+waits on a wedged GPU; kill does not unpark). v2 moved only the Binder hop
+off UI; the IPDL leg still waits. Pause's acknowledgement is unread by the
+sole caller and recovery keys off the local mCompositorPaused flag, and IPDL
+preserves per-channel order, so fire-and-forget is safe. Delist the stale
+sync-messages.ini entry (build enforces it).
+---
+ gfx/layers/ipc/PUiCompositorController.ipdl | 9 ++++++++-
+ ipc/ipdl/sync-messages.ini                  | 2 --
+ 2 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/gfx/layers/ipc/PUiCompositorController.ipdl b/gfx/layers/ipc/PUiCompositorController.ipdl
+index 4b476e9c4651..e597641b84fd 100644
+--- a/gfx/layers/ipc/PUiCompositorController.ipdl
++++ b/gfx/layers/ipc/PUiCompositorController.ipdl
+@@ -23,7 +23,14 @@ sync protocol PUiCompositorController
+ parent:
+   // Pause/resume the compositor. These are intended to be used on mobile, when
+   // the compositor needs to pause/resume in lockstep with the application.
+-  sync Pause();
++  // 0023 (STATUS §1w M5-A1): Pause is fire-and-forget. It used to be sync,
++  // parking the UI thread inside surfaceDestroyed/activity-stop whenever the
++  // GPU wedged (watchdog stacks, Round 11) — kill ≠ recovery and the park
++  // outlived the remote (Round 3 lesson). Nothing reads Pause's
++  // acknowledgement (nsWindow's sole caller ignores it; recovery keys off
++  // the local mCompositorPaused flag), and IPDL preserves send order per
++  // channel, so a later ResumeAndResize still lands after the pause.
++  async Pause();
+   sync Resume() returns (bool aOutResumed);
+   sync ResumeAndResize(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight)
+     returns (bool aOutResumed);
+diff --git a/ipc/ipdl/sync-messages.ini b/ipc/ipdl/sync-messages.ini
+index 53fb309d088d..9f50c2522ea2 100644
+--- a/ipc/ipdl/sync-messages.ini
++++ b/ipc/ipdl/sync-messages.ini
+@@ -250,8 +250,6 @@ description = Synchronously clear the widget surface. Does not rely on (Enter|Le
+ platform = win
+ [PImageBridge::NewCompositable]
+ description = legacy sync IPC - please add detailed description
+-[PUiCompositorController::Pause]
+-description = legacy sync IPC - please add detailed description
+ [PUiCompositorController::Resume]
+ description = legacy sync IPC - please add detailed description
+ [PUiCompositorController::ResumeAndResize]
+-- 
+2.56.0
+
