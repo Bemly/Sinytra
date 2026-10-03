@@ -130,35 +130,18 @@ final class LoadDataHandler {
                         + encoding + ", falling back to UTF-8");
                 raw = loadDataBytes(html, "UTF-8");
             }
-            mHost.loadDataUri(percentEncode(raw), type);
+            // Raw bytes, NOT percent-encoded: the byte[] overload builds
+            // data:<mime>;base64,<BASE64(bytes)> itself, and base64 bodies
+            // are decoded verbatim (percent-escapes are not processed in
+            // the base64 form). Percent-encoding here double-encodes the
+            // document into literal "%3Chtml%3E..." text — no <title>,
+            // no scripts (CTS WebSettingsTest image family: title "").
+            mHost.loadDataUri(raw, type);
         }
         if (historyUrl != null && !historyUrl.isEmpty()) {
             mHost.logWarning("loadDataWithBaseURL: historyUrl " + historyUrl
                     + " has no Gecko primitive on the data: path; history "
                     + "records the data: URI");
-        }
-    }
-
-    // Percent-encoding for the data: URI path (space as %20, never '+').
-    @NonNull
-    static byte[] percentEncode(@NonNull byte[] raw) {
-        StringBuilder out = new StringBuilder(raw.length);
-        for (byte b : raw) {
-            int c = b & 0xFF;
-            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
-                    || (c >= '0' && c <= '9') || c == '-' || c == '_'
-                    || c == '.' || c == '~') {
-                out.append((char) c);
-            } else {
-                out.append('%');
-                out.append(Character.forDigit((c >> 4) & 0xF, 16));
-                out.append(Character.forDigit(c & 0xF, 16));
-            }
-        }
-        try {
-            return out.toString().getBytes("UTF-8");
-        } catch (java.io.UnsupportedEncodingException impossible) {
-            return out.toString().getBytes();
         }
     }
 

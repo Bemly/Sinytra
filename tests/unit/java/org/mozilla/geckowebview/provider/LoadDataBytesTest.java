@@ -51,4 +51,40 @@ public final class LoadDataBytesTest {
         assertEquals(false, LoadDataHandler.canonicalKey("http://h/a").equals(
                 LoadDataHandler.canonicalKey("http://h/b")));
     }
+
+    // CTS WebSettingsTest image family (data: title ""): the data: path
+    // must hand RAW bytes to the byte[] overload (which base64s itself).
+    // Percent-encoding here double-encodes the document into literal
+    // "%3Chtml%3E..." text — no <title>, no scripts.
+    @Test
+    public void dataPath_passesRawBytesNotPercentEncoded() throws Exception {
+        final byte[][] captured = new byte[1][];
+        final String[] capturedMime = new String[1];
+        LoadDataHandler.Host host = new LoadDataHandler.Host() {
+            @Override
+            public void navigateTo(String url) {
+                throw new AssertionError("data: path must not navigate");
+            }
+
+            @Override
+            public void loadDataUri(byte[] data, String mimeType) {
+                captured[0] = data;
+                capturedMime[0] = mimeType;
+            }
+
+            @Override
+            public void addInterceptFilter(String prefix) {
+                throw new AssertionError("data: path must not filter");
+            }
+
+            @Override
+            public void logWarning(String message) {
+            }
+        };
+        String html = "<html><head><title>T</title></head><body>hi</body></html>";
+        new LoadDataHandler(host).loadDataWithBaseURL(
+                null, html, "text/html", "UTF-8", null);
+        assertArrayEquals(html.getBytes("UTF-8"), captured[0]);
+        assertEquals("text/html", capturedMime[0]);
+    }
 }
