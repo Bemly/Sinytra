@@ -216,3 +216,9 @@ without that evidence.
   4 (in-test navigations normal), 6 hold again; item 5 verdict-stable but
   not "green" (cookie FAIL is product); item 3 screencap + formal patch
   landing still outstanding.
+- **Round 8 (2026-10-03, reboot pixel probe, outcome B)**: post-reboot
+  GPU ON still white (P0 PASS + `buffer=0x0`) — the "cross-process
+  persistent rot" hypothesis is weakened; the outage is a deterministic
+  startup-present defect under GPU ON. 0017 scope must expand to the
+  startup resume / null-surface path (or another cause found). See
+  STATUS §1w White-pixel outage.

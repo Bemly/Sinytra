@@ -923,6 +923,23 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - 设计文档：`firefox-patches/0017-binder-bounded-failure.md`（M5-A 主线；
   oneway 仅作 M5-B 实验变体，不预设根治；不碰 fence）。
 
+### White-pixel outage（2026-10-03，GPU ON 确定性复现）
+
+- 现象：P0Render 直连 GeckoView，load 全回调绿（PageStop success=true，
+  progress 100），但 SurfaceFlinger 层 `buffer=0x0`（从未 present），
+  屏幕纯白；`[GFX1]: OnResumeComposition called with null Surface` →
+  resume 失败。force-stop + 全新进程复现。
+- M3 判别（同页同机，临时开 GPU OFF，事后已回退）：像素完美（蓝底/
+  标题/色块）。结论只到 **GPU-process domain 必要**，不指认 driver
+  （domain 内还有 compositor/Binder/Surface/BufferQueue 层）。
+- reboot 诊断性 reset 结果：**白屏依旧**——"跨进程持久污染"假设被削弱；
+  不是单个 App 进程状态（force-stop 已排除），也不是 reboot 可清的
+  全局 rot。问题收敛为 **GPU ON 下启动呈现路径本身的确定性缺陷**
+  （0017 原只覆盖 teardown/pause-resume 的 Binder hop，启动 resume
+  的 null-surface 需纳入覆盖或另立根因）。
+- 措辞纪律：内存只记 MemAvailable 压力现象，不叫 leak 实锤；M3 只证明
+  domain 必要性，不做 driver 归因；reboot 只是诊断性 reset。
+
 ## 1x. CTS 19 类横扫（2026-10-02 在扫，GPU ON + 0017 v2；类间只清 CTS）
 
 - DateSorterTest OK 5 / MimeTypeMapTest OK 6 / URLUtilTest OK 16 /
