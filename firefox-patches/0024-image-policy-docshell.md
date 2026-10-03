@@ -145,3 +145,22 @@ expected:<[0]> but was:<[1]>  (WebSettingsTest.java:837)
   ...tabN` + 新 tab 进程出生后仍无提交。
 - 结论：当前设备做不了 verdict 轮。等自然恢复（静置/日常使用后 load 回落）
   或用户决策后再跑；不再为此改代码、不再自行 reboot（DEVICE §6 + 请示约束）。
+
+## 9. 2026-10-04 凌晨追查（同一 APK 绿挂交替，全部证据已收敛）
+
+- 同一 APK：T1 在 90 分钟内绿→挂→绿→挂；探针同机 2 秒完成同形导航。
+  确定性产品回归不成立（确定性 bug 不会自己好）。
+- 已证伪的假说：load-15 基线（绿时也 15，无区分度）；自家进程 tab 超时日志
+  （拿的是 provider 进程的，与 CTS 无关）；tab 出生慢（02:12 实例出生仅
+  晚 250ms 照样挂）；tab 死亡（无 crash/tombstone，常驻 7 个）；UI 卡死
+  （watchdog 零记录，主循环全程健康）；Current 回落（仍是我方）。
+- Chromium 对照：同机同测试通过——但 Chromium 无跨包 tab 进程模型，对照只
+  证明"无 tab 依赖的架构不受影响"，不定位我方病因。
+- `warmUp()`（预起 tab 进程）试过一次：未证实有效 + 有全系统内存代价，
+  已回退不合入，记候选（需冷启动 A/B 计时）。
+- 当前最窄事实：LoadRequest 应答后、PageStart 前静默；tab 出生+连上；
+  UI 健康；Gecko/IPC 黑盒内无观测点。下一步观测手段（未做）：
+  `geckoview-config.yaml` 加 `logging.*`（opt 可用，§1m 先例），看
+  content 侧 docshell/channel 在哪一步停。
+- v4（relocate + 原地恢复） serve 侧 wire 可验证，restore 侧因上述挂起
+  未能验证；T2/T3 verdict 仍欠。0024 未定稿。
