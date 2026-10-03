@@ -80,6 +80,11 @@ public final class GeckoWebViewProvider
     private final GeckoSessionBridge mBridge;
     private final ClientFanOut mFanOut;
     private final CompatWebSettings mSettings;
+    // Last image-policy values seen by the mutation listener (facade
+    // defaults: images on, network images unblocked). Compared per fire so
+    // only genuine loosening transitions re-issue the live navigation.
+    private boolean mLastImagesAuto = true;
+    private boolean mLastBlockNetworkImage;
     private final FindBridge mFind;
     private final PrintBridge mPrint;
     private final JsEvaluator mJs;
@@ -137,7 +142,11 @@ public final class GeckoWebViewProvider
         // Image-policy flips take effect without an app reload (CTS
         // LoadsImagesAutomatically_/BlockNetworkImage families poll for the
         // re-render): when the app loosens image loading on a live page,
-        // re-issue the current navigation internally.
+        // re-issue the current navigation internally. ONLY genuine loosening
+        // transitions reload (tracked below): firing on tightening (or on a
+        // same-value set, which the facade still reports) would inject a
+        // spurious navigation that races the app's next load and confuses
+        // completion gates (CTS WebViewSyncLoader triple gate).
         mSettings.setMutationListener(() -> {
             try {
                 String url = mBridge.getUrl();
@@ -146,10 +155,14 @@ public final class GeckoWebViewProvider
                 }
                 org.mozilla.geckowebview.settings.GeckoWebSettings state =
                         mSettings.gecko();
-                if (state.getLoadsImagesAutomatically()
-                        || !state.getBlockNetworkImage()) {
+                boolean auto = state.getLoadsImagesAutomatically();
+                boolean block = state.getBlockNetworkImage();
+                if (LoadPolicy.shouldReloadForImagesPolicy(mLastImagesAuto, auto,
+                        mLastBlockNetworkImage, block)) {
                     mBridge.reload();
                 }
+                mLastImagesAuto = auto;
+                mLastBlockNetworkImage = block;
             } catch (Throwable t) {
                 android.util.Log.w(TAG, "images policy reload threw", t);
             }
