@@ -16,11 +16,24 @@ import org.mozilla.geckoview.GeckoSession;
 final class P2NavigationDelegate implements GeckoSession.NavigationDelegate {
     private final NavigationBridge mMain;
     private final InterceptBridge mIntercept;
+    // Runs after a main-frame policy DENY (may be null: plain DENY then).
+    // The bridge synthesizes the failure completion (progress 100 +
+    // onReceivedError + onPageFinished) because Gecko fires nothing after
+    // a LoadRequest DENY and load-gates would hang forever otherwise.
+    @Nullable
+    private final Runnable mOnPolicyBlocked;
 
     P2NavigationDelegate(@NonNull NavigationBridge main,
             @NonNull InterceptBridge intercept) {
+        this(main, intercept, null);
+    }
+
+    P2NavigationDelegate(@NonNull NavigationBridge main,
+            @NonNull InterceptBridge intercept,
+            @Nullable Runnable onPolicyBlocked) {
         mMain = main;
         mIntercept = intercept;
+        mOnPolicyBlocked = onPolicyBlocked;
     }
 
     @Nullable
@@ -33,6 +46,14 @@ final class P2NavigationDelegate implements GeckoSession.NavigationDelegate {
                 request.uri, true, request.triggerUri)) {
             android.util.Log.i("Sinytra/navigation",
                     "policy blocks main-frame " + request.uri);
+            if (mOnPolicyBlocked != null) {
+                try {
+                    mOnPolicyBlocked.run();
+                } catch (Throwable t) {
+                    android.util.Log.w("Sinytra/navigation",
+                            "onPolicyBlocked threw", t);
+                }
+            }
             return GeckoResult.fromValue(AllowOrDeny.DENY);
         }
         return mMain.onLoadRequest(session, request);

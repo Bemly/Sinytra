@@ -204,7 +204,8 @@ public final class GeckoSessionBridge
     public void setInterceptBridge(@NonNull InterceptBridge intercept) {
         org.mozilla.geckowebview.runtime.MainThread.call(() -> {
             mSession.setNavigationDelegate(new P2NavigationDelegate(
-                    new NavigationBridge(this), intercept));
+                    new NavigationBridge(this), intercept,
+                    this::completeBlockedNavigation));
             return null;
         });
     }
@@ -447,6 +448,24 @@ public final class GeckoSessionBridge
         mPendingTraversalUrl = null;
         mUrl = url;
         mSession.load(new GeckoSession.Loader().data(data, mimeType));
+    }
+
+    /**
+     * Completes a main-frame navigation the settings policy blocked
+     * (P2NavigationDelegate DENY): Gecko fires nothing after a
+     * LoadRequest DENY, so without this every load-gate (CTS
+     * WebViewSyncLoader triple gate, app spinners) hangs forever on a
+     * blocked load. Synthesizes the terminal trio — progress 100,
+     * onReceivedError + onPageFinished (failure path), picture via the
+     * finish path — mirroring a failed load. Policy-block only:
+     * app-override DENY stays silent (the app took over the URL).
+     * Device-locked (CTS WebSettingsTest.testBlockNetworkLoads); the
+     * verdict boolean is JVM-locked, the DENY value is not (Looper).
+     */
+    public void completeBlockedNavigation() {
+        mProgress = 100;
+        mClient.onProgressChanged(100);
+        mClient.onPageFinished(false);
     }
 
     public void reload() {
