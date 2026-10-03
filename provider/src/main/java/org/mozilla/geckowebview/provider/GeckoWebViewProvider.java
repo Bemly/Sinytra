@@ -181,16 +181,25 @@ public final class GeckoWebViewProvider
         // after mInterception (the listener re-serves through it).
         mSettings.setMutationListener(() -> {
             try {
-                String url = mBridge.getUrl();
-                if (url == null || url.startsWith("about:")) {
-                    return;
-                }
                 org.mozilla.geckowebview.settings.GeckoWebSettings state =
                         mSettings.gecko();
                 boolean auto = state.getLoadsImagesAutomatically();
                 boolean block = state.getBlockNetworkImage();
-                if (LoadPolicy.shouldReloadForImagesPolicy(mLastImagesAuto, auto,
-                        mLastBlockNetworkImage, block)) {
+                boolean loosened = LoadPolicy.shouldReloadForImagesPolicy(
+                        mLastImagesAuto, auto,
+                        mLastBlockNetworkImage, block);
+                // Snapshot on EVERY fire, even when there is nothing to
+                // reload yet (fresh/blank page below): otherwise a set()
+                // made before the first navigation is forgotten and the
+                // later loosening reads as a no-op (CTS image families set
+                // flags before loading).
+                mLastImagesAuto = auto;
+                mLastBlockNetworkImage = block;
+                String url = mBridge.getUrl();
+                if (url == null || url.startsWith("about:")) {
+                    return;
+                }
+                if (loosened) {
                     // Prefer re-serving the loadData originals (a plain
                     // reload would re-parse the already-sanitized data: URL
                     // and loosened images would stay unloaded); anything
@@ -200,8 +209,6 @@ public final class GeckoWebViewProvider
                         mBridge.reload();
                     }
                 }
-                mLastImagesAuto = auto;
-                mLastBlockNetworkImage = block;
             } catch (Throwable t) {
                 android.util.Log.w(TAG, "images policy reload threw", t);
             }
