@@ -135,16 +135,24 @@ expected:<[0]> but was:<[1]>  (WebSettingsTest.java:837)
   健康窗口下同路径通过）。待健康窗口补 verdict。
 - 本 patch 未定稿：verdict 补齐 + 全量 harness 回归后，再标定稿。
 
-## 8. 设备对照实验（2026-10-04，image 族 verdict 被迫暂停）
+## 8. 设备对照实验（2026-10-04；2026-10-04 凌晨修正措辞）
 
 - T1（`blockLoadingImages`，此前绿 3 次）在同一设备上连挂两次，失败形态与
-  T2/T3 完全一致（首个 loadData 在 LoadRequest 后零回调）。此前绿、未改
-  相关代码——纯环境退化，与逻辑无关。
-- 设备状态：重启后 load 依然 ~15（非堆积，是开机即有；CPU 全闲、Mem 7G），
-  系 vendor D 态线程基线（STATUS §1v 旧判）。`Timeout executing service
-  ...tabN` + 新 tab 进程出生后仍无提交。
-- 结论：当前设备做不了 verdict 轮。等自然恢复（静置/日常使用后 load 回落）
-  或用户决策后再跑；不再为此改代码、不再自行 reboot（DEVICE §6 + 请示约束）。
+  T2/T3 完全一致（首个 loadData 在 LoadRequest 后零回调）。
+- 同一 APK 90 分钟内绿→挂→绿→挂。结论只到：**该回归并非输入决定性的
+  deterministic failure，而是明显具有 timing/state dependence；
+  产品缺陷仍不能排除**（非确定性故障一样可以是产品 bug；此前 GPU
+  teardown 问题本身就是 timing-sensitive 的）。“与代码改动无关”的旧表述
+  作废，改为：**目前未观察到失败与已完成 Java-side 修改存在相关性**
+  （修改未消除问题 ≠ 修改无影响）。
+- 设备状态：重启后 load 依然 ~15（开机即有；CPU 全闲、Mem 7G），vendor
+  D 态线程基线。`Timeout executing service ...tabN` 出现过；但 Chromium
+  对照同机通过（Chromium 无跨包 tab 进程模型，该对照只证明无 tab 依赖的
+  架构不受影响，不定位我方病因）。
+- 定位共识（有价值部分）：provider `onLoadRequest` 决策已完成，失败稳定在
+  ALLOW → PageStart 之间；Java bridge 在此段无观测点；UI 健康、Current
+  是我方仅排除 provider/Java 层，不证明 child 内部正常。
+- 不再自行 reboot（DEVICE §6 + 请示约束）。
 
 ## 9. 2026-10-04 凌晨追查（同一 APK 绿挂交替，全部证据已收敛）
 
@@ -164,3 +172,7 @@ expected:<[0]> but was:<[1]>  (WebSettingsTest.java:837)
   content 侧 docshell/channel 在哪一步停。
 - v4（relocate + 原地恢复） serve 侧 wire 可验证，restore 侧因上述挂起
   未能验证；T2/T3 verdict 仍欠。0024 未定稿。
+- 下一步（已定，2026-10-04）：停止 Java glue 猜测，用 `geckoview-config.yaml`
+  + `MOZ_LOG` 进入 Gecko 可观测性。要求：先定目标 module → 验证配置进入
+  child → 再跑故障；分 navigation/docshell 与 child/IPC 两条线；目标是找到
+  PASS 与 FAIL 时间线的第一个 diverge 点（T0 onLoadRequest(ALLOW) → T5 PageStart）。
