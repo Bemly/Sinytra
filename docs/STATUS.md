@@ -983,6 +983,19 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **扫表卫生教训**：19:10 的 harness 进程（25420）残留 2 小时且主线程
   卡死（episode=12），疑毒化共享 GPU 致 batch4 团灭——此后类间必清
   provider 全进程；batch4 结论待 hygiene 后重跑确认。
+- **loadData 双重编码根因（已修，2026-10-03，`8b3c848`）**：data: 回退路径把
+  文档 percent-encode 后交 `loadDataUri(byte[], mime)`，而 byte[] 重载自己包
+  `data:<mime>;base64,<BASE64>`——base64 体按字面解码，所有 loadData 页渲染成
+  `"%3Chtml%3E..."` 纯文本：无 `<title>`、无脚本。判别探针
+  `JsTitleProbeActivity`（`642cc6b`，`--es probe <A-H>`）：修前 data: 全空、
+  http-base 正常、延迟 3s 依旧空（排除 settings 竞态）；修后 A/B/C=SINYTRA42、
+  D=1、E=STATICTITLE、F 挂 `#JSRAN`。CTS 单测翻绿：
+  `testLoadsImagesAutomatically_{httpImagesLoaded,dataUriImagesLoaded,default}`
+  + UA 三件套；JVM 144 锁（+1 raw-bytes 锁）。残留同族
+  `blockLoadingImages/loadImagesWithoutReload` 仍 `expected 0 but was ""`——
+  G/H 探针证明 blocked/error-img 页标题"0"最终可达（~500ms 滞后于
+  PageFinished，快页 D 滞后仅 1ms）：PageFinished-标题新鲜度竞态，
+  待排（filter 冷带宽 vs TitleChange IPC，见下轮）。
 - 待扫：WebViewTest（最大）、WebViewTransport、Ssl、Zoom、DataDir、
   RenderProcess×2、ServiceWorker×2、DarkMode×2、Geolocation（已知不可跑）、
   PacProcessor（已知要 patch）、SharedWebView。
