@@ -80,11 +80,6 @@ public final class GeckoWebViewProvider
     private final GeckoSessionBridge mBridge;
     private final ClientFanOut mFanOut;
     private final CompatWebSettings mSettings;
-    // Last image-policy values seen by the mutation listener (facade
-    // defaults: images on, network images unblocked). Compared per fire so
-    // only genuine loosening transitions re-issue the live navigation.
-    private boolean mLastImagesAuto = true;
-    private boolean mLastBlockNetworkImage;
     private final FindBridge mFind;
     private final PrintBridge mPrint;
     private final JsEvaluator mJs;
@@ -170,49 +165,6 @@ public final class GeckoWebViewProvider
                 return mDestroyed;
             }
         }, mIntercept);
-        // Image-policy flips take effect without an app reload (CTS
-        // LoadsImagesAutomatically_/BlockNetworkImage families poll for the
-        // re-render): when the app loosens image loading on a live page,
-        // re-issue the current navigation internally. ONLY genuine loosening
-        // transitions reload (tracked below): firing on tightening (or on a
-        // same-value set, which the facade still reports) would inject a
-        // spurious navigation that races the app's next load and confuses
-        // completion gates (CTS WebViewSyncLoader triple gate). Installed
-        // after mInterception (the listener re-serves through it).
-        mSettings.setMutationListener(() -> {
-            try {
-                org.mozilla.geckowebview.settings.GeckoWebSettings state =
-                        mSettings.gecko();
-                boolean auto = state.getLoadsImagesAutomatically();
-                boolean block = state.getBlockNetworkImage();
-                boolean loosened = LoadPolicy.shouldReloadForImagesPolicy(
-                        mLastImagesAuto, auto,
-                        mLastBlockNetworkImage, block);
-                // Snapshot on EVERY fire, even when there is nothing to
-                // reload yet (fresh/blank page below): otherwise a set()
-                // made before the first navigation is forgotten and the
-                // later loosening reads as a no-op (CTS image families set
-                // flags before loading).
-                mLastImagesAuto = auto;
-                mLastBlockNetworkImage = block;
-                String url = mBridge.getUrl();
-                if (url == null || url.startsWith("about:")) {
-                    return;
-                }
-                if (loosened) {
-                    // Prefer re-serving the loadData originals (a plain
-                    // reload would re-parse the already-sanitized data: URL
-                    // and loosened images would stay unloaded); anything
-                    // else re-fetches normally.
-                    if (!mInterception.reissueLoadDataIfCurrent(
-                            mBridge.getUrl())) {
-                        mBridge.reload();
-                    }
-                }
-            } catch (Throwable t) {
-                android.util.Log.w(TAG, "images policy reload threw", t);
-            }
-        });
         mRenderProcess = new RenderProcessBridge();
         mFavicon = new ProviderFavicon(new ProviderFavicon.Host() {
             @Override

@@ -7,10 +7,11 @@ import static org.junit.Assert.assertTrue;
 import org.junit.Test;
 
 // Unit locks for the loadData image gate (CTS WebSettingsTest image
-// family): with loadsImagesAutomatically=false the provider strips <img>
-// sources up front (data: subresources never consult the necko hook).
-// The device side (title "0" on the CTS pages) is locked by those CTS
-// tests on the switched device.
+// family): with loadsImagesAutomatically=false the provider relocates
+// <img> sources to data-sinytra-* up front (never a loading attribute,
+// so naturalHeight reads 0) and loosening restores them in place with
+// zero navigation. The device side (title "0" then "48"/"1" on the CTS
+// pages) is locked by those CTS tests on the switched device.
 public final class LoadDataImageSanitizeTest {
 
     // Exact CTS DATA_URL_IMAGE_HTML shape (whitespace-normalized by hand).
@@ -27,10 +28,13 @@ public final class LoadDataImageSanitizeTest {
     }
 
     @Test
-    public void stripsCtsShape_keepsScriptAndHandlers() {
+    public void relocatesCtsShape_keepsScriptAndHandlers() {
         String out = LoadDataHandler.neutralizeBlockedImages(CTS_HTML);
-        // No image source remains anywhere.
-        assertTrue(!out.contains("data:image"));
+        // The source survives verbatim under the backup name (recoverable
+        // in place on loosening).
+        assertTrue(out.contains("data-sinytra-src='data:image/png;base64,AA'"));
+        // No live loading attribute remains.
+        assertTrue(!out.contains(" src="));
         // Script + handlers that drive the title update survive verbatim.
         assertTrue(out.contains("function updateTitle()"));
         assertTrue(out.contains("onload='updateTitle()'"));
@@ -39,20 +43,22 @@ public final class LoadDataImageSanitizeTest {
 
     @Test
     public void quotingAndCaseVariants() {
-        assertEquals("<img>",
+        // The backup name keeps the source spelling (attribute lookup is
+        // ASCII case-insensitive, so restore finds it either way).
+        assertEquals("<img data-sinytra-SRC=\"a.png\">",
                 LoadDataHandler.neutralizeBlockedImages("<img SRC=\"a.png\">"));
-        assertEquals("<IMG >",
+        assertEquals("<IMG data-sinytra-src = 'b.png' >",
                 LoadDataHandler.neutralizeBlockedImages("<IMG src = 'b.png' >"));
-        assertEquals("<img >",
+        assertEquals("<img  data-sinytra-src=c.png >",
                 LoadDataHandler.neutralizeBlockedImages("<img  src=c.png >"));
-        assertEquals("<img alt=\"x\">",
+        assertEquals("<img alt=\"x\" data-sinytra-src=\"y.png\">",
                 LoadDataHandler.neutralizeBlockedImages(
                         "<img alt=\"x\" src=\"y.png\">"));
     }
 
     @Test
-    public void stripsSrcset_keepsSizes() {
-        assertEquals("<img sizes=\"100vw\">",
+    public void relocatesSrcset_keepsSizes() {
+        assertEquals("<img sizes=\"100vw\" data-sinytra-srcset=\"a.png 1x, b.png 2x\">",
                 LoadDataHandler.neutralizeBlockedImages(
                         "<img sizes=\"100vw\" srcset=\"a.png 1x, b.png 2x\">"));
     }
@@ -69,5 +75,14 @@ public final class LoadDataImageSanitizeTest {
     public void imgWithoutSrc_unchanged() {
         String html = "<img id='img'>";
         assertEquals(html, LoadDataHandler.neutralizeBlockedImages(html));
+    }
+
+    @Test
+    public void idempotent_noDoublePrefix() {
+        // A body served twice keeps a single backup prefix (the relocated
+        // name is dash-prefixed, never whitespace-prefixed).
+        String once = LoadDataHandler.neutralizeBlockedImages(
+                "<img src=\"a.png\">");
+        assertEquals(once, LoadDataHandler.neutralizeBlockedImages(once));
     }
 }

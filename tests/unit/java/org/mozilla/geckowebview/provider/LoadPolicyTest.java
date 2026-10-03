@@ -61,25 +61,6 @@ public final class LoadPolicyTest {
     }
 
     @Test
-    public void reload_onlyOnGenuineLoosening() {
-        // Loosening re-renders the live page without an app reload.
-        assertTrue(LoadPolicy.shouldReloadForImagesPolicy(
-                false, true, false, false));
-        assertTrue(LoadPolicy.shouldReloadForImagesPolicy(
-                true, true, true, false));
-        // Tightening never reloads (the next navigation picks it up).
-        assertFalse(LoadPolicy.shouldReloadForImagesPolicy(
-                true, false, false, false));
-        assertFalse(LoadPolicy.shouldReloadForImagesPolicy(
-                true, true, false, true));
-        // Same-value sets never reload.
-        assertFalse(LoadPolicy.shouldReloadForImagesPolicy(
-                false, false, false, false));
-        assertFalse(LoadPolicy.shouldReloadForImagesPolicy(
-                true, true, true, true));
-    }
-
-    @Test
     public void mixed_neverBlocksAll() {
         GeckoWebSettings s = defaults();
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);

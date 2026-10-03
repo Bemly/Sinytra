@@ -42,29 +42,6 @@ final class LoadDataHandler {
     @NonNull
     private final Map<String, OneShotBody> mOneShotBodies =
             new ConcurrentHashMap<>();
-    // Last loadDataWithBaseURL arguments (ORIGINAL body, pre-sanitize) so a
-    // loosening image-policy flip can re-serve them: a plain reload() would
-    // re-parse the already-sanitized data: URL and the images would stay
-    // unloaded forever (CTS waitForNonEmptyImage). Re-issued only when the
-    // current page is proven to be that serve (see reissueIfCurrent);
-    // otherwise the caller falls back to a plain reload.
-    @Nullable
-    private String mLastBaseUrl;
-    @Nullable
-    private String mLastData;
-    @Nullable
-    private String mLastMimeType;
-    @Nullable
-    private String mLastEncoding;
-    @Nullable
-    private String mLastHistoryUrl;
-    // Identity of the served document: sha-256 of the served bytes (legacy
-    // data: path — the data: URL Gecko builds is self-contained but its
-    // exact textual form is Gecko-internal, so compare content hashes) or
-    // the canonical one-shot key (http path).
-    @Nullable
-    private String mLastServedIdentity;
-    private boolean mLastWasOneShot;
 
     LoadDataHandler(@NonNull Host host) {
         mHost = host;
@@ -126,13 +103,6 @@ final class LoadDataHandler {
                 ? mimeType : "text/html";
         String target = (historyUrl != null && !historyUrl.isEmpty())
                 ? historyUrl : baseUrl;
-        // Remember the ORIGINAL arguments for a later policy-loosening
-        // re-serve (see field comment).
-        mLastBaseUrl = baseUrl;
-        mLastData = data;
-        mLastMimeType = mimeType;
-        mLastEncoding = encoding;
-        mLastHistoryUrl = historyUrl;
         if (target != null && isHttpUrl(target)) {
             if (historyUrl != null && !historyUrl.isEmpty()
                     && baseUrl != null && !baseUrl.isEmpty()
@@ -144,8 +114,6 @@ final class LoadDataHandler {
             mOneShotBodies.put(canonicalKey(target),
                     new OneShotBody(type, loadDataBytes(body, encoding)));
             mHost.addInterceptFilter(target);
-            mLastWasOneShot = true;
-            mLastServedIdentity = canonicalKey(target);
             mHost.navigateTo(target);
             return;
         }
@@ -157,12 +125,16 @@ final class LoadDataHandler {
         // nsFileChannel have no interception point — 0020's conclusion),
         // and the docshell flag (0024) races content-process lifecycle, so
         // a renderer-dependent block is not observable here. The document
-        // bytes are ours, so strip image sources up front when the app
+        // bytes are ours, so relocate image sources up front when the app
         // disabled images: <img> without src never loads (naturalHeight 0)
         // while body onload still fires the title update (CTS image family:
-        // "0"). Only <img> tags are touched — <script src> and page text
-        // pass through verbatim. JS-injected images after load are NOT
-        // covered (documented gap; no CTS coverage).
+        // "0"). The sources are stashed in data-sinytra-src(-set) (never a
+        // real loading attribute) so loosening can restore them in place
+        // with zero navigation — provider-initiated navigations violate the
+        // loader's exclusivity contract (CTS WebViewSyncLoader mixer) and
+        // race the app's next load. Only <img> tags are touched — <script
+        // src> and page text pass through verbatim. JS-injected images
+        // after load are NOT covered (documented gap; no CTS coverage).
         boolean htmlType = type.startsWith("text/html");
         if (!mHost.imagesAllowed() && htmlType) {
             html = neutralizeBlockedImages(body);
@@ -186,8 +158,6 @@ final class LoadDataHandler {
                 }
             }
             mHost.loadDataUri(decoded, type);
-            mLastWasOneShot = false;
-            mLastServedIdentity = sha256Hex(decoded);
         } else {
             String charset =
                     encoding != null && !encoding.isEmpty() ? encoding : "UTF-8";
@@ -206,8 +176,6 @@ final class LoadDataHandler {
             // document into literal "%3Chtml%3E..." text — no <title>,
             // no scripts (CTS WebSettingsTest image family: title "").
             mHost.loadDataUri(raw, type);
-            mLastWasOneShot = false;
-            mLastServedIdentity = sha256Hex(raw);
         }
         if (historyUrl != null && !historyUrl.isEmpty()) {
             mHost.logWarning("loadDataWithBaseURL: historyUrl " + historyUrl
@@ -221,97 +189,24 @@ final class LoadDataHandler {
                 || url.regionMatches(true, 0, "https://", 0, 8);
     }
 
-    /**
-     * Re-serves the last loadData arguments when the current page is proven
-     * to be that serve (see field comment); returns false when there is
-     * nothing to re-serve or the page moved on (caller falls back to a
-     * plain reload). The re-serve flows through loadDataWithBaseURL again,
-     * so the CURRENT policy applies (loosened images load; still-tight
-     * images stay stripped).
-     */
-    boolean reissueIfCurrent(@Nullable String currentUrl) {
-        if (mLastServedIdentity == null) {
-            return false;
-        }
-        if (mLastWasOneShot) {
-            if (currentUrl != null && canonicalKey(currentUrl)
-                    .equals(mLastServedIdentity)) {
-                loadDataWithBaseURL(mLastBaseUrl, mLastData, mLastMimeType,
-                        mLastEncoding, mLastHistoryUrl);
-                return true;
-            }
-            return false;
-        }
-        String payloadHash = dataUrlPayloadHash(currentUrl);
-        if (payloadHash != null && payloadHash.equals(mLastServedIdentity)) {
-            loadDataWithBaseURL(mLastBaseUrl, mLastData, mLastMimeType,
-                    mLastEncoding, mLastHistoryUrl);
-            return true;
-        }
-        return false;
-    }
-
-    /** sha-256 of a data: URL's payload, or null when not a data: URL. */
-    @Nullable
-    static String dataUrlPayloadHash(@Nullable String url) {
-        if (url == null || !url.regionMatches(true, 0, "data:", 0, 5)) {
-            return null;
-        }
-        int comma = url.indexOf(',');
-        if (comma < 0) {
-            return null;
-        }
-        try {
-            byte[] payload = android.util.Base64.decode(
-                    url.substring(comma + 1), android.util.Base64.DEFAULT);
-            // data: URLs may carry percent-escapes around the base64 body;
-            // second attempt keeps the comparison total (still pure).
-            if (payload == null || payload.length == 0) {
-                return null;
-            }
-            return sha256Hex(payload);
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    @NonNull
-    static String sha256Hex(@NonNull byte[] data) {
-        try {
-            java.security.MessageDigest digest =
-                    java.security.MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(data);
-            StringBuilder hex = new StringBuilder(hash.length * 2);
-            for (byte b : hash) {
-                hex.append(Character.forDigit((b >> 4) & 0xF, 16));
-                hex.append(Character.forDigit(b & 0xF, 16));
-            }
-            return hex.toString();
-        } catch (java.security.NoSuchAlgorithmException impossible) {
-            // SHA-256 is mandatory on every JVM/Android; fall back to a
-            // length-tagged identity rather than crashing the navigation.
-            return "len" + data.length;
-        }
-    }
-
     // Matches an <img ...> open tag (ASCII case-insensitive; tags never
     // contain a nested '<' or '>' so the negated class cannot run away).
     private static final java.util.regex.Pattern IMG_TAG =
             java.util.regex.Pattern.compile("<img\\b[^<>]*>",
                     java.util.regex.Pattern.CASE_INSENSITIVE);
-    // Matches one src/srcset assignment inside a tag (double-quoted,
-    // single-quoted, or bare value; leading whitespace included so removal
-    // leaves no double spaces).
-    private static final java.util.regex.Pattern IMG_SOURCE =
-            java.util.regex.Pattern.compile(
-                    "\\s+(?:src|srcset)\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s\"'`=<>]+)",
+    // Matches one src/srcset name inside a tag (leading whitespace included
+    // so already-relocated data-sinytra-* names, prefixed by '-', never
+    // match; idempotent across repeated serves of the same body).
+    private static final java.util.regex.Pattern IMG_SOURCE_NAME =
+            java.util.regex.Pattern.compile("(\\s+)(src|srcset)(\\s*=)",
                     java.util.regex.Pattern.CASE_INSENSITIVE);
 
     /**
-     * Strips src/srcset from <img> tags so the images never load
-     * (naturalHeight reads 0) while inline scripts and body onload keep
-     * running. Pure string surgery for the loadData path (see caller);
-     * null-safe (null in, null out).
+     * Relocates src/srcset of <img> tags to data-sinytra-src(-set): the
+     * images never load (naturalHeight reads 0) while inline scripts and
+     * body onload keep running, and loosening restores the sources in
+     * place with zero navigation. Pure string surgery for the loadData
+     * path (see caller); null-safe (null in, null out).
      */
     @Nullable
     static String neutralizeBlockedImages(@Nullable String html) {
@@ -322,9 +217,10 @@ final class LoadDataHandler {
         StringBuffer out = new StringBuffer(html.length());
         while (tags.find()) {
             String tag = tags.group();
-            String stripped = IMG_SOURCE.matcher(tag).replaceAll("");
+            String relocated = IMG_SOURCE_NAME.matcher(tag)
+                    .replaceAll("$1data-sinytra-$2$3");
             tags.appendReplacement(out,
-                    java.util.regex.Matcher.quoteReplacement(stripped));
+                    java.util.regex.Matcher.quoteReplacement(relocated));
         }
         tags.appendTail(out);
         return out.toString();

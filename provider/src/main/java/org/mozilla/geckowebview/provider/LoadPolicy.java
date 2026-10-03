@@ -103,20 +103,6 @@ final class LoadPolicy {
     }
 
     /**
-     * Whether an image-policy mutation should re-issue the live page.
-     * Only genuine loosening transitions reload (loadsImagesAutomatically
-     * false→true, or blockNetworkImage true→false — the CTS families poll
-     * for the re-render without reloading). Tightening and same-value sets
-     * change nothing on screen (the next navigation picks them up);
-     * reloading there injects a navigation the app never asked for and
-     * races its next load (completion-gate confusion). Pure (JVM-locked).
-     */
-    static boolean shouldReloadForImagesPolicy(boolean oldAuto, boolean newAuto,
-            boolean oldBlock, boolean newBlock) {
-        return (!oldAuto && newAuto) || (oldBlock && !newBlock);
-    }
-
-    /**
      * Navigation verdict for the LoadRequest path (main frame or
      * subframe). True = DENY the navigation.
      */
