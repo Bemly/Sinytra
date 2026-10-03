@@ -1,0 +1,233 @@
+From e27c1b9f09ee8a206952e923976070dd86e1b565 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sat, 3 Oct 2026 12:48:58 +0800
+Subject: [PATCH] Sinytra patch 0022: resume-path handoff barrier (M5-A3
+ ordering fix)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+STATUS Round 10 proved OnResumeComposition queries the GPU-side surface
+map BEFORE the v2 async handoff transact lands (error ~6ms ahead of
+ENTER): ResumeAndResize (IPDL) systematically wins worker->Binder->map.put
+on a cold widget, so first present finds null (deterministic white screen);
+warm widgets survive on stale surfaces. Pre-v2 sync transact ordered this
+correctly; v2 is the highly-suspected introducer.
+
+Fix is ordering, not retry (0017 4a): two resume sites
+(NotifyCompositorCreated unpaused branch, SyncResumeResizeCompositor) use
+OnCompositorSurfaceChangedAndWait — bounded 2s wait on the LOCAL worker
+thread, never the remote; timeout falls back to pre-barrier behavior with
+a log. Pause path stays fire-and-forget (nothing reads after pause).
+Completion signal is ungated; logs keep the 0005 gates.
+---
+ .../ipc/UiCompositorControllerChild.cpp       | 84 ++++++++++++++++---
+ gfx/layers/ipc/UiCompositorControllerChild.h  | 19 +++++
+ widget/android/nsWindow.cpp                   |  8 +-
+ 3 files changed, 99 insertions(+), 12 deletions(-)
+
+diff --git a/gfx/layers/ipc/UiCompositorControllerChild.cpp b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+index b32247507810..db6f4aa08fe0 100644
+--- a/gfx/layers/ipc/UiCompositorControllerChild.cpp
++++ b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+@@ -19,6 +19,7 @@
+ #include "nsIWidget.h"
+ #include "nsProxyRelease.h"
+ #include "nsThreadUtils.h"
++#include "mozilla/Monitor.h"
+ #include <time.h>
+ #ifdef MOZ_WIDGET_ANDROID
+ #  include <android/log.h>
+@@ -63,6 +64,12 @@ static bool SinytraSurfaceLogEnabled() {
+ 
+ static Atomic<uint64_t> sSurfaceHandoffSeq{0};
+ 
++// Handoff completion for the resume-path barrier below. Written by the
++// worker thread, read by the resume caller. UNGATED (correctness, not
++// logging): the barrier must work with instrumentation off.
++static Monitor sHandoffMonitor("SurfaceHandoffCompletion");
++static uint64_t sHandoffCompleted = 0;  // guarded by sHandoffMonitor
++
+ // CLOCK_MONOTONIC ms since boot — same clock as Java
+ // SystemClock.uptimeMillis(), so caller/remote logs correlate.
+ static uint64_t MonotonicMs() {
+@@ -408,9 +415,11 @@ void UiCompositorControllerChild::SetCompositorSurfaceManager(
+ // healthy GPU beside it (2026-10-02, round 3). Killing releases the process,
+ // not the parked transaction. So the UI thread must not enter the transact
+ // at all: dispatch it to the compositor thread fire-and-forget. This is
+-// semantically safe because (a) the pause path only uses the result for the
+-// death-notify below, which the worker performs identically; (b) the resume
+-// path ignores the result entirely; (c) the GPU stores surfaces
++// safe against UI hangs because (a) the pause path only uses the result for
++// the death-notify below, which the worker performs identically; (b) the
++// resume path ignores the transact RESULT (but not its ORDERING — Round 10
++// proved ResumeAndResize systematically wins the race on a cold widget,
++// hence the AndWait barrier for resume); (c) the GPU stores surfaces
+ // last-writer-wins, so a racing newer surface simply supersedes. The worker
+ // holds a strong ref; a wedged worker dies with the GPU teardown like any
+ // other GPU-bound thread, and never blocks UI.
+@@ -422,20 +431,67 @@ void UiCompositorControllerChild::OnCompositorSurfaceChanged(
+     return;
+   }
+ 
+-  RefPtr<UiCompositorControllerChild> self = this;
+   // The Surface param is a borrowed JNI ref; promote to GlobalRef for the
+-  // thread hop (same pattern as nsWindow's mSurface). The lambda's copy
+-  // keeps the Surface alive until the worker runs.
++  // thread hop (same pattern as nsWindow's mSurface). The queue holds its
++  // own strong ref via the worker lambda.
+   java::sdk::Surface::GlobalRef surface =
+       java::sdk::Surface::GlobalRef::From(aSurface);
+   // 0021: capture nullness on the calling thread (tracks pause vs resume).
+   const bool surfaceNull = (aSurface.Get() == nullptr);
++  QueueSurfaceHandoff(aWidgetId, surface, surfaceNull);
++
++  // Return immediately: the caller (syncPause/syncResume paths) never waits
++  // on the Binder hop anymore. IPDL legs keep their own 10 s budget (1880503).
++}
++
++// 0022 resume-path barrier (STATUS §1w Round 10): like
++// OnCompositorSurfaceChanged, but waits (bounded) for the handoff worker
++// to finish before returning, so ResumeAndResize finds the surface in the
++// GPU-side map. The wait is on a LOCAL worker thread with a 2 s bound —
++// never on the remote — so no new unbounded-hang class; on timeout we
++// proceed anyway (pre-barrier behavior) and log.
++void UiCompositorControllerChild::OnCompositorSurfaceChangedAndWait(
++    int32_t aWidgetId, java::sdk::Surface::Param aSurface) {
++  // If mCompositorSurfaceManager is not set then there is no GPU process and
++  // we do not need to do anything.
++  if (mCompositorSurfaceManager == nullptr) {
++    return;
++  }
++
++  java::sdk::Surface::GlobalRef surface =
++      java::sdk::Surface::GlobalRef::From(aSurface);
++  const bool surfaceNull = (aSurface.Get() == nullptr);
++  const uint64_t seq = QueueSurfaceHandoff(aWidgetId, surface, surfaceNull);
++
++  const TimeStamp deadline =
++      TimeStamp::Now() + TimeDuration::FromSeconds(2);
++  {
++    MonitorAutoLock lock(sHandoffMonitor);
++    while (sHandoffCompleted < seq && TimeStamp::Now() < deadline) {
++      lock.Wait(TimeDuration::FromMilliseconds(100));
++    }
++    if (sHandoffCompleted < seq) {
++      SINYTRA_SURFACE_LOG(
++          "handoff wait timeout seq=%llu widget=%d",
++          (unsigned long long)seq, aWidgetId);
++    }
++  }
++}
++
++// Shared dispatch core: hands the surface to the CompositorThread worker
++// and returns the handoff sequence number for barrier waits.
++uint64_t UiCompositorControllerChild::QueueSurfaceHandoff(
++    int32_t aWidgetId, java::sdk::Surface::GlobalRef surface,
++    bool surfaceNull) {
++  RefPtr<UiCompositorControllerChild> self = this;
++  // 0022: sequence assigned on the calling thread so barrier waits can
++  // name the handoff they wait for (the worker runs later, async).
++  const uint64_t seq = ++sSurfaceHandoffSeq;
+   (void)CompositorThread()->Dispatch(NS_NewRunnableFunction(
+       "UiCompositorControllerChild::AsyncSurfaceChanged",
+-      [self, aWidgetId, surface, surfaceNull]() {
++      [self, aWidgetId, surface, surfaceNull, seq]() {
+         // 0021: sequence + send log precede the transact so a white-screen
+         // startup (fast, healthy-looking transact) still leaves a trail.
+-        const uint64_t seq = ++sSurfaceHandoffSeq;
+         const mozilla::TimeStamp transactStart = mozilla::TimeStamp::Now();
+         SINYTRA_SURFACE_LOG(
+             "handoff send seq=%llu widget=%d surfaceNull=%d t=%llu",
+@@ -450,6 +506,15 @@ void UiCompositorControllerChild::OnCompositorSurfaceChanged(
+             "handoff finish seq=%llu widget=%d ms=%f rv=0x%x",
+             (unsigned long long)seq, aWidgetId,
+             elapsed.ToMilliseconds(), static_cast<uint32_t>(result));
++        // 0022: completion signal for the resume-path barrier. UNGATED
++        // (correctness, not logging).
++        {
++          MonitorAutoLock completionLock(sHandoffMonitor);
++          if (seq > sHandoffCompleted) {
++            sHandoffCompleted = seq;
++          }
++          completionLock.NotifyAll();
++        }
+         if (NS_FAILED(result) || elapsed.ToMilliseconds() > 1000.0) {
+           gfxCriticalNote << "Async surface transact finished"
+                           << " ms=" << elapsed.ToMilliseconds()
+@@ -470,8 +535,7 @@ void UiCompositorControllerChild::OnCompositorSurfaceChanged(
+         }
+       }));
+ 
+-  // Return immediately: the caller (syncPause/syncResume paths) never waits
+-  // on the Binder hop anymore. IPDL legs keep their own 10 s budget (1880503).
++  return seq;
+ }
+ #endif
+ 
+diff --git a/gfx/layers/ipc/UiCompositorControllerChild.h b/gfx/layers/ipc/UiCompositorControllerChild.h
+index c368c038cc69..d66a5ff5b955 100644
+--- a/gfx/layers/ipc/UiCompositorControllerChild.h
++++ b/gfx/layers/ipc/UiCompositorControllerChild.h
+@@ -71,6 +71,16 @@ class UiCompositorControllerChild final
+   // mCompositorSurfaceManager. It can be called from any thread.
+   void OnCompositorSurfaceChanged(int32_t aWidgetId,
+                                   java::sdk::Surface::Param aSurface);
++
++  // Like OnCompositorSurfaceChanged, but waits (bounded, see impl) for the
++  // handoff worker to finish the transact before returning. Resume path
++  // only (STATUS §1w Round 10): the GPU queries the surface map
++  // synchronously after ResumeAndResize, so the fire-and-forget dispatch
++  // loses the first present deterministically on a cold widget (white
++  // screen). The wait is on a LOCAL worker thread with a timeout, never
++  // on the remote — no new unbounded-hang class.
++  void OnCompositorSurfaceChangedAndWait(int32_t aWidgetId,
++                                         java::sdk::Surface::Param aSurface);
+ #endif
+ 
+  protected:
+@@ -96,6 +106,15 @@ class UiCompositorControllerChild final
+   void SetReplyTimeout();
+   bool ShouldContinueFromReplyTimeout() override;
+ 
++#ifdef MOZ_WIDGET_ANDROID
++  // 0022 shared dispatch core for the two OnCompositorSurfaceChanged
++  // variants above (both Android-only like them): hands the surface to the
++  // CompositorThread worker and returns the handoff sequence number.
++  uint64_t QueueSurfaceHandoff(int32_t aWidgetId,
++                               java::sdk::Surface::GlobalRef aSurface,
++                               bool aSurfaceNull);
++#endif
++
+   bool mIsOpen;
+   uint64_t mProcessToken;
+   Maybe<gfx::IntRect> mResize;
+diff --git a/widget/android/nsWindow.cpp b/widget/android/nsWindow.cpp
+index b2b99e7fce68..255884c27982 100644
+--- a/widget/android/nsWindow.cpp
++++ b/widget/android/nsWindow.cpp
+@@ -1221,7 +1221,10 @@ class LayerViewSupport final
+       if (auto window{mWindow.Access()}) {
+         nsWindow* gkWindow = window->GetNsWindow();
+         if (gkWindow) {
+-          mUiCompositorControllerChild->OnCompositorSurfaceChanged(
++          // 0022 resume barrier: the GPU reads the surface map
++          // synchronously after ResumeAndResize below; wait (bounded) for
++          // the handoff worker so first present finds it (STATUS §1w).
++          mUiCompositorControllerChild->OnCompositorSurfaceChangedAndWait(
+               gkWindow->mWidgetId, mSurface);
+         }
+       }
+@@ -1467,7 +1470,8 @@ class LayerViewSupport final
+         nsWindow* gkWindow = window->GetNsWindow();
+         if (gkWindow) {
+           // Send new Surface to GPU process, if one exists.
+-          mUiCompositorControllerChild->OnCompositorSurfaceChanged(
++          // 0022 resume barrier (see above): bounded wait for the handoff.
++          mUiCompositorControllerChild->OnCompositorSurfaceChangedAndWait(
+               gkWindow->mWidgetId, mSurface);
+         }
+       }
+-- 
+2.56.0
+

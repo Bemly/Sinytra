@@ -963,6 +963,20 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   毫秒级。handoff 已送达 GPU 侧并存下——**0017 v2 async 排序嫌疑洗脱**，
   故障在 remote/state/compositor 下游。下一步：compositor 是否取用
   surface / paused-state 恢复是否正确（M5-A2/A3），见 0021 文档 §4。
+- **Round 10（2026-10-03，race 定位，修正 Round 9 结论）**：全量 logcat
+  显示 `OnResumeComposition null` 比 handoff ENTER **早到约 6ms**（初启与
+  cover 返回两轮皆然）——resume 查询 map 时 handoff 尚未落定。v2 把
+  transact 搬离调用线程后，`ResumeAndResize`（IPDL）系统性跑赢
+  worker→Binder→map.put；首启空 map 即白屏（确定性），暖 widget 靠旧
+  surface 偶过。**v2 高度疑似白屏引入者**；修复 = resume 侧 ordering
+  barrier（有界等本地 worker），非 retry。0021 文档 §4 已同步。
+- **Round 11（2026-10-03，0022 barrier 验证）**：firefox `e27c1b9f09ee`
+  （resume 双点切 AndWait，pause 不动）→ P0Render 全新进程 GPU ON 首启
+  出像素（example.com 全页三连一致，零 resume-null、零 barrier 超时）；
+  cover 往返像素保持（此前白→黑）。全量 harness：P0 段至 msgChannel 全
+  PASS，后段 UI 疑似 park（25min 无进展、无 FAIL——teardown hang 家族
+  M5-A1 形态；barrier 超时 2s 即放行且零超时日志，不构成新 park 类，
+  暂判非回归）。46 PASS 全绿仍欠，M5-A acceptance 缺口如实记。
 
 ## 1x. CTS 19 类横扫（2026-10-02 在扫，GPU ON + 0017 v2；类间只清 CTS）
 

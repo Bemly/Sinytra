@@ -48,6 +48,7 @@
 | 0019 | loopback-http 可读 Secure cookie | `CookieManager.getCookie` 第三方 Secure（CTS CookieManagerTest.testThirdPartyCookie） | 0011 读过滤只认 https scheme，与上游（非可信上下文才清 Secure 值；loopback 可信）偏离——jar 里有 cookie，读侧返回空 | **已定稿**：`0019-secure-cookie-loopback-read.patch`（firefox `cfd5589cdb02`；CTS testThirdPartyCookie 由 waitForCookie 超时翻绿） |
 | 0020 | `file:///android_asset/` 解析到宿主 APK（设计稿，归属待定） | file 族（`LocalImageLoads/Iframes+XHR*Enabled`，`but was:<null>`） | `file:///android_asset/` 是 Android 虚拟路径，necko 无此概念（字面 ENOENT 静默死）；file 通道不走 0001 咨询点 | **设计中**：`0020-file-android-asset.md`（host-APK 归属开放项：pref vs per-session；`file:///data` 由 provider FileBridge 合成，已落地 `178fd50`） |
 | 0021 | surface-handoff ENTER/EXIT trace（Phase-1 判别器） | §1w 白屏：排除"0017 v2 async 丢首帧"的回归嫌疑 | v2 只记慢/失败 transact；fire-and-forget 成功不证明 GPU 侧执行 | **验证中→首判已出**：`0021-surface-handoff-trace.patch`（firefox `e3930d2585c8`；白屏轮三 handoff 全送达，判别 A——故障在下游，v2 洗脱） |
+| 0022 | resume-path handoff barrier（M5-A3 ordering fix） | Round 10：resume 查询 map 跑赢 handoff 落定（error 比 ENTER 早 ~6ms），首启空 map 必白 | v2 异步后 ResumeAndResize（IPDL）系统性跑赢 worker→Binder→map.put；暖 widget 靠旧 surface 偶过 | **已验证定稿**：`0022-resume-handoff-barrier.patch`（firefox `e27c1b9f09ee`；首启出像素 + cover 像素保持 + 零 resume-null/零 barrier 超时；全量 harness 46 PASS 仍欠，见 §4） |
 
 设计文档：`0001/0002/0003/0006/0007/0008/0009/0010-*.md`（树内勘察、地基选型、边界、测试计划）。
 

@@ -47,5 +47,14 @@ B. transact 成功 + remote ENTER 缺席 → handoff/ordering/lifecycle
   三 handoff（non-null → null → non-null）全部 send→ENTER→EXIT、
   rv=0、毫秒级。handoff 已送达——v2 async 排序嫌疑洗脱，故障在
   remote/state/compositor 下游（M5-A2/A3 方向）。插桩保留至定稿。
-- 后续：compositor 侧是否取用 surface / paused-state 是否正确
-  （1880503 companion 课），进 Phase 2 设计。
+- **Round 10（2026-10-03，race 定位）**：同复现器全量 logcat 证明
+  `OnResumeComposition null`（12:07:16.460）发生在 handoff ENTER
+  （.466）**之前**——resume 查询 map 时 handoff 还在路上。cover 再回
+  来同样（.217 error 先于 .218 ENTER），且变黑屏（重 resume 同样失败）。
+  机制：v2 把 transact 搬到 CompositorThread worker 后，
+  `ResumeAndResize`（IPDL 直达 GPU）系统性跑赢本地 worker→Binder→
+  map.put；首启 map 为空即 null→白屏，暖 widget（map 有旧 surface）
+  则过——与"全新进程必白/M3 必好/harness 暖机曾过"全吻合。
+  **v2 高度疑似引入者**（sync 时代 transact 在 resume 之前完成）。
+  修复方向：resume 侧 ordering barrier（等本地 worker 落定，有界），
+  不是 retry/recreate（0017 §4a 纪律）；pause 路无需 barrier。
