@@ -77,3 +77,131 @@
 >（M1 spawn-stall 实锤）；warmUp A/B 对照无效（预热生效但 load#2 照挂，
 > 机制在通知空窗侧 M2）→ 回退。cache 三项记 FLAKY·双机制，
 > 待健康窗口补绿（重试制 verdict）。
+
+## WebViewSslTest（15，2026-10-04 串行）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testOnReceivedSslError | OK | 串行 |
+| testOnReceivedSslErrorCancel | OK | 串行 |
+| testSslErrorProceedResponseReusedForSameHost | OK | 串行（temporary override 同 host 复用成立） |
+| testCancelClientCertRequest | FAIL·未实现 | `never saw error -11`（WebViewSslTest.java:894）；client-cert 无桥接（仅 `ProviderAdapters.SinytraClientCertRequest` token 类，无 session 驱动） |
+| testIgnoreClientCertRequest | FAIL·未实现 | 同上签名（:860） |
+| testSecureServerRequiringClientCertDoesCancelRequest | FAIL·未实现 | 同上签名（:753） |
+| testClientCertIssuersReceivedCorrectly | FAIL·未实现 | NPE `get length of null array`（:924，issuers 为空） |
+| testProceedClientCertRequest | FAIL·未实现 | `expected:<test hello world> but was:<null>`（:780） |
+| testProceedClientCertRequestKeyWithAndroidKeystoreKey | FAIL·未实现 | 同上签名（:811） |
+| testSecureServerRequestingClientCertDoesNotCancelRequest | FAIL·未实现 | 同上签名（:742） |
+| testSecureSiteSetsCertificate | FAIL·未实现 | `assertNotNull`（:574，`getCertificate()` 无证书面） |
+| testInsecureSiteClearsCertificate | FAIL·未实现 | `assertNotNull`（:537，同上） |
+| testClearSslPreferences | FAIL·未实现 | `should be called again after clearing`（:596）；`GeckoWebViewProvider.clearSslPreferences()` 为空实现，未清 0006 temporary override |
+| testOnReceivedSslErrorProceed | FAIL·待查 | `expected:<test hello world> but was:<null>`（:659）；harness sslProceed 探针 PASS 过，CTS 变体差异待专用复现，不在此轮 chasing |
+| testSslErrorProceedResponseNotReusedForDifferentHost | FAIL·待查 | `should be called when request is sent to 127.0.0.1`（:726）；host:port 会话放行语义与 CTS 换 host 期待的交互待查 |
+
+> 小结：3 OK / 12 FAIL。client-cert 整族 8 + clearSslPreferences + 证书面 2
+> 归未实现（无 client-cert 原语、无证书面、无 clear 语义）；proceed 双项
+> 归待查（0006 链路在 harness 成立）。
+
+## WebViewZoomTest（9，2026-10-04 串行）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testZoom_canNotZoomInPastMaximum | OK | 串行（no-op 边界恰好成立） |
+| testZoom_canNotZoomOutPastMinimum | OK | 串行 |
+| testCanZoomWhileZoomSupportedFalse | FAIL·未实现 | `unexpected timeout`，`setUpPage:140→pollingCheckForCanZoomIn:311`；`getScale()=1.0/canZoomIn()=false/zoomIn()=false` 全 stub |
+| testInvokeZoomPicker | FAIL·未实现 | 同上签名（:171） |
+| testScaleChangeCallbackMatchesGetScale | FAIL·未实现 | 同上签名（:266） |
+| testZoomByNonPowerOfTwoIncrements | FAIL·未实现 | 同上签名（:234） |
+| testZoomByPowerOfTwoIncrements | FAIL·未实现 | 同上签名（:222） |
+| testZoomIn | FAIL·未实现 | 同上签名（:145） |
+| testGetZoomControls | FAIL·未实现 | `Should be able to get zoom controls`（:155） |
+
+## WebViewDataDirTest（6，2026-10-04 串行）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testCookieJarsSeparate | OK | 串行 |
+| testDisableThenUse | OK | 串行 |
+| testInvalidDir | OK | 串行 |
+| testUseThenChangeDir | OK | 串行 |
+| testUseThenDisable | OK | 串行 |
+| testSameDirTwoProcesses | FAIL·待查 | `didn't throw RuntimeException`（:121）；同 dir 双进程未抛，隔离 enforcement 待查 |
+
+## WebChromeClientTest（11，2026-10-04 串行）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testOnJsAlert | OK | 串行 |
+| testOnJsConfirm | OK | 串行 |
+| testOnJsPrompt | OK | 串行 |
+| testOnProgressChanged | OK | 串行 |
+| testOnReceivedIcon | OK | 串行 |
+| testOnReceivedTitle | OK | 串行 |
+| testBlockWindowsAsync | FAIL·未实现 | gate-timeout `mLoaded/mNewPicture/mProgress=0`（runWindowTest:203）；无 onCreateWindow 桥（与 WebSettingsTest JavaScriptCanOpenWindowsAutomatically 同缺口） |
+| testBlockWindowsSync | FAIL·未实现 | `unexpected timeout`（runWindowTest:211，同上） |
+| testWindows | FAIL·未实现 | `unexpected timeout`（:226，同上） |
+| testOnConsoleMessage | FAIL·待查 | `Timeout BlockingQueue`（:403）；ConsoleBridge 存在并路由 host，http 页 console 未达原因待查（data: 页 honest-gap 另计） |
+| testOnJsBeforeUnloadIsCalled | FAIL·待查 | `Timeout BlockingQueue`（:274）；PromptBridge 有 onJsBeforeUnload host 位，未达原因待查 |
+
+## TracingControllerTest（7，2026-10-04 串行）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testTracingCannotStartIfAlreadyTracing | OK | 串行（double-start 抛成立） |
+| testTracingInvalidCategoriesPatternComma | OK | 串行 |
+| testTracingInvalidCategoriesPatternExclusion | OK | 串行 |
+| testTracingStopFalseIfNotTracing | OK | 串行 |
+| testTracingWithNullConfig | OK | 串行 |
+| testTracingControllerCallbacks | FAIL·待查 | `Tracing did not complete`（:207，64s）；honest no-op 后端写 `{}`+close，CTS 完成契约未满足，待查 |
+| testTracingControllerCallbacksOnUI | FAIL·待查 | 同上签名（:193，64s） |
+
+## PacProcessorTest（3，2026-10-04 串行）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testSetNetwork | OK | 串行（no-op 绑定成立） |
+| testCreatePacProcessor | FAIL·待查 | `expected:<PROXY 1.2.3.4:8080> but was:<null>`（:76）；JsBridge eval 传输回 null，TestProcessService 进程内传输就绪性待查 |
+| testDefaultNetworkIsNull | TIMEOUT·待重跑 | 20:33:56 起零输出，至 20:37:57 下一条才接续 = 240s toybox timeout 击中，无 instrumentation 结果，不记 OK/FAIL |
+
+## CookieManagerTest opens（2，2026-10-04 串行）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testThirdPartyCookie | OK | 串行（0017 v2 下稳定出 verdict，见 STATUS §1v） |
+| testSameSiteLaxByDefault | FAIL·已知缺口 | `expected null, but was:<test1=value1>`（:403）；第三方无 SameSite 读侧未拦，open 项 |
+
+## HttpAuthHandlerTest（2，2026-10-04 串行）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testProceed | FAIL·待查 | `expected:<Android CTS> but was:<null>`（:189←:179）；STATUS §1v triple-auth prompt 链竞态 open 项 |
+| testUseHttpAuthUsernamePassword | FAIL·待查 | `assertFalse`（:227），同上链路 |
+
+## WebHistoryItemTest（1，2026-10-04 串行）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testWebHistoryItem | FAIL·gate-timeout | `mLoaded=false, mNewPicture=false, mProgress=0`（:153，28.9s）；STATUS §1x 归 M5-A 域，等 0017 多轮验收后重取，不单测 chasing |
+
+## batch1 附带（2026-10-04 同扫表，串行）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| ServiceWorkerClientTest.testSetNullServiceWorkerClient | OK | 串行 |
+| ServiceWorkerClientTest.testServiceWorkerClientInterceptCallback | FAIL·待查 | `JS could not register Service Worker`（:200，66s） |
+| ServiceWorkerWebSettingsTest.testAllowContentAccess | OK | 串行 |
+| ServiceWorkerWebSettingsTest.testBlockNetworkLoads | OK | 串行 |
+| ServiceWorkerWebSettingsTest.testCacheMode | OK | 串行 |
+| ServiceWorkerWebSettingsTest.testAllowFileAccess | FAIL·待查 | `expected:<false> but was:<true>`（:122） |
+| WebViewRenderProcessClientTest.testSetWebViewRenderProcessClient | OK | 串行 |
+| WebViewRenderProcessClientTest.testWebViewRenderProcessClientWithExecutor | FAIL·gate-timeout | `mLoaded/mNewPicture/mProgress=0`（:195，21.7s） |
+| WebViewRenderProcessClientTest.testWebViewRenderProcessClientWithoutExecutor | FAIL·待查 | `TimeoutException SettableFuture PENDING`（:189，22.9s，JSBlocker 未被唤起） |
+| WebViewRenderProcessTest.testGetWebViewRenderProcess | FAIL·honest-gap | `A started renderer should be able to be terminated`（:165）；`terminate()=false` 稳定 token 诚实语义，见 STATUS §1b |
+| WebViewDarkModeDarkThemeTest.testSimplifiedDarkMode_rendersDark | FAIL·未实现 | `prefers-color-scheme shall set to dark, was null`（:84）；仓内零 dark-mode 实现 |
+| WebViewDarkModeLightThemeTest.testSimplifedDarkMode_rendersLight | FAIL·未实现 | gate-timeout（:81）；同上 |
+| WebViewTransportTest.testAccessWebView | OK | 串行 |
+
+> 健康注记（2026-10-04 夜）：batch 前 MemAvailable 4.9G → batch3 前 3.6G →
+> batch4 前 3.6G，均 ≥2G 门；load ~15（MTK D 态常驻，见 STATUS §1v，非 verdict
+> 否决项）。Pac testDefaultNetworkIsNull 的 240s 空洞为 runner 超时击中，
+> 非产品信号，需单独重跑补 verdict。
