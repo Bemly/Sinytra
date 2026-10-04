@@ -106,7 +106,7 @@ geolocation、页内查找、打印。
 ## 5. 测试与验收
 
 - `tests/unit`：JUnit（JVM），覆盖每个 bridge 的映射逻辑与边界值。
-- 设备集成：`provider/src/debug` harness（P0GlueActivity 编排 + P1/P2 探针），
+- 设备集成：`provider/src/debug` harness（GlueHarnessActivity 编排 + Transport/Intercept/SystemCapability 探针），
   反射注入口径做 bridge 级回归；切换后的真实路径探针做最终验收。
 - CTS：切换到 Sinytra 后在调试机上 `am instrument` 直跑 `CtsWebkitTestCases`
   （`CTS.md`），以 Chromium 基线 98.6% 为参照，是 P2 出货门槛；不通过的用例

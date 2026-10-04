@@ -75,7 +75,7 @@ export MOZCONFIG="$HOME/sinytra-vol/Projects/firefox/mozconfig-158"  # 必带：
 # `mach environment --verbose` 失败，provider 配置阶段报缺 compileSdk
 JAVA_HOME=/opt/homebrew/opt/openjdk@17 ANDROID_HOME=/opt/homebrew/share/android-commandlinetools \
   ./gradlew :provider:assembleDebug -PsinytraLocalGecko=true
-# 真机回归：P0RenderActivity 金丝雀 + P0GlueActivity 全量探针（现 41 PASS）
+# 真机回归：CanaryRenderActivity 金丝雀 + GlueHarnessActivity 全量探针（现 41 PASS）
 ```
 
 环境备忘：rust 用 rustup 工具链（homebrew rustc 缺 android target 的

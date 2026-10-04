@@ -1239,7 +1239,7 @@ HistoryList=0, SessionState=0         → Gecko 没 flush，再测 hidden GeckoV
   总开关必须保持关闭（DEVICE §1）；不做 ROM，没有“vendor 白名单”这条路。
 - 调试纪律：保持亮屏解锁（Doze+锁屏冻心跳、截图全黑属正常）；
   先看 `am_proc_start ... :<child>` 是否出现，再看 denials；
-  跑 harness 前先跑 `P0RenderActivity` 确认 child 起得来（金丝雀）。
+  跑 harness 前先跑 `CanaryRenderActivity` 确认 child 起得来（金丝雀）。
 
 ## 4. 已实现文件速览
 
@@ -1264,8 +1264,8 @@ provider/src/main/java/org/mozilla/geckowebview/
 └── runtime/  (GeckoRuntimeHolder：宿主进程级 GeckoRuntime 单例，最底层；UI 线程 create，peek() 诚实降级)
 provider/src/main/assets/sinytra-js/  # 内置 WebExtension（JS transport：eval / interface /
                                       #   WebMessage 端口；协议见 content.js 头注释）
-provider/src/debug/  # 探针与 harness（release dexdump 0 引用）：P0GlueActivity（编排）+
-                     #   P2TransportProbes / P2InterceptProbes / P1SystemProbes / P0RenderActivity /
+provider/src/debug/  # 探针与 harness（release dexdump 0 引用）：GlueHarnessActivity（编排）+
+                     #   TransportProbes / InterceptProbes / SystemCapabilityProbes / CanaryRenderActivity /
                      #   FrameworkEntryActivity（切换后真实路径验收，§1s）/
                      #   BootstrapProbe + BootstrapProbeActivity
 framework-stubs/  # compileOnly 的 android14 hidden API stubs（WebViewFactoryProvider/
