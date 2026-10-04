@@ -131,9 +131,7 @@ final class FileBridge {
     /**
      * Validates a host APK path for the SINYTRA_HOST_APK environment (0020):
      * file:///android_asset/ resolves from it. Null/empty in, null out
-     * (Gecko falls back to stock literal-path behavior). Pure string guard
-     * (the unit-test sourceSet cannot see framework stubs, so Context never
-     * crosses into tested code — the factory resolves the path at the edge).
+     * (Gecko falls back to stock literal-path behavior). Pure string guard.
      */
     @Nullable
     static String hostApkEnvValue(@Nullable String packageCodePath) {

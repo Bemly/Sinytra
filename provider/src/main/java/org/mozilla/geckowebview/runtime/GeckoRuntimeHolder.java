@@ -50,6 +50,15 @@ public final class GeckoRuntimeHolder {
             Context app = appContext.getApplicationContext();
             GeckoRuntimeSettings.Builder builder =
                     new GeckoRuntimeSettings.Builder().javaScriptEnabled(true);
+            // Host APK into child-process env (0020): file:///android_asset/
+            // resolves from SINYTRA_HOST_APK, and zygote-forked children do
+            // NOT inherit the app process env (Os.setenv is parent-only).
+            // The extras Bundle carries "envN"="K=V" entries into every
+            // child launch (the same rails MOZ_LOG rides on); the C++
+            // file hook getenv()s it. Appended after any existing env keys
+            // (host app / debug yaml may own env0..). Once per runtime
+            // (the host APK cannot change mid-process).
+            builder = builder.extras(hostApkEnvExtras(app));
             // GeckoView config (public configFilePath mechanism): all builds
             // get the provider hygiene prefs (src/main asset: no network
             // probing, no Remote Settings fetch); debug builds override the
@@ -69,6 +78,46 @@ public final class GeckoRuntimeHolder {
             Log.i(TAG, "GeckoRuntime created");
             return sRuntime;
         }
+    }
+
+    /**
+     * Extras Bundle carrying SINYTRA_HOST_APK into child launches (0020).
+     * Never null, never throws (a missing path simply yields no entry and
+     * Gecko falls back to stock literal-path behavior). Pure except reading
+     * the package path; JVM-testable via hostApkEnvValue (FileBridge).
+     */
+    @NonNull
+    static android.os.Bundle hostApkEnvExtras(@NonNull Context app) {
+        android.os.Bundle extras = new android.os.Bundle();
+        String path;
+        try {
+            path = app.getApplicationContext().getPackageCodePath();
+        } catch (Throwable t) {
+            Log.w(TAG, "hostApkEnvExtras path threw", t);
+            return extras;
+        }
+        path = hostApkPathOrNull(path);
+        if (path == null) {
+            return extras;
+        }
+        int c = 0;
+        while (extras.getString("env" + c) != null) {
+            c++;
+        }
+        extras.putString("env" + c, "SINYTRA_HOST_APK=" + path);
+        return extras;
+    }
+
+    /**
+     * Validates a host APK path for the SINYTRA_HOST_APK environment (0020).
+     * Null/empty in, null out. Pure string guard (unit-testable; Context
+     * never crosses into tested code).
+     */
+    static String hostApkPathOrNull(@Nullable String packageCodePath) {
+        if (packageCodePath == null || packageCodePath.isEmpty()) {
+            return null;
+        }
+        return packageCodePath;
     }
 
     @Nullable
