@@ -83,6 +83,14 @@ public final class GeckoSessionBridge
     // until the next flush), so copyBackForwardList prefers this.
     @Nullable
     private GeckoSession.HistoryDelegate.HistoryList mHistoryList;
+    // Commit guard for lost LoadUri dispatches (cold-start window): armed on
+    // every direct navigation, disarmed by the first commit signal
+    // (PageStart / LocationChange) or by design-silent outcomes (policy
+    // block / app override / stop / close). A healthy load pays zero
+    // overhead; a lost dispatch is re-issued bounded (see the guard).
+    private final NavigationCommitGuard mCommitGuard =
+            new NavigationCommitGuard();
+
     @Nullable
     private ContentBridge.Host mContentHost;
     @Nullable
@@ -236,6 +244,7 @@ public final class GeckoSessionBridge
     @Override
     public void onUrlChanged(@NonNull String url) {
         mUrl = url;
+        mCommitGuard.disarm();
         mClient.onUrlChanged(url);
     }
 
@@ -257,6 +266,13 @@ public final class GeckoSessionBridge
     }
 
     @Override
+    public void onAppOverrideDeny(@NonNull String url) {
+        // The app took over this URL (no PageStart by design): the commit
+        // guard must stand down, or it would re-issue a taken-over URL.
+        mCommitGuard.disarm();
+    }
+
+    @Override
     public void onLoadError(int errorCode, int sslPrimaryError,
             @NonNull String description, @Nullable String failingUrl) {
         mClient.onLoadError(errorCode, sslPrimaryError, description, failingUrl);
@@ -266,6 +282,8 @@ public final class GeckoSessionBridge
 
     @Override
     public void onPageStarted(@NonNull String url) {
+        // Commit signal: the LoadUri dispatch landed (disarms the guard).
+        mCommitGuard.disarm();
         // Chromium order: finished-before-next-start. A held success-finish
         // belongs to the previous navigation and must fire before this one
         // begins (CTS issues the next load right after the assert, so holds
@@ -583,6 +601,12 @@ public final class GeckoSessionBridge
         if (url != null) {
             mUrl = url;
         }
+        // Arm the commit guard before dispatching: if the LoadUri message is
+        // dropped (cold-start listener gap) no PageStart ever arrives and the
+        // guard re-issues this same navigation, bounded. Any commit signal,
+        // policy block, app override, stop or close disarms it.
+        final String guardUrl = url;
+        mCommitGuard.arm(() -> loadUrl(guardUrl, bypassCache));
         if (bypassCache) {
             mSession.load(new GeckoSession.Loader().uri(url)
                     .flags(GeckoSession.LOAD_FLAGS_BYPASS_CACHE));
@@ -603,6 +627,8 @@ public final class GeckoSessionBridge
         mOriginalUrl = url;
         mPendingTraversalUrl = null;
         mUrl = url;
+        final byte[] guardData = data;
+        mCommitGuard.arm(() -> loadFileUrl(url, guardData, mimeType));
         mSession.load(new GeckoSession.Loader().data(data, mimeType));
     }
 
@@ -626,6 +652,8 @@ public final class GeckoSessionBridge
         mOriginalUrl = url;
         mPendingTraversalUrl = null;
         mUrl = url;
+        final byte[] guardData = data;
+        mCommitGuard.arm(() -> loadDataUri(guardData, mimeType));
         mSession.load(new GeckoSession.Loader().data(data, mimeType));
     }
 
@@ -642,6 +670,9 @@ public final class GeckoSessionBridge
      * verdict boolean is JVM-locked, the DENY value is not (Looper).
      */
     public void completeBlockedNavigation() {
+        // Policy DENY produces no PageStart by design: stand the commit
+        // guard down explicitly (same reason as the app-override path).
+        mCommitGuard.disarm();
         // A DENY produces no Gecko PageStart to flush a held success-finish
         // (see onPageStarted): flush here so finished order never inverts.
         firePendingHold();
@@ -652,20 +683,26 @@ public final class GeckoSessionBridge
     }
 
     public void reload() {
+        mCommitGuard.disarm();
         mPendingTraversalUrl = null;
         mSession.reload();
     }
 
     public void stopLoading() {
+        // The app cancelled: no commit will arrive, and the guard must not
+        // resurrect a stopped navigation.
+        mCommitGuard.disarm();
         mSession.stop();
     }
 
     public void goBack() {
+        mCommitGuard.disarm();
         recordTraversalTarget(-1);
         mSession.goBack();
     }
 
     public void goForward() {
+        mCommitGuard.disarm();
         recordTraversalTarget(1);
         mSession.goForward();
     }
@@ -719,6 +756,7 @@ public final class GeckoSessionBridge
             reload();
             return;
         }
+        mCommitGuard.disarm();
         recordTraversalTarget(steps);
         GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
         int target = live != null && !live.isEmpty()
@@ -749,6 +787,7 @@ public final class GeckoSessionBridge
     }
 
     public void clearHistory() {
+        mCommitGuard.disarm();
         mSession.purgeHistory();
         mSessionState = null;
         mHistoryList = null;
@@ -940,6 +979,7 @@ public final class GeckoSessionBridge
     }
 
     public void close() {
+        mCommitGuard.disarm();
         long startMs = android.os.SystemClock.uptimeMillis();
         try {
             // session.close is @UiThread; the creator thread may be a
