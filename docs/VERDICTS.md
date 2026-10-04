@@ -290,8 +290,8 @@ OK（27，全串行）：testAccessPluginList / testAndroidAssetAnchor / testAnd
 
 | 用例 | verdict | 备注 |
 |---|---|---|
-| testPostUrlWithNetworkUrl | FAIL·process-crash（真 bug，优先修） | `UnsupportedOperationException: postUrl: P1/P2`（provider `todo():694` 经 `postUrl:769` 上抛，杀 CTS 进程）；违反 AGENTS §7 delegate 异常不上抛纪律。同族：`saveWebArchive`×2（:813-816）、`createPrintDocumentAdapter`（:915）同为裸 throw |
-| testUseRemovedJavascriptInterface | TIMEOUT·待重跑 | 21:04:33 起零输出至 21:08:34 = 240s 超时击中，无结果，不记 FAIL |
+| testPostUrlWithNetworkUrl | FAIL·honest-gap（crash 已修） | 2026-10-05 新包验证：裸 throw 改 no-op 后转为干净 gate FAIL（`mLoaded=false` :363，无 crash）；POST 真发需 Gecko POST-body 原语（0003 §4 open 项），当前 dropped+warn |
+| testUseRemovedJavascriptInterface | TIMEOUT·待专用复现 | 连续两轮 240s 零输出（10-04 batch6 + 10-05 新包轮），非 flake；疑 removed-interface 后 eval 挂起，待专用复现，不在此轮 chasing |
 | testCanInjectHeaders | FAIL·基线同挂 | `Referer not found`（:453）；Chromium 基线同 fail（CTS.md §4），不计回归 |
 | testSetNetworkAvailable | FAIL·基线同挂 | `unexpected timeout`（:2208）；基线同 fail，不计回归 |
 | testAddJavascriptInterfaceNullObject | FAIL·语义差异 | `IAE: injectedObject`（provider:1019 上抛）；null-object 容忍语义待按 AOSP 对齐（抛 vs 忽略） |
@@ -311,7 +311,7 @@ OK（27，全串行）：testAccessPluginList / testAndroidAssetAnchor / testAnd
 | testCreatingWebViewWithDeviceEncrpytionFails | FAIL·未实现（minor） | `should have thrown`（:240）；device-protected storage 未校验 |
 | testCreatingWebViewWithMultipleEncryptionContext | FAIL·未实现（minor） | （:264）；同上 |
 | testSetCustomTextClassifier | FAIL·未实现 | `expected same NO_OP`（:2591）；仓内无 TextClassifier |
-| testSaveWebArchive | FAIL·未实现 | gate `mLoaded=false`（:1283）表象下是 `todo()` throw；crash 未发生系门先挂 |
+| testSaveWebArchive | FAIL·未实现 | 2026-10-05 新包：AssertionError（:1261，前轮 :1283）——裸 throw 已改 no-op，无 throw 路径；存档序列化仍无原语 |
 | testAddJavascriptInterface | FAIL·gate-timeout | `mLoaded=false`（:624），待健康窗口重验 |
 | testClearHistory | FAIL·gate-timeout | future timeout（:2002），待健康窗口重验 |
 | testFindAll | FAIL·gate-timeout | `mLoaded=false`（:1374），待健康窗口重验 |
@@ -357,5 +357,5 @@ OK（27，全串行）：testAccessPluginList / testAndroidAssetAnchor / testAnd
 > batch1 附带 13 + WebViewClient 26 + WebViewTest 77 + Geo 5 = 292；
 > 另 2 N/A（RenderProcessClient.OnExecutor helper、WebViewTest$2 inner 非独立用例）。
 > 其中基线同挂不计回归：Geo×2 + CanInjectHeaders + SetNetworkAvailable。
-> 待重跑：testUseRemovedJavascriptInterface（TIMEOUT 空洞）。
-> 真 bug（证据确凿）：postUrl 裸 throw 杀进程（AGENTS §7 纪律违反，同族 saveWebArchive×2/createPrintDocumentAdapter）。
+> 待专用复现：testUseRemovedJavascriptInterface（连续两轮 240s 空洞，非 flake）。
+> postUrl 裸 throw 已修（干净 FAIL，POST 真发待 Gecko patch）。
