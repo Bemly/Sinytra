@@ -97,9 +97,52 @@ public final class GeckoWebViewFactoryProvider
         if (mAppContext == null) {
             mAppContext = webView.getContext().getApplicationContext();
         }
+        // Publish the host APK path to the process environment (0020): the
+        // provider runs inside the host process, so this is the APK whose
+        // assets back file:///android_asset/ (Chromium mapping). Tab
+        // children inherit it across fork before they exist — no delivery
+        // race, unlike pref/actor pushes. Once per process (the host cannot
+        // change mid-process); never breaks creation.
+        publishHostApkOnce(mAppContext);
         GeckoWebViewProvider provider = new GeckoWebViewProvider(webView, this, privateAccess);
         mWebViews.put(webView, provider);
         return provider;
+    }
+
+    private static final java.util.concurrent.atomic.AtomicBoolean sHostApkPublished =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    // Visible for JVM locks: pure except the one Os.setenv side effect,
+    // which tests never trigger (they call hostApkEnvValue only, with a
+    // bare path string — the unit-test sourceSet cannot see framework
+    // stubs, so no Context crosses this boundary in tests).
+    static void publishHostApkOnce(@Nullable Context appContext) {
+        if (sHostApkPublished.get()) {
+            return;
+        }
+        String path = null;
+        try {
+            path = appContext != null ? appContext.getPackageCodePath() : null;
+        } catch (Throwable t) {
+            Log.w(TAG, "getPackageCodePath threw", t);
+        }
+        path = hostApkEnvValue(path);
+        if (path == null) {
+            return;
+        }
+        try {
+            android.system.Os.setenv("SINYTRA_HOST_APK", path, true);
+        } catch (Throwable t) {
+            Log.w(TAG, "Os.setenv SINYTRA_HOST_APK threw", t);
+            return;
+        }
+        sHostApkPublished.set(true);
+        Log.i(TAG, "SINYTRA_HOST_APK=" + path);
+    }
+
+    @Nullable
+    static String hostApkEnvValue(@Nullable String packageCodePath) {
+        return FileBridge.hostApkEnvValue(packageCodePath);
     }
 
     @NonNull

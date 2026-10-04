@@ -122,11 +122,31 @@ final class FileBridge {
             return null;
         }
         java.io.File file = new java.io.File(path);
+        if (!file.isFile() || file.length() > MAX_BYTES) {
+            return null;
+        }
+        return readFully(file);
+    }
+
+    /**
+     * Validates a host APK path for the SINYTRA_HOST_APK environment (0020):
+     * file:///android_asset/ resolves from it. Null/empty in, null out
+     * (Gecko falls back to stock literal-path behavior). Pure string guard
+     * (the unit-test sourceSet cannot see framework stubs, so Context never
+     * crosses into tested code — the factory resolves the path at the edge).
+     */
+    @Nullable
+    static String hostApkEnvValue(@Nullable String packageCodePath) {
+        if (packageCodePath == null || packageCodePath.isEmpty()) {
+            return null;
+        }
+        return packageCodePath;
+    }
+
+    @Nullable
+    private static byte[] readFully(@NonNull java.io.File file) {
+        byte[] data = new byte[(int) file.length()];
         try {
-            if (!file.isFile() || file.length() > MAX_BYTES) {
-                return null;
-            }
-            byte[] data = new byte[(int) file.length()];
             java.io.FileInputStream in = new java.io.FileInputStream(file);
             try {
                 int off = 0;
