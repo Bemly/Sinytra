@@ -223,8 +223,18 @@ public final class GeckoWebViewProvider
         // Initial filter dispatch goes through Interception so the
         // gated retries cover the onInit race from the very first
         // push (a bare setResponseDelegate here would be fire-and-forget
-        // with no recovery until the first PageStart).
-        mInterception.repushFilters();
+        // with no recovery until the first PageStart). setResponseDelegate
+        // is @UiThread and the framework may create the provider on a
+        // background thread (third-party hosts do — device-verified); hop
+        // there, bounded (MainThread). Never breaks construction.
+        try {
+            org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+                mInterception.repushFilters();
+                return null;
+            });
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "filter repush threw", t);
+        }
         // Bind the JS extension transport (built-in WebExtension, public API;
         // install is async — eval answers honest-null until ready).
         try {
@@ -247,15 +257,32 @@ public final class GeckoWebViewProvider
         // NPEs there (framework-entry probe, 2026-09-26). bind() (setSession)
         // is safe at construction time; only addView defers, retried from
         // ViewDelegate.onAttachedToWindow.
-        GeckoViewHost host = null;
+        //
+        // Threading: View creation, GeckoView.setSession (@UiThread) and
+        // addView must all run on main, but third-party hosts construct the
+        // provider on background threads (device-verified: creator TID !=
+        // main, sessions then never commit). Hop there, bounded
+        // (MainThread — direct-run when already on main, zero overhead for
+        // main-thread creators). Failures still fall back to headless.
+        final GeckoViewHost[] hostBox = new GeckoViewHost[1];
         try {
-            host = new GeckoViewHost(webView.getContext());
-            host.bind(webView.getContext(), mBridge);
+            org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+                try {
+                    GeckoViewHost host =
+                            new GeckoViewHost(webView.getContext());
+                    host.bind(webView.getContext(), mBridge);
+                    hostBox[0] = host;
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG,
+                            "GeckoViewHost bind threw (headless fallback)", t);
+                }
+                return null;
+            });
         } catch (Throwable t) {
             android.util.Log.w(TAG,
-                    "GeckoViewHost bind threw (headless fallback)", t);
+                    "GeckoViewHost main-hop threw (headless fallback)", t);
         }
-        mViewHost = host;
+        mViewHost = hostBox[0];
         attachViewHost();
         // Image-policy push (no navigation): loosening must restore blocked
         // images in the CURRENT document, and provider-initiated navigations
@@ -301,6 +328,21 @@ public final class GeckoWebViewProvider
     // ViewDelegate.onAttachedToWindow (first moment the WebView ViewGroup is
     // fully constructed).
     void attachViewHost() {
+        // addView is main-only; the constructor may run on a background
+        // thread (third-party hosts) and onAttachedToWindow always runs on
+        // main — hop covers both (direct-run on main, bounded hop off it).
+        try {
+            org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+                attachViewHostOnMain();
+                return null;
+            });
+        } catch (Throwable t) {
+            android.util.Log.w(TAG,
+                    "GeckoViewHost addView failed; deferred to onAttachedToWindow", t);
+        }
+    }
+
+    private void attachViewHostOnMain() {
         if (mViewHost == null || mViewHost.getParent() != null) {
             return;
         }
