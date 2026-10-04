@@ -1092,8 +1092,14 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   RenderProcess×2、ServiceWorker×2、DarkMode×2、Geolocation（已知不可跑）、
   PacProcessor（已知要 patch）、SharedWebView。
 
-## 1y. 空标题竞态 + image 族三测试（2026-10-03，1/3 绿 + reboot 后设备失联）
+## 1y. 空标题竞态 + image 族（2026-10-03 起，2026-10-04 闭环）
 
+> 2026-10-04 更新：image 族 4/4 verdict（串行单测，同一最终构建）+
+> harness 全绿 + JVM 174 锁；0024 定稿。途中两个真缺口已修：
+> setter 即时推送（此前 loosening 无 delivery）与双 flag 放宽恢复
+> （此前只认 allowImages 变化）。残留 1673953 型 pre-commit 静默 flake
+>（trio-in-one-process 2/3 即此例；上游定性符合预期，非本 patch 范围）。
+> 细节见 `firefox-patches/0024-image-policy-docshell.md` §6/§7/§10。
 - **空标题竞态闭案**：Gecko TitleChange 比 PageStop 晚 ~500ms（JS-onload
   标题）+ commit 先报空占位 → CTS 完成后立即读标题必空。修两处
   （`GeckoSessionBridge`）：成功完成在标题"非空且属本页"前 hold（静态标题/

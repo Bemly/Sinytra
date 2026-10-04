@@ -125,15 +125,22 @@ expected:<[0]> but was:<[1]>  (WebSettingsTest.java:837)
    listener 只在真正放宽时重载（收紧/同值不再注无辜导航）。
    Gecko docshell 路径保留作纵深（默认 true 下零行为变化）。
 
-## 7. 验证状态（2026-10-03）
+## 7. 验证状态（2026-10-04 定稿）
 
-- `testLoadsImagesAutomatically_blockLoadingImages`：**OK**（确定性门）。
-- `testLoadsImagesAutomatically_loadImagesWithoutReload` /
-  `testBlockNetworkImage`：逻辑侧已全绿（images-off 断言经 sanitize+hold；
-  JVM 175 锁），剩余失败全部是设备容量型 flake（load 持续 ~15，
-  child tab 进程 `Timeout executing service`，导航在 LoadRequest 后零回调；
-  健康窗口下同路径通过）。待健康窗口补 verdict。
-- 本 patch 未定稿：verdict 补齐 + 全量 harness 回归后，再标定稿。
+- image 族 4/4 绿（带间隔串行单测，同一最终构建）：
+  `testLoadsImagesAutomatically_blockLoadingImages`、
+  `testLoadsImagesAutomatically_loadImagesWithoutReload`、
+  `testBlockNetworkImage`、
+  `testLoadsImagesAutomatically_dataUriImagesLoaded`。
+- 途中抓到并修好两个真 delivery 缺口（均有单测 + 真机 verdict）：
+  ① loosening 经 setter 必须即时推送（此前只在导航前推，poll 永不到）；
+  ② 恢复必须覆盖双 flag 放宽（此前只认 allowImages 变化，
+  blockNetworkImage 放宽静默）。恢复走 provider eval（零导航）+
+  child 双保险，幂等。
+- 残留：1673953 型 pre-commit 静默 flake（同一门偶发，与负载/时序相关；
+  trio-in-one-process 2/3 即此例）。上游定性为符合预期的 fission 行为，
+  非 0024 范围；verdict 轮按标准卫生 + 串行 + 记录执行。
+- 回归：全量 harness `P0 GLUE PASS`（本轮构建），JVM 174 锁全绿。
 
 ## 8. 设备对照实验（2026-10-04；2026-10-04 凌晨修正措辞）
 
