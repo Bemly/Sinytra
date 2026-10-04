@@ -1,7 +1,7 @@
 From 1812b24d0ca16c18c5f9f968e297a6a1f880ffd9 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Sat, 3 Oct 2026 21:05:29 +0800
-Subject: [PATCH 1/4] Sinytra patch 0024a: GeckoSessionSettings.allowImages key
+Subject: [PATCH 1/7] Sinytra patch 0024a: GeckoSessionSettings.allowImages key
  (default true, live)
 
 ---
@@ -88,7 +88,7 @@ index 2229122e7051..eca8e7ff041e 100644
 From 3d2933c15786c9ddaf3c0cc987e4c7d6f46b0e21 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Sat, 3 Oct 2026 21:05:32 +0800
-Subject: [PATCH 2/4] Sinytra patch 0024b: ImageBlocker honors content docshell
+Subject: [PATCH 2/7] Sinytra patch 0024b: ImageBlocker honors content docshell
  allowImages
 
 ---
@@ -170,7 +170,7 @@ index 84dd375f1183..14604510cba1 100644
 From 1b882c04cbb7095a09c08df1a9c11607b57fb0e0 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Sat, 3 Oct 2026 21:05:35 +0800
-Subject: [PATCH 3/4] Sinytra patch 0024c: child caches allowImages and applies
+Subject: [PATCH 3/7] Sinytra patch 0024c: child caches allowImages and applies
  it to own docshells
 
 ---
@@ -256,7 +256,7 @@ index 625905caab66..cb2cbec48416 100644
 From c543efb0619ff6cff8ef9aabc3e3e6532d9eee05 Mon Sep 17 00:00:00 2001
 From: Bemly <bemly_@petalmail.com>
 Date: Sat, 3 Oct 2026 21:05:37 +0800
-Subject: [PATCH 4/4] Sinytra patch 0024d: per-navigation allowImages push
+Subject: [PATCH 4/7] Sinytra patch 0024d: per-navigation allowImages push
  (stale-actor fix)
 
 ---
@@ -310,6 +310,312 @@ index 93bb66179475..79c5e02e89d9 100644
    pushUserAgentOverrideToTop() {
      try {
        const ua = this.customUserAgent;
+-- 
+2.56.0
+
+
+From 33e78be4d763f7b3014c306db45fc6d9b76082d2 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sun, 4 Oct 2026 02:26:23 +0800
+Subject: [PATCH 5/7] Sinytra patch 0024f: restore blocked images in place on
+ loosening
+
+---
+ .../actors/GeckoViewSettingsChild.sys.mjs     | 64 ++++++++++++++++++-
+ 1 file changed, 63 insertions(+), 1 deletion(-)
+
+diff --git a/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs b/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
+index cb2cbec48416..7f20bb3231dc 100644
+--- a/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
++++ b/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
+@@ -30,6 +30,60 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+     } catch (e) {}
+   }
+ 
++  // Sinytra 0024: re-trigger image loads in the live document after
++  // loosening, with zero navigation (see SettingsUpdate above). Images
++  // sanitized at serve time carry their source in data-sinytra-src(-set);
++  // policy-blocked images with intact sources are refetched only when
++  // visibly blank (complete + zero natural size), so healthy images are
++  // never stormed. Subframes are walked best-effort (cross-origin access
++  // throws and is skipped).
++  restoreBlockedImages() {
++    const seen = new Set();
++    const visit = doc => {
++      if (!doc || seen.has(doc)) {
++        return;
++      }
++      seen.add(doc);
++      try {
++        for (const img of doc.querySelectorAll("img")) {
++          try {
++            const backup = img.getAttribute("data-sinytra-src");
++            if (backup !== null) {
++              img.setAttribute("src", backup);
++              img.removeAttribute("data-sinytra-src");
++              const backupSet = img.getAttribute("data-sinytra-srcset");
++              if (backupSet !== null) {
++                img.setAttribute("srcset", backupSet);
++                img.removeAttribute("data-sinytra-srcset");
++              }
++              continue;
++            }
++            if (img.complete && img.naturalWidth === 0) {
++              const current = img.getAttribute("src");
++              if (current) {
++                img.setAttribute("src", "");
++                img.setAttribute("src", current);
++              }
++            }
++          } catch (e) {}
++        }
++      } catch (e) {}
++      try {
++        const frames = doc.defaultView?.frames;
++        if (frames) {
++          for (let i = 0; i < frames.length; i++) {
++            try {
++              visit(frames[i].document);
++            } catch (e) {}
++          }
++        }
++      } catch (e) {}
++    };
++    try {
++      visit(this.document);
++    } catch (e) {}
++  }
++
+   observe(aSubject, aTopic) {
+     if (aTopic !== "document-element-inserted") {
+       return;
+@@ -60,12 +114,20 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+ 
+         // Sinytra 0024: cache + apply to the live docshell (covers flag
+         // flips on the current document; fresh documents are covered by the
+-        // document-element-inserted observer above).
++        // document-element-inserted observer above). On a loosening flip
++        // (false -> true) also restore blocked images IN PLACE: provider-
++        // initiated navigations violate the loader's exclusivity contract
++        // (the test harness fails any PageStart it did not ask for), so the
++        // live document must re-render with zero navigation.
+         if (typeof settings.allowImages === "boolean") {
++          const loosened = this._allowImages === false && settings.allowImages;
+           this._allowImages = settings.allowImages;
+           try {
+             this.docShell.allowImages = this._allowImages;
+           } catch (e) {}
++          if (loosened) {
++            this.restoreBlockedImages();
++          }
+         }
+ 
+         if (settings.isExtensionPopup) {
+-- 
+2.56.0
+
+
+From cc7592224a1f2fe7877af01bc1306318d8d93c04 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sun, 4 Oct 2026 07:26:50 +0800
+Subject: [PATCH 6/7] Sinytra patch 0024g: evidence-triggered restore plus
+ post-commit prime
+
+---
+ .../actors/GeckoViewSettingsChild.sys.mjs     | 46 ++++++++++++++++---
+ .../geckoview/GeckoViewNavigation.sys.mjs     | 13 ++++++
+ 2 files changed, 52 insertions(+), 7 deletions(-)
+
+diff --git a/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs b/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
+index 7f20bb3231dc..38a1c8b552a6 100644
+--- a/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
++++ b/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
+@@ -8,6 +8,7 @@ import { GeckoViewActorChild } from "resource://gre/modules/GeckoViewActorChild.
+ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+   constructor() {
+     super();
++    dump(`Sinytra/images: actor constructed\n`);
+     // Sinytra 0024: per-session image policy. The docshell flag must be in
+     // place before any subresource loads (data: images load during parse),
+     // so every new document re-applies the cached session value. This also
+@@ -25,6 +26,7 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+   }
+ 
+   didDestroy() {
++    dump(`Sinytra/images: actor destroyed\n`);
+     try {
+       Services.obs.removeObserver(this._docObserver, "document-element-inserted");
+     } catch (e) {}
+@@ -37,7 +39,31 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+   // visibly blank (complete + zero natural size), so healthy images are
+   // never stormed. Subframes are walked best-effort (cross-origin access
+   // throws and is skipped).
++  // True when the live document holds images a restore would act on:
++  // sanitized backups, or blank-failed images with sources. Pure query
++  // (no loads), so running it per SettingsUpdate is cheap.
++  hasUnrestoredImages() {
++    try {
++      const doc = this.document;
++      if (!doc) {
++        return false;
++      }
++      if (doc.querySelector("img[data-sinytra-src],img[data-sinytra-srcset]")) {
++        return true;
++      }
++      for (const img of doc.querySelectorAll("img")) {
++        try {
++          if (img.complete && img.naturalWidth === 0 && img.getAttribute("src")) {
++            return true;
++          }
++        } catch (e) {}
++      }
++    } catch (e) {}
++    return false;
++  }
++
+   restoreBlockedImages() {
++    let restored = 0;
+     const seen = new Set();
+     const visit = doc => {
+       if (!doc || seen.has(doc)) {
+@@ -56,6 +82,7 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+                 img.setAttribute("srcset", backupSet);
+                 img.removeAttribute("data-sinytra-srcset");
+               }
++              restored++;
+               continue;
+             }
+             if (img.complete && img.naturalWidth === 0) {
+@@ -63,6 +90,7 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+               if (current) {
+                 img.setAttribute("src", "");
+                 img.setAttribute("src", current);
++                restored++;
+               }
+             }
+           } catch (e) {}
+@@ -82,8 +110,10 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+     try {
+       visit(this.document);
+     } catch (e) {}
++
+   }
+ 
++
+   observe(aSubject, aTopic) {
+     if (aTopic !== "document-element-inserted") {
+       return;
+@@ -114,18 +144,20 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+ 
+         // Sinytra 0024: cache + apply to the live docshell (covers flag
+         // flips on the current document; fresh documents are covered by the
+-        // document-element-inserted observer above). On a loosening flip
+-        // (false -> true) also restore blocked images IN PLACE: provider-
+-        // initiated navigations violate the loader's exclusivity contract
+-        // (the test harness fails any PageStart it did not ask for), so the
+-        // live document must re-render with zero navigation.
++        // document-element-inserted observer above). When images are allowed
++        // and the live document holds unrestored work (sanitized backups or
++        // blank-failed images), restore IN PLACE: provider-initiated
++        // navigations violate the loader's exclusivity contract (the test
++        // harness fails any PageStart it did not ask for), so re-rendering
++        // must involve zero navigation. Evidence-triggered (not
++        // edge-triggered), so newborn actors with default caches behave
++        // identically to primed ones.
+         if (typeof settings.allowImages === "boolean") {
+-          const loosened = this._allowImages === false && settings.allowImages;
+           this._allowImages = settings.allowImages;
+           try {
+             this.docShell.allowImages = this._allowImages;
+           } catch (e) {}
+-          if (loosened) {
++          if (settings.allowImages && this.hasUnrestoredImages()) {
+             this.restoreBlockedImages();
+           }
+         }
+diff --git a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+index a020e640eeb2..f795cce7806d 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+@@ -788,6 +788,19 @@ export class GeckoViewNavigation extends GeckoViewModule {
+       }
+     }
+ 
++    // Sinytra 0024: re-prime the top Settings actor after commit. The
++    // pre-navigation push (0018 site) targets an actor that BC swaps
++    // discard; the replacement BC's actor is born lazy and never sees a
++    // push (SettingsUpdate only fires on bundle changes). Pushing here
++    // instantiates it and primes its cache, so loosening restores and
++    // fresh-document flag application work on the live actor.
++    if (aWebProgress.isTopLevel) {
++      try {
++        this.moduleManager?._modules?.get("GeckoViewSettings")?.impl
++          ?.pushAllowImagesToTop?.();
++      } catch (e) {}
++    }
++
+     const message = {
+       uri: fixedURI.displaySpec,
+       canGoBack: this.browser.canGoBack,
+-- 
+2.56.0
+
+
+From f95be864608f097d42fed64db0a6b68cb884b911 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sun, 4 Oct 2026 09:14:11 +0800
+Subject: [PATCH 7/7] Sinytra patch 0024h: gate child diagnostics behind
+ sinytra.log.enabled
+
+---
+ .../shared/actors/GeckoViewSettingsChild.sys.mjs | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs b/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
+index 38a1c8b552a6..f78aeaf2f566 100644
+--- a/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
++++ b/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
+@@ -4,11 +4,22 @@
+ 
+ import { GeckoViewActorChild } from "resource://gre/modules/GeckoViewActorChild.sys.mjs";
+ 
++// Sinytra 0024: diagnostic logging, gated behind the 0005 runtime pref
++// (sinytra.log.enabled, default false). Bare dump() would spam every
++// navigation in all builds; the gate keeps it zero-cost unless debugging.
++function sinytraLog(msg) {
++  try {
++    if (Services.prefs.getBoolPref("sinytra.log.enabled", false)) {
++      dump(`Sinytra/images: ${msg}\n`);
++    }
++  } catch (e) {}
++}
++
+ // Handles GeckoView content settings
+ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+   constructor() {
+     super();
+-    dump(`Sinytra/images: actor constructed\n`);
++    sinytraLog("actor constructed");
+     // Sinytra 0024: per-session image policy. The docshell flag must be in
+     // place before any subresource loads (data: images load during parse),
+     // so every new document re-applies the cached session value. This also
+@@ -26,7 +37,7 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+   }
+ 
+   didDestroy() {
+-    dump(`Sinytra/images: actor destroyed\n`);
++    sinytraLog("actor destroyed");
+     try {
+       Services.obs.removeObserver(this._docObserver, "document-element-inserted");
+     } catch (e) {}
+@@ -158,6 +169,7 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+             this.docShell.allowImages = this._allowImages;
+           } catch (e) {}
+           if (settings.allowImages && this.hasUnrestoredImages()) {
++            sinytraLog("evidence found, restoring");
+             this.restoreBlockedImages();
+           }
+         }
 -- 
 2.56.0
 
