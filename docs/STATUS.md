@@ -1160,6 +1160,14 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   缓存今晚已暖、我方缓存冷，缓存混杂未排除。下一步：双方都冷的 URL 对等
   比较，再定是 ResetInterception 后 channel 卡住还是缓存差。2x 计时以此闭
   案为前置（stalled 轮是 ∞x——今晚 stock 死网 100s 即分母）。
+- **MOZ_LOG 鉴别轮（未闭，15651，临时门已撤）**：DocumentChannel 全链路：
+  newFans 主 channel 建于 tab 子进程（spawn 正常）→ PageStart →
+  LocationChange → consult 全回（12/12 OnSuccess 毫秒级，app 拦截器无辜）→
+  7 分钟零 progress/零 PageStop/零 error。另见主 channel 建后 650ms
+  `ShutdownListeners status=804b0002`（ABORTED 后同地址复用，redirect 交接
+  疑似，待定）。consult 完成 + 通道释放后无字节：仍剩两种——necko 层释放后
+  卡住 vs 死网 + 冷缓存（stock 暖缓存只取 API）。临时 `MOZ_LOG` 已撤、干净
+  包重装，Current 不变。下一步不变：健康网络下缓存冷对等比较。
 - **候选缺口（未闭）**：`:web` 在 runtime 就绪前后台线程调 CookieManager
   （`cookie op before runtime exists`×7），我方 drop（FALSE），Chromium
   随时可写；宿主若预置登录 cookie 会静默丢失——待专项确认。
