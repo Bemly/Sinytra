@@ -170,6 +170,13 @@ P-1（bootstrap spike，最高优先级）→ P0（~20% API 跑起来）→ P1�
   `chore(framework)` / `docs:` / `test:`）；提交前 `git diff --stat` 自检。
 - Agent 工作流：先读相关现有文件再提方案；一次只改一个文件（组）；`lint + unit test`
   通过再提交；新文件位置符合 §1。
+- 诊断纪律（2026-10-04 定稿：先源码后设备，先预测后动手）：Gecko 侧疑难先读
+  sibling firefox 源码 + `docs/SOURCES.md` bugzilla + pin 版 javadoc，半小时能定的
+  结论不烧设备轮次；每轮设备动作（单测/verdict/harness/rebuild+publish+install）
+  前先写预测——出现 A 则证实 X、出现 B 则证伪 Y，只能证明“还是挂的”轮次不开；
+  机制已有实锤后无新信息的复跑直接 ledger 封存，不抽奖式复跑；临时诊断日志一次
+  加齐、一次清掉，不为每个读数单独烧一个 omni/publish 周期；新建机制前先 10 分钟
+  纸面推演（生命周期/时序/存在性），证伪即删不留残留。
 - Java 风格：AOSP 规范，`@NonNull/@Nullable` 全覆盖 public API，入口校验参数；
   bridge 只翻译不缓存状态，状态下沉 `storage/`。
 - 线程/异步：GeckoView 调用与 delegate 回调默认 UI 线程，阻塞 IO 切后台、贴回 UI 交付；
