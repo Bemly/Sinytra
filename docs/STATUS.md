@@ -310,7 +310,7 @@ MOZBUILD_STATE_PATH=/Volumes//Projects/mozbuild PATH="$HOME/.cargo/bin:$PATH"
 # 真机（先 force-stop 再起，否则 am start 不重启）
 adb -s V885Q49L8TAMFEEE install -r provider/build/outputs/apk/debug/provider-debug.apk
 adb -s V885Q49L8TAMFEEE shell am force-stop moe.bemly.geckowebview.debug
-adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n moe.bemly.geckowebview.debug/org.mozilla.geckowebview.provider.P0GlueActivity
+adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n moe.bemly.geckowebview.debug/org.mozilla.geckowebview.provider.GlueHarnessActivity
 ```
 
 **收尾清单（2026-09-24 01:30 全部完成）**：① ~~插桩日志降级~~

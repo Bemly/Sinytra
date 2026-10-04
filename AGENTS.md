@@ -183,7 +183,9 @@ P-1（bootstrap spike，最高优先级）→ P0（~20% API 跑起来）→ P1�
 - 命名：禁用阶段命名法——类/变量/方法名不许用 `P0/P1/P2/P-1` 等阶段前缀
   （无业务含义，阶段完结后即成误导）；阶段只出现在注释、文档、提交信息里。
   类名按职责命名（如 `*NavigationDelegate` 按分流语义、`*Probes` 按能力面、
-  harness 按 `*Harness/*Canary`）。
+  harness 按 `*Harness/*Canary`）；日志 tag/线程名按模块命名
+  （`Sinytra/<模块>`），harness verdict 输出字符串同步去阶段化（历史日志
+  描述保留原样，不重写）。
 - 线程/异步：GeckoView 调用与 delegate 回调默认 UI 线程，阻塞 IO 切后台、贴回 UI 交付；
   异步统一 `GeckoResult` 链式，不手写 latch——唯一例外是 framework 契约本身同步
   的 API（如 `CookieManager.getCookie`，Chromium 同样阻塞调用线程）：等待必须有界、
