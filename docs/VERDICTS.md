@@ -14,9 +14,9 @@
 | testAccessUserAgentString | OK | 串行 |
 | testAccessAllowFileAccess | FAIL·deterministic→0020 | 复跑：datadir 半过（标题到），asset 半标题停留上一页 → 0020 |
 | testAccessCacheMode_defaultValue | OK | 串行 |
-| testAccessCacheMode_cacheElseNetwork | FAIL·load#2-stall | 两次咨询全 HIT，第二次永不完成；系统性形状（Type-A vs localhost 串行待区分） |
-| testAccessCacheMode_noCache | FAIL·Type-A | tab 0.5s 出生健康，ALLOW 后静默；非 spawn 慢 |
-| testAccessCacheMode_cacheOnly | FAIL·待定位 | 同上，待复跑+归因 |
+| testAccessCacheMode_cacheElseNetwork | FLAKY·load#2-stall | 两次咨询全 HIT，第二次永不完成；同双机制，待健康窗口重验 |
+| testAccessCacheMode_noCache | FLAKY·双机制 | load#1 完整、load#2 咨询后零回调。已证伪 spawn 慢；tab35 死于 fork/specialize（服务超时）证实机制 M1；全员健康出生仍挂证实机制 M2（1673953 空窗）。warmUp 对照无效已回退 |
+| testAccessCacheMode_cacheOnly | FLAKY·同上 | 三连挂同签名；归同双机制，待健康窗口重验 |
 | testAccessCursiveFontFamily | OK | 串行 |
 | testAccessFantasyFontFamily | OK | 串行 |
 | testAccessFixedFontFamily | OK | 串行 |
@@ -27,7 +27,7 @@
 | testAccessDefaultFixedFontSize | OK | 串行 |
 | testAccessDefaultTextEncodingName | OK | 串行 |
 | testAccessJavaScriptCanOpenWindowsAutomatically | FAIL·poll-timeout:520 | 未实现：无 onCreateWindow 桥（已知缺口） |
-| testAccessJavaScriptEnabled | FAIL·gate-timeout | 待复跑 |
+| testAccessJavaScriptEnabled | OK | 复跑绿（首轮门挂系坏窗口/Type-A flake） |
 | testAccessLayoutAlgorithm | OK | 串行 |
 | testAccessMinimumFontSize | OK | 串行 |
 | testAccessMinimumLogicalFontSize | OK | 串行 |
@@ -43,8 +43,8 @@
 | testAccessSupportZoom | OK | 串行 |
 | testAccessBuiltInZoomControls | OK | 串行 |
 | testAppCacheDisabled | OK | 串行 |
-| testAppCacheEnabled | FAIL·gate-timeout | 待复跑 |
-| testDatabaseDisabled | FAIL·gate-timeout | 待复跑 |
+| testAppCacheEnabled | OK | 复跑绿（首轮门挂系坏窗口/Type-A flake） |
+| testDatabaseDisabled | OK | 复跑绿（首轮门挂系坏窗口/Type-A flake） |
 | testDisabledActionModeMenuItems | OK | 串行 |
 | testLoadsImagesAutomatically_default | OK | 串行 |
 | testLoadsImagesAutomatically_httpImagesLoaded | OK | 串行 |
@@ -69,7 +69,11 @@
 >
 > 复跑轮（卫生后）：AllowFileAccess → deterministic→0020（datadir 半过，
 > asset 半标题停留）；cacheElseNetwork → load#2-stall（两次咨询全 HIT，
-> 第二次永不完成）；noCache → Type-A（tab 0.5s 健康出生，ALLOW 后静默）。
+> 第二次永不完成）；noCache → load#1 完整 + load#2 咨询后零回调。
 > 随后设备进坏窗口（服务启动超时 + 12 僵尸 tab，对照 dataUri 同步挂），
-> cacheOnly/JavaScriptEnabled/AppCacheEnabled/DatabaseDisabled 四条复跑作废，
-> 待清场重验（此后每个 verdict 自带绿对照）。
+> cacheOnly/JavaScriptEnabled/AppCacheEnabled/DatabaseDisabled 四条复跑作废。
+> 清场后对照绿，四条重验三绿（JSEnabled/AppCache/DBDisabled），cacheOnly
+> 仍挂。noCache diag 轮钉死 load#2 形态 + tab35 死于 fork/specialize
+>（M1 spawn-stall 实锤）；warmUp A/B 对照无效（预热生效但 load#2 照挂，
+> 机制在通知空窗侧 M2）→ 回退。cache 三项记 FLAKY·双机制，
+> 待健康窗口补绿（重试制 verdict）。
