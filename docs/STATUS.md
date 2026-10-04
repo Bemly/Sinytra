@@ -1145,9 +1145,16 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   首屏采样偏差导致的误判，证据优先，旧结论删除不留）。
   2x 加载 bound（相对 stock 冷启动到头像全实图）已接受为验收线，测量留到
   网络健康窗口（今晚 150KB/s 烂到 0.00KB/s，绝对计时无意义，不记）。
-- **候选缺口（未闭）**：`:web` 进程在 runtime 就绪前于后台线程调 CookieManager
-  （`cookie op before runtime exists`×7），我方直接 drop（FALSE），Chromium
-  随时可写；若宿主在首个 WebView 前预置登录 cookie，会静默丢失——待专项确认。
+- **偶发 pre-commit stall（未闭，今晚真正欠的项）**：7 轮里 2 轮（03:03、04:56）
+  `onLoadRequest` 后 5 分钟+零 `PageStart`，同 APK 好坏各半（04:17/04:22/04:25/
+  04:41 均提交），与构建无关、与 network 无关（tab 已有、runtime 已起、
+  gpu bind 3/0）。疑点收敛到 tab-bind 从未发起 vs 咨询链 wedged，
+  好/坏轮的 tab-bind 对照缺失（buffer 轮转前没抓到）。下轮：tab-bind 与
+  channel 创建加常驻 debug 门计数，活捉一次坏轮再定根因。
+  在此之前 2x 计时无意义（stalled 轮是 ∞x 不是 2x）——先定性，后定量。
+- **候选缺口（未闭）**：`:web` 在 runtime 就绪前后台线程调 CookieManager
+  （`cookie op before runtime exists`×7），我方 drop（FALSE），Chromium
+  随时可写；宿主若预置登录 cookie 会静默丢失——待专项确认。
 - **诊断卫生**：`[diag]` 临时日志（consult/query/pass-through/synthesize/page-start/
   attach 六处）同轮加齐、同轮 `git checkout` 清掉，干净构建重装，Current 不变。
   教训：日常号上对照矩阵少切 provider（每次切换换一个 jar，登录态即丢）。
