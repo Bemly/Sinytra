@@ -62,22 +62,45 @@ public final class LoadPolicyTest {
 
     @Test
     public void assetSubframe_ignoresFileAccessFlag() {
-        // CTS AllowFileAccess: android_asset URLs load even with file
-        // access disabled (all three enforcement points exempt them).
+        // CTS AllowFileAccess: android_asset MAIN frames load even with
+        // file access disabled (and subresources behave the same).
         GeckoWebSettings off = defaults();
         off.setAllowFileAccess(false);
-        assertFalse(LoadPolicy.blockNavigation(
-                "file:///android_asset/webkit/t.html", false,
-                "file:///android_asset/webkit/p.html", off));
         assertFalse(LoadPolicy.blockNavigation(
                 "file:///android_asset/webkit/t.html", true,
                 "file:///android_asset/webkit/p.html", off));
         assertFalse(LoadPolicy.blockSubresource(3,
                 "file:///android_asset/i.png",
                 "file:///android_asset/p.html", off));
-        // Non-asset file subframes still honor the flag.
+    }
+
+    @Test
+    public void assetSubframe_followsUrlFlags() {
+        // CTS Iframes/XHR matrix: an asset SUBFRAME loads only when the
+        // app allows file reads (fileFromFile || universal); with both
+        // URL flags false it denies at load time no matter the master
+        // flag (Disabled variants), so the origin policy is never the
+        // only line of defense.
+        GeckoWebSettings enabled = defaults();
+        enabled.setAllowFileAccess(false);
+        enabled.setAllowFileAccessFromFileURLs(true);
+        assertFalse(LoadPolicy.blockNavigation(
+                "file:///android_asset/webkit/t.html", false,
+                "file:///android_asset/webkit/p.html", enabled));
+        GeckoWebSettings universal = defaults();
+        universal.setAllowFileAccess(false);
+        universal.setAllowUniversalAccessFromFileURLs(true);
+        assertFalse(LoadPolicy.blockNavigation(
+                "file:///android_asset/webkit/t.html", false,
+                "file:///android_asset/webkit/p.html", universal));
+        GeckoWebSettings disabled = defaults();
+        disabled.setAllowFileAccess(false);
+        assertTrue(LoadPolicy.blockNavigation(
+                "file:///android_asset/webkit/t.html", false,
+                "file:///android_asset/webkit/p.html", disabled));
+        // Non-asset file subframes still honor the master flag.
         assertTrue(LoadPolicy.blockNavigation("file:///data/x.html", false,
-                "file:///android_asset/p.html", off));
+                "file:///android_asset/p.html", disabled));
     }
 
     @Test

@@ -134,10 +134,15 @@ final class LoadPolicy {
             return mode != android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW;
         }
         if ("file".equals(targetScheme) && !isMainFrame) {
-            // android_asset/ is exempt everywhere (CTS AllowFileAccess:
-            // asset URLs load even with file access disabled; the main-
-            // frame and subresource paths already exempt it).
-            if (targetUrl != null && targetUrl.startsWith(ASSET_PREFIX)) {
+            // android_asset/ is exempt ONLY when the app allows file reads
+            // (fileFromFile || universal): the AllowFileAccess asset half
+            // loads with master=false, but a Disabled subframe (both URL
+            // flags false) must still deny at load time. Blanket exemption
+            // would let Disabled loads through to a read that only the
+            // origin policy can stop. CTS matrix in LoadPolicyTest.
+            if (targetUrl != null && targetUrl.startsWith(ASSET_PREFIX)
+                    && (settings.getAllowFileAccessFromFileURLs()
+                            || settings.getAllowUniversalAccessFromFileURLs())) {
                 return false;
             }
             return !settings.getAllowFileAccess();
