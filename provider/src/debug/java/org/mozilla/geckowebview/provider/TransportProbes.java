@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 // visual surface. Interception probes (0001-0003 + P2-4 deny) live in
 // InterceptProbes, which the orchestrator runs right after this.
 // Same harness contract as the P0/P1 sections: every probe appends a
-// PASS line or throws — the orchestrator turns a throw into P0 GLUE FAIL.
+// PASS line or throws — the orchestrator turns a throw into GLUE FAIL.
 //
 // Requires: a live provider (session loaded, transport ready per the
 // jsEval retry loop) and the harness factory for the glue entry.

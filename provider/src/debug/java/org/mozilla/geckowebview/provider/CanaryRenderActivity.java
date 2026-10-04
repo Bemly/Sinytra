@@ -10,7 +10,7 @@ import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
 public final class CanaryRenderActivity extends Activity {
-    private static final String TAG = "Sinytra/p0";
+    private static final String TAG = "Sinytra/canary";
     private static final String URL = "https://example.com";
 
     private GeckoSession mSession;
@@ -30,7 +30,7 @@ public final class CanaryRenderActivity extends Activity {
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
         mStatus = new TextView(this);
-        mStatus.setText("P0: creating runtime…");
+        mStatus.setText("Canary: creating runtime…");
         GeckoView view = new GeckoView(this);
         layout.addView(mStatus);
         layout.addView(view, new LinearLayout.LayoutParams(
@@ -49,8 +49,8 @@ public final class CanaryRenderActivity extends Activity {
             public void onPageStop(GeckoSession session, boolean success) {
                 Log.i(TAG, "onPageStop success=" + success);
                 runOnUiThread(() -> mStatus.setText(
-                        success ? "P0 PASS: page stopped, success=true"
-                                : "P0 FAIL: page stopped, success=false"));
+                        success ? "CANARY PASS: page stopped, success=true"
+                                : "CANARY FAIL: page stopped, success=false"));
             }
 
             @Override
@@ -79,7 +79,7 @@ public final class CanaryRenderActivity extends Activity {
         // 0006 download investigation: observe the external-response dispatch
         // end to end (Gecko helper-app → ContentDelegate.onExternalResponse;
         // the provider's WebView-facing DownloadListener wiring is verified
-        // separately in the P0Glue harness).
+        // separately in the GlueHarnessActivity harness).
         mSession.setContentDelegate(new GeckoSession.ContentDelegate() {
             @Override
             public void onExternalResponse(GeckoSession session,

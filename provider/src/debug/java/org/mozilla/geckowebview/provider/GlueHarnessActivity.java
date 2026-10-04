@@ -12,13 +12,13 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-// P0 glue harness: drives GeckoWebViewProvider WITHOUT the framework by
+// Glue harness: drives GeckoWebViewProvider WITHOUT the framework by
 // injecting a real android.webkit.WebView + the real hidden PrivateAccess
 // (obtained via reflection on the device framework). Verifies:
 // createWebView path, loadUrl → onPageFinished, getUrl/getTitle/getProgress,
 // canGoBack/goBack round-trip, copyBackForwardList, settings live.
 public final class GlueHarnessActivity extends Activity {
-    private static final String TAG = "Sinytra/p0glue";
+    private static final String TAG = "Sinytra/harness";
     private static final String URL_1 = "https://example.com";
     private static final String URL_2 = "https://example.org";
 
@@ -28,11 +28,11 @@ public final class GlueHarnessActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         mStatus = new TextView(this);
-        mStatus.setText("P0 glue: starting…");
+        mStatus.setText("Glue harness: starting…");
         mStatus.setTextIsSelectable(true);
         setContentView(mStatus);
         Log.i(TAG, "onCreate: starting probe thread");
-        new Thread(this::runProbe, "p0-glue").start();
+        new Thread(this::runProbe, "glue-harness").start();
     }
 
     private void runProbe() {
@@ -389,9 +389,9 @@ public final class GlueHarnessActivity extends Activity {
             SystemCapabilityProbes.run(this, out, provider, webView, factory, client);
 
             runOnUiThread(provider::destroy);
-            out.append("P0 GLUE PASS\n");
+            out.append("GLUE PASS\n");
         } catch (Throwable t) {
-            out.append("P0 GLUE FAIL: ").append(Log.getStackTraceString(t)).append('\n');
+            out.append("GLUE FAIL: ").append(Log.getStackTraceString(t)).append('\n');
         }
         String result = out.toString();
         Log.i(TAG, "\n" + result);

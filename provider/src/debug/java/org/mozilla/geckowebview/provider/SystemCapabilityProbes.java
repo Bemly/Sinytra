@@ -86,7 +86,7 @@ final class SystemCapabilityProbes {
                 cm.setAcceptThirdPartyCookies(webView, tpBefore);
                 cookieOk[0] = flipped && restored && tpFlipped;
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/p1", "cookie probe threw", t);
+                android.util.Log.w("Sinytra/syscaps", "cookie probe threw", t);
             } finally {
                 cookieDone.countDown();
             }
@@ -542,7 +542,7 @@ final class SystemCapabilityProbes {
                     os.write(body);
                     os.flush();
                 } catch (Throwable t) {
-                    android.util.Log.w("Sinytra/p1",
+                    android.util.Log.w("Sinytra/syscaps",
                             "attachment server ended", t);
                 }
             }, "sinytra-dl-server");
@@ -612,7 +612,7 @@ final class SystemCapabilityProbes {
                         os.write(body);
                         os.flush();
                     } catch (Throwable t) {
-                        android.util.Log.d("Sinytra/p1",
+                        android.util.Log.d("Sinytra/syscaps",
                                 "tls server connection ended", t);
                     }
                 }
@@ -654,7 +654,7 @@ final class SystemCapabilityProbes {
                                             }
                                         });
                             } catch (Throwable t) {
-                                android.util.Log.d("Sinytra/p1",
+                                android.util.Log.d("Sinytra/syscaps",
                                         "ssl probe eval attempt " + i
                                                 + " failed");
                             }
