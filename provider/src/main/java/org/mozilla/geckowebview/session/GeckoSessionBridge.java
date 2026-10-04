@@ -605,8 +605,19 @@ public final class GeckoSessionBridge
         // dropped (cold-start listener gap) no PageStart ever arrives and the
         // guard re-issues this same navigation, bounded. Any commit signal,
         // policy block, app override, stop or close disarms it.
+        //
+        // The redispatch path intentionally bypasses this method: routing it
+        // back through loadUrl would re-arm (fresh generation, attempt reset
+        // to 1) and turn the bounded retry into an infinite 2s loop on a
+        // fully wedged pipeline (device-verified). Retries from one arm stay
+        // inside the guard's own generation/attempt budget.
         final String guardUrl = url;
-        mCommitGuard.arm(() -> loadUrl(guardUrl, bypassCache));
+        mCommitGuard.arm(() -> dispatchLoad(guardUrl, bypassCache));
+        dispatchLoad(url, bypassCache);
+    }
+
+    // Raw session dispatch without guard bookkeeping (guard redispatch path).
+    private void dispatchLoad(@NonNull String url, boolean bypassCache) {
         if (bypassCache) {
             mSession.load(new GeckoSession.Loader().uri(url)
                     .flags(GeckoSession.LOAD_FLAGS_BYPASS_CACHE));
@@ -628,7 +639,13 @@ public final class GeckoSessionBridge
         mPendingTraversalUrl = null;
         mUrl = url;
         final byte[] guardData = data;
-        mCommitGuard.arm(() -> loadFileUrl(url, guardData, mimeType));
+        mCommitGuard.arm(() -> dispatchFileLoad(guardData, mimeType));
+        dispatchFileLoad(data, mimeType);
+    }
+
+    // Raw session dispatch without guard bookkeeping (guard redispatch path).
+    private void dispatchFileLoad(@NonNull byte[] data,
+            @NonNull String mimeType) {
         mSession.load(new GeckoSession.Loader().data(data, mimeType));
     }
 
@@ -653,7 +670,13 @@ public final class GeckoSessionBridge
         mPendingTraversalUrl = null;
         mUrl = url;
         final byte[] guardData = data;
-        mCommitGuard.arm(() -> loadDataUri(guardData, mimeType));
+        mCommitGuard.arm(() -> dispatchDataLoad(guardData, mimeType));
+        dispatchDataLoad(data, mimeType);
+    }
+
+    // Raw session dispatch without guard bookkeeping (guard redispatch path).
+    private void dispatchDataLoad(@NonNull byte[] data,
+            @NonNull String mimeType) {
         mSession.load(new GeckoSession.Loader().data(data, mimeType));
     }
 
