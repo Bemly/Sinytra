@@ -1121,6 +1121,27 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   15 分钟+，疑卡启动/掉线，待人手确认。回来后：卫生 → T2/T3 verdict →
   全量 harness → 0024 定稿。
 
+## 1z. Bilibili 第三方宿主诊断（2026-10-05，粉丝页 verdict：内容 PASS）
+
+- **报障**：主界面→消息→新增粉丝页显示 B 站自带“WebView 不可用”兜底。
+  真机实锤（`tv.danmaku.bili:web`，MWebActivity inflate 期）：
+  `MissingWebViewPackageException: NameNotFoundException: moe.bemly.geckowebview.debug`，
+  起在 framework `getPackageInfo`，一行 provider 代码未跑到——与胶水/Gecko 逻辑无关。
+- **根因①（HMA 藏 provider，用户侧配置，已解）**：用户 HideMyApplist 把我方包藏掉；
+  放行后同路径异常消失。bromite 对照同挂（`NameNotFoundException: org.bromite.webview`）
+  同愈——与引擎无关，只与“非系统包是否可见”有关；stock（SYSTEM flag）在全程可见。
+  机制记死：HMA hook 点在 system_server（lspd scope 只有 system），按受害者（B 站）
+  过滤 PMS 查询；它藏不住住进受害者进程内的注入（webviewpp 开进 B 站 scope 后
+  B 站自杀，HMA 再全也盖不住自进程 maps/dex 检查——B 站 scope 保持为空）。
+- **根因②（掉登录，查案人切 provider 切丢的）**：cookie jar 按 provider 隔离，
+  当晚多次切换把 B 站会话切没了，页面空转。用户重登后同路径在我方完整渲染：
+  consult→load→`page-start newFans`→像素→全文 11 条（含回关按钮），screencap×3。
+  头像占位：0.25KB/s 网络下子资源未到，image 策略默认放行，待网络正常时复核，
+  不当 bridge 缺口追。
+- **诊断卫生**：`[diag]` 临时日志（consult/query/pass-through/synthesize/page-start/
+  attach 六处）同轮加齐、同轮 `git checkout` 清掉，干净构建重装，Current 不变。
+  教训：日常号上对照矩阵少切 provider（每次切换换一个 jar，登录态即丢）。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~**切换路线主线化**~~（2026-09-26 完成，§1s）：metadata + versionCode
