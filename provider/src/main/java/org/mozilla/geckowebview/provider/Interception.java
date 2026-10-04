@@ -217,8 +217,15 @@ final class Interception {
         if (mHost.destroyed()) {
             return;
         }
+        // setResponseDelegate is @UiThread; setFilters may arrive on any
+        // thread (and the provider constructor itself may run off-main in
+        // third-party hosts). Hop there, bounded (MainThread — direct-run
+        // when already on main). Retries below already run on main.
         try {
-            mHost.bridge().session().setResponseDelegate(mResponses);
+            org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+                mHost.bridge().session().setResponseDelegate(mResponses);
+                return null;
+            });
         } catch (Throwable t) {
             android.util.Log.w(TAG, "pushEffectiveFilters threw", t);
             return;
