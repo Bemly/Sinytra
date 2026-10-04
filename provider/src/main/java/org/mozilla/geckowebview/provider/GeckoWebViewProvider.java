@@ -490,7 +490,9 @@ public final class GeckoWebViewProvider
             mBridge.applyWebSettings(state.getJavaScriptEnabled(),
                     mSettings.resolvedUserAgentString(),
                     state.getDesktopMode(), state.getUseWideViewPort(),
-                    state.getLoadsImagesAutomatically());
+                    state.getLoadsImagesAutomatically(),
+                    state.getAllowFileAccessFromFileURLs()
+                            || state.getAllowUniversalAccessFromFileURLs());
         } catch (Throwable t) {
             android.util.Log.w(TAG, "pushSettings threw", t);
         }

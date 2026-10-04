@@ -832,7 +832,8 @@ public final class GeckoSessionBridge
     // verbatim. Never throws: a closed session degrades silently.
     public void applyWebSettings(boolean javaScriptEnabled,
             @Nullable String userAgentOverride, boolean desktopMode,
-            boolean wideViewport, boolean loadsImagesAutomatically) {
+            boolean wideViewport, boolean loadsImagesAutomatically,
+            boolean fileReadsAllowed) {
         try {
             org.mozilla.geckoview.GeckoSessionSettings settings =
                     mSession.getSettings();
@@ -849,6 +850,9 @@ public final class GeckoSessionBridge
                     : org.mozilla.geckoview.GeckoSessionSettings
                             .VIEWPORT_MODE_DESKTOP);
             settings.setUserAgentOverride(userAgentOverride);
+            // File-reads flag (0020): the bundle re-dispatches on change,
+            // so the strict-origin mirror tracks the latest navigation.
+            settings.setSinytraFileReadsAllowed(fileReadsAllowed);
         } catch (Throwable t) {
             Log.w(TAG, "applyWebSettings threw", t);
         }
