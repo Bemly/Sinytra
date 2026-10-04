@@ -80,6 +80,11 @@ public final class GeckoWebViewProvider
     private final GeckoSessionBridge mBridge;
     private final ClientFanOut mFanOut;
     private final CompatWebSettings mSettings;
+    // Last image-policy values seen by the policy listener (facade
+    // defaults: images on, network images unblocked). Compared per fire so
+    // only genuine loosening transitions restore in place.
+    private boolean mLastImagesAuto = true;
+    private boolean mLastBlockNetworkImage;
     private final FindBridge mFind;
     private final PrintBridge mPrint;
     private final JsEvaluator mJs;
@@ -263,8 +268,26 @@ public final class GeckoWebViewProvider
                 return;
             }
             try {
-                mBridge.applyImagesPolicy(
-                        mSettings.gecko().getLoadsImagesAutomatically());
+                org.mozilla.geckowebview.settings.GeckoWebSettings state =
+                        mSettings.gecko();
+                boolean auto = state.getLoadsImagesAutomatically();
+                boolean block = state.getBlockNetworkImage();
+                // Snapshot on EVERY fire (a set before the first navigation
+                // must still count when the later loosening is compared).
+                boolean loosened = LoadPolicy.shouldRestoreImages(
+                        mLastImagesAuto, auto,
+                        mLastBlockNetworkImage, block);
+                mLastImagesAuto = auto;
+                mLastBlockNetworkImage = block;
+                // Session flag first (change-gated dispatch; covers the
+                // docshell path when allowImages actually flipped)...
+                mBridge.applyImagesPolicy(auto);
+                // ...then in-place restore, which also covers loosening the
+                // app never hears about (blockNetworkImage flip with
+                // allowImages unchanged dispatches nothing).
+                if (loosened) {
+                    ProviderImageRestore.fire(mJs);
+                }
             } catch (Throwable t) {
                 android.util.Log.w(TAG, "images policy push threw", t);
             }

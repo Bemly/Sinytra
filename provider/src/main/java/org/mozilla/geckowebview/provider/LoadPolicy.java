@@ -103,6 +103,19 @@ final class LoadPolicy {
     }
 
     /**
+     * Whether an image-policy mutation loosened loading and should restore
+     * blocked images in place (no navigation — the loader's exclusivity
+     * contract forbids provider-initiated navigations): either
+     * loadsImagesAutomatically false→true, or blockNetworkImage true→false.
+     * Tightening and same-value sets restore nothing (the next navigation
+     * picks them up). Pure (JVM-locked).
+     */
+    static boolean shouldRestoreImages(boolean oldAuto, boolean newAuto,
+            boolean oldBlock, boolean newBlock) {
+        return (!oldAuto && newAuto) || (oldBlock && !newBlock);
+    }
+
+    /**
      * Navigation verdict for the LoadRequest path (main frame or
      * subframe). True = DENY the navigation.
      */

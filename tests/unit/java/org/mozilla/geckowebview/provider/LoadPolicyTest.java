@@ -61,6 +61,25 @@ public final class LoadPolicyTest {
     }
 
     @Test
+    public void restore_onlyOnGenuineLoosening() {
+        // Either flag loosening restores blocked images in place.
+        assertTrue(LoadPolicy.shouldRestoreImages(
+                false, true, false, false));
+        assertTrue(LoadPolicy.shouldRestoreImages(
+                true, true, true, false));
+        // Tightening restores nothing.
+        assertFalse(LoadPolicy.shouldRestoreImages(
+                true, false, false, false));
+        assertFalse(LoadPolicy.shouldRestoreImages(
+                true, true, false, true));
+        // Same-value sets restore nothing.
+        assertFalse(LoadPolicy.shouldRestoreImages(
+                false, false, false, false));
+        assertFalse(LoadPolicy.shouldRestoreImages(
+                true, true, true, true));
+    }
+
+    @Test
     public void mixed_neverBlocksAll() {
         GeckoWebSettings s = defaults();
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
