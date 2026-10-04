@@ -61,8 +61,27 @@ public final class LoadPolicyTest {
     }
 
     @Test
-    public void restore_onlyOnGenuineLoosening() {
-        // Either flag loosening restores blocked images in place.
+    public void assetSubframe_ignoresFileAccessFlag() {
+        // CTS AllowFileAccess: android_asset URLs load even with file
+        // access disabled (all three enforcement points exempt them).
+        GeckoWebSettings off = defaults();
+        off.setAllowFileAccess(false);
+        assertFalse(LoadPolicy.blockNavigation(
+                "file:///android_asset/webkit/t.html", false,
+                "file:///android_asset/webkit/p.html", off));
+        assertFalse(LoadPolicy.blockNavigation(
+                "file:///android_asset/webkit/t.html", true,
+                "file:///android_asset/webkit/p.html", off));
+        assertFalse(LoadPolicy.blockSubresource(3,
+                "file:///android_asset/i.png",
+                "file:///android_asset/p.html", off));
+        // Non-asset file subframes still honor the flag.
+        assertTrue(LoadPolicy.blockNavigation("file:///data/x.html", false,
+                "file:///android_asset/p.html", off));
+    }
+
+    @Test
+    public void restore_onlyOnGenuineLoosening() {        // Either flag loosening restores blocked images in place.
         assertTrue(LoadPolicy.shouldRestoreImages(
                 false, true, false, false));
         assertTrue(LoadPolicy.shouldRestoreImages(

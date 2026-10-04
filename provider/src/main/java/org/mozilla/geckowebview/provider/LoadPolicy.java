@@ -134,6 +134,12 @@ final class LoadPolicy {
             return mode != android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW;
         }
         if ("file".equals(targetScheme) && !isMainFrame) {
+            // android_asset/ is exempt everywhere (CTS AllowFileAccess:
+            // asset URLs load even with file access disabled; the main-
+            // frame and subresource paths already exempt it).
+            if (targetUrl != null && targetUrl.startsWith(ASSET_PREFIX)) {
+                return false;
+            }
             return !settings.getAllowFileAccess();
         }
         if ("file".equals(targetScheme) && isMainFrame
