@@ -124,6 +124,11 @@ adb -s V885Q49L8TAMFEEE shell cmd webviewupdate set-webview-implementation com.g
   前，先跑 §7 清僵尸命令 + 常规双 force-stop（CTS + provider uid），再看
   门限。不是"内存看着还行就跳过"——僵尸按调用次数线性涨，一轮串行扫表
   （50+ 次 shell）不中途清一次就会把后面 verdict 毒掉。
+- **每次手机测试前必删旧包（强制步骤，与清进程同级）**：装包前先
+  `pm list packages` 核对——旧 applicationId（`org.mozilla.geckowebview.debug`）、
+  过期测试包（旧 CTS/harness/MiniWV）有则 `uninstall` 再装；跑后清场删测试包
+  （CTS 例见 `CTS.md` §2）。防 Valid 列表/签名/数据残留污染 verdict
+  （旧包旧 child 曾毒掉 filter 下发链，见 `STATUS.md` §1v）。
 - **verdict 轮前必清僵尸**（一次调用，防自杀写法——朴素
   `pkill -f kokoro.provider` 会连本次会话一起杀掉，本次会话的
   logger 同样匹配，退出码 137）：
