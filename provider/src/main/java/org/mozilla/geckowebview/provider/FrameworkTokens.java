@@ -10,7 +10,7 @@ import androidx.annotation.Nullable;
 // Reflective framework-token factories: HttpAuthHandler/JsResult/
 // JsPromptResult all have package-private ctors invisible to provider code
 // at compile time; runtime reflection reaches them (same technique as
-// P0Glue's PrivateAccess construction). Instances are only tokens passed
+// GlueHarness's PrivateAccess construction). Instances are only tokens passed
 // into app callbacks; Gecko-side decisions are made separately from app
 // return values. Split out of GeckoWebViewProvider (file-size rule).
 //

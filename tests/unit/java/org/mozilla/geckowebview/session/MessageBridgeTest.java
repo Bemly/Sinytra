@@ -19,7 +19,7 @@ import org.junit.Test;
 //
 // Not lockable on the JVM: onPortDeliver routing (the JsBridge dispatch
 // entry is private by design) and the full page round-trip — both are
-// device-verified by the P0GlueActivity boundaryPort probe (via=page).
+// device-verified by the GlueHarnessActivity boundaryPort probe (via=page).
 public final class MessageBridgeTest {
 
     private static final class RecordingHost implements MessageBridge.Host {

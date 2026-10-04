@@ -94,7 +94,7 @@ dependencies {
     implementation("androidx.annotation:annotation:1.9.1")
     // androidx.webkit boundary interfaces ship inside webkit AAR classes.jar;
     // compileOnly: real androidx classes come from the app at runtime.
-    // debugImplementation: harness (P0GlueActivity) drives the glue entry
+    // debugImplementation: harness (GlueHarnessActivity) drives the glue entry
     // point in-process, so the debug APK must carry the boundary types;
     // release keeps them out (app provides androidx.webkit).
     compileOnly("androidx.webkit:webkit:1.12.1")

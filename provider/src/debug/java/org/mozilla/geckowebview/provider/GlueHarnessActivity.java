@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
 // (obtained via reflection on the device framework). Verifies:
 // createWebView path, loadUrl → onPageFinished, getUrl/getTitle/getProgress,
 // canGoBack/goBack round-trip, copyBackForwardList, settings live.
-public final class P0GlueActivity extends Activity {
+public final class GlueHarnessActivity extends Activity {
     private static final String TAG = "Sinytra/p0glue";
     private static final String URL_1 = "https://example.com";
     private static final String URL_2 = "https://example.org";
@@ -59,7 +59,7 @@ public final class P0GlueActivity extends Activity {
                     new java.util.concurrent.CountDownLatch(1);
             runOnUiThread(() -> {
                 try {
-                    WebView webView = new WebView(P0GlueActivity.this);
+                    WebView webView = new WebView(GlueHarnessActivity.this);
                     webViewBox[0] = webView;
                     privateAccessBox[0] = newPrivateAccess(webView);
                 } catch (Throwable t) {
@@ -282,7 +282,7 @@ public final class P0GlueActivity extends Activity {
             final CountDownLatch singletonDone = new CountDownLatch(1);
             runOnUiThread(() -> {
                 try {
-                    Context app = P0GlueActivity.this.getApplicationContext();
+                    Context app = GlueHarnessActivity.this.getApplicationContext();
                     singletons[0] = factory.cookieManager(app);
                     singletons[1] = factory.getWebStorage();
                     singletons[2] = factory.icons(app);
@@ -379,14 +379,14 @@ public final class P0GlueActivity extends Activity {
             runOnUiThread(() -> provider.setWebViewClient(client.client));
 
             // --- P2 probes: transport + androidx glue (own file, file-size rule) ---
-            P2TransportProbes.run(this, out, provider, webView, factory, client);
-            P2InterceptProbes.run(this, out, provider, client);
+            TransportProbes.run(this, out, provider, webView, factory, client);
+            InterceptProbes.run(this, out, provider, client);
 
             // --- P1 probes: system capabilities (cookie policy, download,
             // print PDF round-trip, media permission round-trip,
             // geolocation deny) — needs the loaded https page the P2 deny
             // probe leaves in place (secure context for the JS prompts) ---
-            P1SystemProbes.run(this, out, provider, webView, factory, client);
+            SystemCapabilityProbes.run(this, out, provider, webView, factory, client);
 
             runOnUiThread(provider::destroy);
             out.append("P0 GLUE PASS\n");

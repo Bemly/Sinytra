@@ -18,7 +18,7 @@ import org.mozilla.geckoview.GeckoSession;
 //
 // Not lockable on the JVM: the SessionState parcel path (framework Parcel
 // is stubbed) — the saveState/restoreState round-trip stays device-locked
-// by the P0GlueActivity harness probes.
+// by the GlueHarnessActivity harness probes.
 public final class GeckoBackForwardListTest {
 
     private static GeckoSession.HistoryDelegate.HistoryItem item(

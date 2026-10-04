@@ -15,7 +15,7 @@ import java.util.Set;
 public final class SupportedFeatures {
     private SupportedFeatures() {}
 
-    // Implemented today (verified by P0GlueActivity harness):
+    // Implemented today (verified by GlueHarnessActivity harness):
     //
     // GET_WEB_VIEW_CLIENT / GET_WEB_CHROME_CLIENT — ClientFanOut returns the
     //   app-set clients.

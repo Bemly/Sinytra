@@ -15,7 +15,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 // Real-path acceptance probe (AGENTS §6: final acceptance runs on the
-// switched device, BOOTSTRAP §2.4). Unlike P0GlueActivity (reflection-built
+// switched device, BOOTSTRAP §2.4). Unlike GlueHarnessActivity (reflection-built
 // factory, framework WebView still bound to the system provider) this goes
 // through the framework exactly like any app: WebView.getCurrentWebViewPackage
 // must be us, new WebView(context) loads the trampoline via WebViewFactory,

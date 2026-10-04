@@ -13,10 +13,10 @@
             </intent-filter>
         </activity>
         <activity
-            android:name="org.mozilla.geckowebview.provider.P0RenderActivity"
+            android:name="org.mozilla.geckowebview.provider.CanaryRenderActivity"
             android:exported="true" />
         <activity
-            android:name="org.mozilla.geckowebview.provider.P0GlueActivity"
+            android:name="org.mozilla.geckowebview.provider.GlueHarnessActivity"
             android:exported="true" />
         <!-- Real-path acceptance (switched device only, BOOTSTRAP §2.4). -->
         <activity

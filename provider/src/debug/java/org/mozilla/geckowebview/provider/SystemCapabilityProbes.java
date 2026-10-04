@@ -39,8 +39,8 @@ import java.util.concurrent.atomic.AtomicReference;
 // PrintBridge.writeTo (the framework-independent core the adapter
 // delegates to) instead of onWrite. The onLayout/onWrite shell stays
 // covered by code review + CTS.
-final class P1SystemProbes {
-    private P1SystemProbes() {}
+final class SystemCapabilityProbes {
+    private SystemCapabilityProbes() {}
 
     // Verbatim shape of upstream mozilla-central
     // mobile/android/geckoview/src/androidTest/assets/www/download.html —
@@ -62,7 +62,7 @@ final class P1SystemProbes {
     static void run(Activity activity, StringBuilder out,
             GeckoWebViewProvider provider, WebView webView,
             GeckoWebViewFactoryProvider factory,
-            P0GlueActivity.TestClient client)
+            GlueHarnessActivity.TestClient client)
             throws Exception {
 
         // --- P1 cookie policy flags (our GeckoCookieManagerImpl via the

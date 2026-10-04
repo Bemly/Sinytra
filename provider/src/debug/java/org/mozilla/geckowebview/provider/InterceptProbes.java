@@ -4,7 +4,7 @@ import android.app.Activity;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-// Request-interception probes, split out of P2TransportProbes (file-size
+// Request-interception probes, split out of TransportProbes (file-size
 // rule, AGENTS §7): 0001 interceptBody (app body + URL identity), 0002
 // interceptSubresource / interceptIframe (parent-side necko cover + deny
 // stand-down), 0003 interceptLargeBody (stream path, >16MB). The P2-4
@@ -14,13 +14,13 @@ import java.util.concurrent.TimeUnit;
 // removes its frame before later probes run. Same harness contract:
 // append PASS or throw.
 //
-// Requires: the live provider with the eval transport ready (P2TransportProbes
+// Requires: the live provider with the eval transport ready (TransportProbes
 // ran first) and the harness TestClient's shouldInterceptRequest hook.
-final class P2InterceptProbes {
-    private P2InterceptProbes() {}
+final class InterceptProbes {
+    private InterceptProbes() {}
 
     static void run(Activity activity, StringBuilder out,
-            GeckoWebViewProvider provider, P0GlueActivity.TestClient client)
+            GeckoWebViewProvider provider, GlueHarnessActivity.TestClient client)
             throws Exception {
             // --- 0001 interceptBody: app-provided body, URL identity ---
             // Registers a filter prefix, loads a non-resolvable marker

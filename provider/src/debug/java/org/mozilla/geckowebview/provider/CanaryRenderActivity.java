@@ -9,7 +9,7 @@ import java.util.List;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.GeckoView;
 
-public final class P0RenderActivity extends Activity {
+public final class CanaryRenderActivity extends Activity {
     private static final String TAG = "Sinytra/p0";
     private static final String URL = "https://example.com";
 

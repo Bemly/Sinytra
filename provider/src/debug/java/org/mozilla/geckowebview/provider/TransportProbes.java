@@ -11,24 +11,24 @@ import java.lang.reflect.InvocationHandler;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-// P2 transport + androidx glue probes, extracted from P0GlueActivity
+// P2 transport + androidx glue probes, extracted from GlueHarnessActivity
 // (file-size rule): saveState/restoreState, evaluateJavascript,
 // javascript interface bookkeeping, message channel, render process,
 // glue entry/features, boundary live-port round-trip, visual state,
 // visual surface. Interception probes (0001-0003 + P2-4 deny) live in
-// P2InterceptProbes, which the orchestrator runs right after this.
+// InterceptProbes, which the orchestrator runs right after this.
 // Same harness contract as the P0/P1 sections: every probe appends a
 // PASS line or throws — the orchestrator turns a throw into P0 GLUE FAIL.
 //
 // Requires: a live provider (session loaded, transport ready per the
 // jsEval retry loop) and the harness factory for the glue entry.
-final class P2TransportProbes {
-    private P2TransportProbes() {}
+final class TransportProbes {
+    private TransportProbes() {}
 
     static void run(Activity activity, StringBuilder out,
             GeckoWebViewProvider provider, WebView webView,
             GeckoWebViewFactoryProvider factory,
-            P0GlueActivity.TestClient client)
+            GlueHarnessActivity.TestClient client)
             throws Exception {
             // --- P2 saveState/restoreState round-trip ---
             final android.os.Bundle[] stateBox = new android.os.Bundle[1];
