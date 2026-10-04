@@ -252,6 +252,23 @@ public final class GeckoWebViewProvider
         }
         mViewHost = host;
         attachViewHost();
+        // Image-policy push (no navigation): loosening must restore blocked
+        // images in the CURRENT document, and provider-initiated navigations
+        // violate the loader's exclusivity contract — so a setter flip
+        // pushes the flag to the live session at once. Installed last: the
+        // hook touches the session, which is fully built above. Never
+        // breaks a setter call (the bridge swallows delivery failures).
+        mSettings.setImagesPolicyListener(() -> {
+            if (mDestroyed) {
+                return;
+            }
+            try {
+                mBridge.applyImagesPolicy(
+                        mSettings.gecko().getLoadsImagesAutomatically());
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "images policy push threw", t);
+            }
+        });
     }
 
     // Adds the GeckoViewHost as the WebView's child. Idempotent: no-op once

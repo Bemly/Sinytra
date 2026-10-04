@@ -15,6 +15,33 @@ final class CompatWebSettings extends WebSettings {
         mDelegate = delegate;
     }
 
+    // Fired after image-policy setters (loadsImagesAutomatically /
+    // blockNetworkImage). The provider pushes the flag to the live session
+    // immediately (no navigation involved): loosening must restore blocked
+    // images in the CURRENT document, and provider-initiated navigations
+    // violate the loader's exclusivity contract (CTS WebViewSyncLoader
+    // mixer fails any PageStart it did not ask for).
+    interface ImagesPolicyListener {
+        void onImagesPolicyChanged();
+    }
+
+    @Nullable
+    private ImagesPolicyListener mImagesPolicyListener;
+
+    void setImagesPolicyListener(@Nullable ImagesPolicyListener listener) {
+        mImagesPolicyListener = listener;
+    }
+
+    private void notifyImagesPolicyChanged() {
+        ImagesPolicyListener listener = mImagesPolicyListener;
+        if (listener != null) {
+            try {
+                listener.onImagesPolicyChanged();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
     GeckoWebSettings gecko() {
         return mDelegate;
     }
@@ -194,6 +221,7 @@ final class CompatWebSettings extends WebSettings {
 
     @Override public void setLoadsImagesAutomatically(boolean flag) {
         mDelegate.setLoadsImagesAutomatically(flag);
+        notifyImagesPolicyChanged();
     }
 
     @Override public boolean getLoadsImagesAutomatically() {
@@ -202,6 +230,7 @@ final class CompatWebSettings extends WebSettings {
 
     @Override public void setBlockNetworkImage(boolean flag) {
         mDelegate.setBlockNetworkImage(flag);
+        notifyImagesPolicyChanged();
     }
 
     @Override public boolean getBlockNetworkImage() {

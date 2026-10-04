@@ -854,6 +854,24 @@ public final class GeckoSessionBridge
         }
     }
 
+    // Pushes the image policy onto the live session NOW (setter path, no
+    // navigation). The Gecko bundle only re-dispatches on change, so
+    // same-value sets are free no-ops. Hops to main, bounded (MainThread):
+    // setters may arrive on any thread (CTS drives them off-UI), while the
+    // session lives on main. Never throws: delivery failure degrades to the
+    // next pre-navigation push. Device-locked (needs a live session).
+    public void applyImagesPolicy(boolean loadsImagesAutomatically) {
+        try {
+            org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+                mSession.getSettings()
+                        .setAllowImages(loadsImagesAutomatically);
+                return null;
+            });
+        } catch (Throwable t) {
+            Log.w(TAG, "applyImagesPolicy threw", t);
+        }
+    }
+
     // Ask Gecko to push the latest session data (incl. navigation history)
     // through onSessionStateChange. No GeckoView attach required.
     public void flushHistory() {
