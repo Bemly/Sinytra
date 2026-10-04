@@ -1145,13 +1145,21 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   首屏采样偏差导致的误判，证据优先，旧结论删除不留）。
   2x 加载 bound（相对 stock 冷启动到头像全实图）已接受为验收线，测量留到
   网络健康窗口（今晚 150KB/s 烂到 0.00KB/s，绝对计时无意义，不记）。
-- **偶发 pre-commit stall（未闭，今晚真正欠的项）**：7 轮里 2 轮（03:03、04:56）
-  `onLoadRequest` 后 5 分钟+零 `PageStart`，同 APK 好坏各半（04:17/04:22/04:25/
-  04:41 均提交），与构建无关、与 network 无关（tab 已有、runtime 已起、
-  gpu bind 3/0）。疑点收敛到 tab-bind 从未发起 vs 咨询链 wedged，
-  好/坏轮的 tab-bind 对照缺失（buffer 轮转前没抓到）。下轮：tab-bind 与
-  channel 创建加常驻 debug 门计数，活捉一次坏轮再定根因。
-  在此之前 2x 计时无意义（stalled 轮是 ∞x 不是 2x）——先定性，后定量。
+- **偶发 pre-commit stall（已修，3 commits 着陆）**：LoadUri 冷启动
+  listener-gap（EventDispatcher 无 listener 静默丢弃，源码实锤），修法 =
+  provider 侧 commit guard（`session/NavigationCommitGuard.java` 有界重发
+  2s/4s/8s；PageStart/LocationChange 解锁；policy/app-override/stop/close
+  显式撤防；`21a4e05/397f83a/7e913cf`，JVM +4 锁 186 全绿，lint 绿）。
+  **活捉验证**：harness 当轮 `onLoadRequest example.com → 2s 零提交 →
+  commit guard firing attempt=1 → 重发 → PageStart → GLUE PASS**（47 PASS
+  零退，健康加载零误伤）。
+- **新 signature：post-consult wedge（未闭，单实例 5612）**：PageStart +
+  ShouldPrepare HIT + ChannelIntercepted + OnSuccess 全齐后 5 分钟零
+  progress/零 PageStop/零 error（与 pre-commit 不同 signature，guard 正确
+  静默，非回归）。同网络 stock 对照 100s 全渲染：有引擎差异信号，但 stock
+  缓存今晚已暖、我方缓存冷，缓存混杂未排除。下一步：双方都冷的 URL 对等
+  比较，再定是 ResetInterception 后 channel 卡住还是缓存差。2x 计时以此闭
+  案为前置（stalled 轮是 ∞x——今晚 stock 死网 100s 即分母）。
 - **候选缺口（未闭）**：`:web` 在 runtime 就绪前后台线程调 CookieManager
   （`cookie op before runtime exists`×7），我方 drop（FALSE），Chromium
   随时可写；宿主若预置登录 cookie 会静默丢失——待专项确认。
