@@ -12,7 +12,7 @@
 | testUserAgentString_default | OK | 串行 |
 | testUserAgentStringTest | OK | 串行 |
 | testAccessUserAgentString | OK | 串行 |
-| testAccessAllowFileAccess | FAIL·deterministic→0020 | 复跑：datadir 半过（标题到），asset 半标题停留上一页 → 0020 |
+| testAccessAllowFileAccess | OK | 0020 后复跑绿（datadir+asset 双半） |
 | testAccessCacheMode_defaultValue | OK | 串行 |
 | testAccessCacheMode_cacheElseNetwork | FLAKY·load#2-stall | 两次咨询全 HIT，第二次永不完成；同双机制，待健康窗口重验 |
 | testAccessCacheMode_noCache | FLAKY·双机制 | load#1 完整、load#2 咨询后零回调。已证伪 spawn 慢；tab35 死于 fork/specialize（服务超时）证实机制 M1；全员健康出生仍挂证实机制 M2（1673953 空窗）。warmUp 对照无效已回退 |
@@ -53,10 +53,10 @@
 | testLoadsImagesAutomatically_loadImagesWithoutReload | OK | 串行 |
 | testBlockNetworkImage | OK | 串行 |
 | testBlockNetworkLoads | OK | 串行（此前已闭，保持绿） |
-| testLocalImageLoads | FAIL·deterministic→0020 | asset 页本身不可加载（门挂两次同形） |
-| testIframesWhenAccessFromFileURLsEnabled | FAIL·null-url | 确定性缺口：`file:///android_asset/` 无映射，getUrl null → 0020 |
-| testIframesWhenAccessFromFileURLsDisabled | OK | 串行（拦截侧正确） |
-| testXHRWhenAccessFromFileURLsEnabled | FAIL·empty-title | 确定性缺口：asset 内 XHR 取不到文件 → 0020 |
+| testLocalImageLoads | OK | 0020 后复跑绿（串行） |
+| testIframesWhenAccessFromFileURLsEnabled | OK | 0020 后复跑绿（strict 镜像阳性验证；曾因 spawn-stall 窗口连挂，见下） |
+| testIframesWhenAccessFromFileURLsDisabled | OK | 0020 后复跑绿 |
+| testXHRWhenAccessFromFileURLsEnabled | FAIL·honest-gap | app 私有区子资源：子进程 EACCES，file 通道无咨询点可替；需 file 拦截管线（后续项），不当 flake 追 |
 | testXHRWhenAccessFromFileURLsDisabled | OK | 串行（拦截侧正确） |
 | testAllowMixedMode | FAIL·infra | `Path not set: /secure.html` 测试 infra 侧，非产品 |
 | testEnableSafeBrowsing | OK | 串行 |

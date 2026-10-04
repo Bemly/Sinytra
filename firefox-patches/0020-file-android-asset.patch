@@ -1,0 +1,413 @@
+From 43037eb6629f155ebc16814a112819e3c4fc3131 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sun, 4 Oct 2026 17:31:24 +0800
+Subject: [PATCH 1/3] Sinytra patch 0020: serve android_asset from host APK via
+ inherited env
+
+---
+ .../protocol/file/nsFileProtocolHandler.cpp   | 211 ++++++++++++++++++
+ 1 file changed, 211 insertions(+)
+
+diff --git a/netwerk/protocol/file/nsFileProtocolHandler.cpp b/netwerk/protocol/file/nsFileProtocolHandler.cpp
+index d9c8f3a5834b..87102f3c7cc6 100644
+--- a/netwerk/protocol/file/nsFileProtocolHandler.cpp
++++ b/netwerk/protocol/file/nsFileProtocolHandler.cpp
+@@ -5,13 +5,25 @@
+ #include "nsFileProtocolHandler.h"
+ 
+ #include "mozilla/net/NeckoCommon.h"
++#include "mozilla/Preferences.h"
++#include "nsComponentManagerUtils.h"
+ #include "nsFileChannel.h"
+ #include "nsIFile.h"
++#include "nsIInputStream.h"
++#include "nsIStringStream.h"
+ #include "nsIURIMutator.h"
++#include "nsIZipReader.h"
+ #include "nsNetUtil.h"
+ #include "nsStandardURL.h"
++#include "nsString.h"
+ #include "nsURLHelper.h"
+ 
++#include <cstdlib>
++
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#endif
++
+ // URL file handling, copied and modified from
+ // xpfe/components/bookmarks/src/nsBookmarksService.cpp
+ #ifdef XP_WIN
+@@ -162,6 +174,193 @@ nsFileProtocolHandler::GetScheme(nsACString& result) {
+   return NS_OK;
+ }
+ 
++// Sinytra 0020: file:///android_asset/ diagnostics, gated behind the
++// 0005 runtime pref (sinytra.log.enabled, default false) like the other
++// Sinytra C++ instrumentation. Negligible cost when off (file loads rare).
++static void SinytraFileLog(const char* aMsg) {
++#ifdef MOZ_WIDGET_ANDROID
++  bool enabled = false;
++  if (NS_SUCCEEDED(
++          mozilla::Preferences::GetBool("sinytra.log.enabled", &enabled)) &&
++      enabled) {
++    __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/file", "%s", aMsg);
++  }
++#else
++  (void)aMsg;
++#endif
++}
++
++// Sinytra 0020: MIME table for host-APK asset serving (small; the CTS file
++// family only exercises html/png. Everything else is octet-stream, same as
++// a stock download would be).
++static void SinytraAssetMime(const nsACString& aEntry, nsACString& aMime) {
++  // Plain suffix compare (avoids StringEndsWith overload questions).
++  nsAutoCString lower(aEntry);
++  ToLowerCase(lower);
++  const char* suffixes[][2] = {
++      {".html", "text/html"},
++      {".htm", "text/html"},
++      {".css", "text/css"},
++      {".js", "text/javascript"},
++      {".png", "image/png"},
++      {".jpg", "image/jpeg"},
++      {".jpeg", "image/jpeg"},
++      {".gif", "image/gif"},
++      {".svg", "image/svg+xml"},
++      {".txt", "text/plain"},
++  };
++  for (const auto& pair : suffixes) {
++    size_t n = strlen(pair[0]);
++    if (lower.Length() >= n &&
++        memcmp(lower.EndReading() - n, pair[0], n) == 0) {
++      aMime.Assign(pair[1]);
++      return;
++    }
++  }
++  aMime.AssignLiteral("application/octet-stream");
++}
++
++// Sinytra 0020: resolve file:///android_asset/<rest> from the host APK's
++// assets/ (Android virtual path; necko would take it literally as
++// /android_asset/... and ENOENT silently). The host APK path arrives via
++// the process environment (SINYTRA_HOST_APK), set once per host process
++// by the provider before any tab spawns and inherited across fork, so it
++// is fixed before any child exists: no delivery race with the first
++// channel (unlike pref/actor pushes) and no dependence on content-process
++// pref writes (which silently do not stick). Only reads; entry confined
++// to assets/ with ".." segments rejected. file: URI identity is preserved
++// (originalURI stays the file URI), so iframe-href/XHR origin semantics
++// are untouched. Any failure falls through to stock handling.
++static nsresult SinytraAndroidAssetChannel(nsIURI* aURI,
++                                           nsILoadInfo* aLoadInfo,
++                                           nsIChannel** aResult) {
++  nsAutoCString spec;
++  nsresult rv = aURI->GetSpec(spec);
++  if (NS_FAILED(rv)) {
++    return rv;
++  }
++  static const char kPrefix[] = "file:///android_asset/";
++  static const size_t kPrefixLen = sizeof(kPrefix) - 1;
++  if (spec.Length() < kPrefixLen ||
++      memcmp(spec.BeginReading(), kPrefix, kPrefixLen) != 0) {
++    return NS_ERROR_FILE_NOT_FOUND;
++  }
++  nsDependentCSubstring rest(spec, kPrefixLen);
++  // Query/fragment are not part of the asset name.
++  int32_t cut = rest.FindChar('?');
++  if (cut >= 0) {
++    rest.Rebind(rest.BeginReading(), cut);
++  }
++  cut = rest.FindChar('#');
++  if (cut >= 0) {
++    rest.Rebind(rest.BeginReading(), cut);
++  }
++  if (rest.IsEmpty()) {
++    return NS_ERROR_FILE_NOT_FOUND;
++  }
++  // No directory escape: check per segment ("a..b" names stay legal).
++  int32_t pos = 0;
++  while (pos <= (int32_t)rest.Length()) {
++    int32_t slash = rest.FindChar('/', pos);
++    uint32_t end =
++        slash < 0 ? rest.Length() : static_cast<uint32_t>(slash);
++    if (end - (uint32_t)pos == 2 && rest.CharAt((uint32_t)pos) == '.' &&
++        rest.CharAt((uint32_t)pos + 1) == '.') {
++      SinytraFileLog("asset path escapes assets/");
++      return NS_ERROR_FILE_NOT_FOUND;
++    }
++    if (slash < 0) {
++      break;
++    }
++    pos = slash + 1;
++  }
++
++  // Host APK path, inherited through the process environment
++  // (SINYTRA_HOST_APK, set once per host process by the provider before
++  // any tab spawns, same rails custom MOZ_LOG values ride on). Env is
++  // fixed before the child exists, so unlike pref/actor pushes there is
++  // no delivery race with the first channel, and unlike content-process
++  // pref writes it cannot silently miss. Empty/unset = stock behavior.
++  const char* apkEnv = getenv("SINYTRA_HOST_APK");
++  if (!apkEnv || !apkEnv[0]) {
++    SinytraFileLog("no host apk env");
++    return NS_ERROR_FILE_NOT_FOUND;
++  }
++  nsAutoCString apkPath(apkEnv);
++
++  nsCOMPtr<nsIFile> apkFile;
++  rv = NS_NewLocalFile(NS_ConvertUTF8toUTF16(apkPath),
++                       getter_AddRefs(apkFile));
++  if (NS_FAILED(rv)) {
++    return rv;
++  }
++  nsCOMPtr<nsIZipReader> reader =
++      do_CreateInstance("@mozilla.org/libjar/zip-reader;1", &rv);
++  if (NS_FAILED(rv)) {
++    return rv;
++  }
++  rv = reader->Open(apkFile);
++  if (NS_FAILED(rv)) {
++    SinytraFileLog("host apk unreadable");
++    return rv;
++  }
++  nsAutoCString entry("assets/");
++  entry.Append(rest);
++  nsCOMPtr<nsIInputStream> zipStream;
++  rv = reader->GetInputStream(entry, getter_AddRefs(zipStream));
++  if (NS_FAILED(rv)) {
++    SinytraFileLog("asset entry missing");
++    return rv;
++  }
++
++  // Drain fully into memory BEFORE releasing the reader: the entry stream
++  // reads through the archive, so returning it directly would use-after-free
++  // on first read (parent SIGSEGV, fault addr 0x0). Assets are small; cap
++  // generously and fall through above it (stock behavior, no new failure).
++  nsCString data;
++  static const uint32_t kMaxAssetBytes = 32u * 1024u * 1024u;
++  char buf[8192];
++  for (;;) {
++    uint32_t n = 0;
++    rv = zipStream->Read(buf, sizeof(buf), &n);
++    if (NS_FAILED(rv) || n == 0) {
++      break;
++    }
++    if (data.Length() + n > kMaxAssetBytes) {
++      SinytraFileLog("asset too large");
++      return NS_ERROR_FILE_TOO_BIG;
++    }
++    data.Append(buf, n);
++  }
++  if (NS_FAILED(rv)) {
++    return rv;
++  }
++  // reader (and zipStream) die here; the channel below owns its bytes.
++  reader = nullptr;
++  zipStream = nullptr;
++
++  nsCOMPtr<nsIStringInputStream> memStream =
++      do_CreateInstance("@mozilla.org/io/string-input-stream;1", &rv);
++  if (NS_FAILED(rv)) {
++    return rv;
++  }
++  // CopyData copies (empty input copies zero bytes, no special case).
++  rv = memStream->CopyData(data.BeginReading(), data.Length());
++  if (NS_FAILED(rv)) {
++    return rv;
++  }
++
++  nsAutoCString mime;
++  SinytraAssetMime(entry, mime);
++  rv = NS_NewInputStreamChannelInternal(aResult, aURI,
++                                       memStream.forget(), mime,
++                                       EmptyCString(), aLoadInfo);
++  if (NS_SUCCEEDED(rv)) {
++    SinytraFileLog("asset served");
++  }
++  return rv;
++}
++
+ NS_IMETHODIMP
+ nsFileProtocolHandler::NewChannel(nsIURI* uri, nsILoadInfo* aLoadInfo,
+                                   nsIChannel** result) {
+@@ -169,6 +368,18 @@ nsFileProtocolHandler::NewChannel(nsIURI* uri, nsILoadInfo* aLoadInfo,
+ 
+   RefPtr<nsFileChannel> chan = new nsFileChannel(uri);
+ 
++  // Sinytra 0020: host-APK asset mapping first; stock literal-filesystem
++  // handling below on any miss (identical observable to stock Gecko).
++  {
++    nsCOMPtr<nsIChannel> assetChannel;
++    if (NS_SUCCEEDED(SinytraAndroidAssetChannel(uri, aLoadInfo,
++                                                getter_AddRefs(assetChannel))) &&
++        assetChannel) {
++      assetChannel.forget(result);
++      return NS_OK;
++    }
++  }
++
+   // file URLs with hostnames should be considered an error
+   // Before bug 1507354 file URLs ignored the host part. So we intentionally
+   // fail the channel if the file URL has a host to prevent any security issues
+-- 
+2.56.0
+
+
+From 9b00b268a7c8bf48e45af399bc4d9372108f8369 Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sun, 4 Oct 2026 19:09:27 +0800
+Subject: [PATCH 2/3] Sinytra patch 0020e: file-reads flag mirrored to strict
+ origin policy
+
+---
+ .../geckoview/GeckoSessionSettings.java       | 24 +++++++++++++++++++
+ .../actors/GeckoViewSettingsChild.sys.mjs     | 12 ++++++++++
+ .../geckoview/GeckoViewSettings.sys.mjs       | 12 ++++++++++
+ 3 files changed, 48 insertions(+)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSessionSettings.java b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSessionSettings.java
+index eca8e7ff041e..8fbb6fe9a337 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSessionSettings.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/geckoview/GeckoSessionSettings.java
+@@ -350,6 +350,10 @@ public final class GeckoSessionSettings implements Parcelable {
+   private static final Key<Boolean> ALLOW_IMAGES =
+       new Key<Boolean>("allowImages", /* initOnly */ false, /* values */ null);
+ 
++  /** Key to specify if file: documents may read each other (same-origin). */
++  private static final Key<Boolean> SINYTRA_FILE_READS_ALLOWED =
++      new Key<Boolean>("sinytraFileReadsAllowed", /* initOnly */ false, /* values */ null);
++
+   /** Key to specify if entire accessible tree should be exposed with no caching. */
+   private static final Key<Boolean> FULL_ACCESSIBILITY_TREE =
+       new Key<Boolean>("fullAccessibilityTree", /* initOnly */ false, /* values */ null);
+@@ -403,6 +407,7 @@ public final class GeckoSessionSettings implements Parcelable {
+     mBundle.putBoolean(SUSPEND_MEDIA_WHEN_INACTIVE.name, false);
+     mBundle.putBoolean(ALLOW_JAVASCRIPT.name, true);
+     mBundle.putBoolean(ALLOW_IMAGES.name, true);
++    mBundle.putBoolean(SINYTRA_FILE_READS_ALLOWED.name, false);
+     mBundle.putBoolean(FULL_ACCESSIBILITY_TREE.name, false);
+     mBundle.putBoolean(IS_EXTENSION_POPUP.name, false);
+     mBundle.putInt(USER_AGENT_MODE.name, USER_AGENT_MODE_MOBILE);
+@@ -459,6 +464,16 @@ public final class GeckoSessionSettings implements Parcelable {
+     setBoolean(ALLOW_IMAGES, value);
+   }
+ 
++  /**
++   * Set whether file: documents may read each other (maps to the strict
++   * file origin policy being off). Live key: re-pushes reach open docs.
++   *
++   * @param value true when the app allows file reads (either file-URL flag).
++   */
++  public void setSinytraFileReadsAllowed(final boolean value) {
++    setBoolean(SINYTRA_FILE_READS_ALLOWED, value);
++  }
++
+   /**
+    * Set whether the entire accessible tree should be exposed with no caching.
+    *
+@@ -536,6 +551,15 @@ public final class GeckoSessionSettings implements Parcelable {
+     return getBoolean(ALLOW_IMAGES);
+   }
+ 
++  /**
++   * Whether file: documents may read each other.
++   *
++   * @return true when file reads are allowed, false (stock strict) otherwise.
++   */
++  public boolean getSinytraFileReadsAllowed() {
++    return getBoolean(SINYTRA_FILE_READS_ALLOWED);
++  }
++
+   /**
+    * Whether entire accessible tree is exposed with no caching.
+    *
+diff --git a/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs b/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
+index f78aeaf2f566..3b591087383e 100644
+--- a/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
++++ b/mobile/shared/actors/GeckoViewSettingsChild.sys.mjs
+@@ -163,6 +163,18 @@ export class GeckoViewSettingsChild extends GeckoViewActorChild {
+         // must involve zero navigation. Evidence-triggered (not
+         // edge-triggered), so newborn actors with default caches behave
+         // identically to primed ones.
++        // Sinytra 0020: same strictness mirror as the parent (reads
++        // happen in content). Trial: declared-pref writes may stick where
++        // undeclared ones silently do not (see 0020 doc).
++        if (typeof settings.sinytraFileReadsAllowed === "boolean") {
++          try {
++            Services.prefs.setBoolPref(
++              "security.fileuri.strict_origin_policy",
++              !settings.sinytraFileReadsAllowed
++            );
++          } catch (e) {}
++        }
++
+         if (typeof settings.allowImages === "boolean") {
+           this._allowImages = settings.allowImages;
+           try {
+diff --git a/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
+index 79c5e02e89d9..87988547e340 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
+@@ -85,6 +85,18 @@ export class GeckoViewSettings extends GeckoViewModule {
+     this.viewportMode = settings.viewportMode;
+     this.useTrackingProtection = !!settings.useTrackingProtection;
+ 
++    // Sinytra 0020: file-origin strictness follows the app's file URL
++    // flags (CTS Iframes/XHR matrix). Parent-side write (proven to stick);
++    // the child mirrors its own copy below. Missing key = stock strict.
++    if (typeof settings.sinytraFileReadsAllowed === "boolean") {
++      try {
++        Services.prefs.setBoolPref(
++          "security.fileuri.strict_origin_policy",
++          !settings.sinytraFileReadsAllowed
++        );
++      } catch (e) {}
++    }
++
+     if (settings.isExtensionPopup) {
+       // NOTE: Only add the webextension-view-type and emit extension-browser-inserted
+       // once, an extension popup should never change webextension-view-type once set.
+-- 
+2.56.0
+
+
+From dc019cb6ff6a2a01c4e8b371e2806e1cfbada87a Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Sun, 4 Oct 2026 19:28:05 +0800
+Subject: [PATCH 3/3] Sinytra patch 0020f: force file process separation in
+ host processes
+
+---
+ .../modules/geckoview/GeckoViewSettings.sys.mjs    | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
+index 87988547e340..0c5e40d28f62 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewSettings.sys.mjs
+@@ -97,6 +97,20 @@ export class GeckoViewSettings extends GeckoViewModule {
+       } catch (e) {}
+     }
+ 
++    // Sinytra 0020: file: documents into dedicated `file` processes.
++    // Stock Android default is off (process budget), but without it every
++    // content-triggered file: subload dies in
++    // CheckAllowLoadByTriggeringRemoteType (CONTENT_BLOCKED) — file iframes
++    // cannot function at all. Unconditional: file processes spawn on demand
++    // only (zero cost when no file: URL loads), and this runs in the host
++    // app process, so no other app is affected. Proven by the file-4 matrix.
++    try {
++      Services.prefs.setBoolPref(
++        "browser.tabs.remote.separateFileUriProcess",
++        true
++      );
++    } catch (e) {}
++
+     if (settings.isExtensionPopup) {
+       // NOTE: Only add the webextension-view-type and emit extension-browser-inserted
+       // once, an extension popup should never change webextension-view-type once set.
+-- 
+2.56.0
+
