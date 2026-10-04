@@ -689,11 +689,14 @@ public final class GeckoWebViewProvider
         return ProviderViewDelegates.scrollDelegate();
     }
 
-    // --- WebViewProvider: the rest is P1/P2 (fail loud, never silently wrong) ---
-
-    private static UnsupportedOperationException todo(String name) {
-        return new UnsupportedOperationException(name + ": P1/P2");
-    }
+    // --- WebViewProvider: the rest is P1/P2 (degrade + loud log, never throw) ---
+    //
+    // A host-process kill is the worst possible outcome (AGENTS §7: delegate
+    // exceptions must never propagate and crash the app — CTS
+    // testPostUrlWithNetworkUrl proved a bare todo() throw kills the CTS
+    // process). Unimplemented entry points therefore degrade to an honest
+    // no-op / null / failure-callback plus a warning; the true
+    // implementations stay P1/P2 (Gecko patch) work items.
 
     @Override public void setHorizontalScrollbarOverlay(boolean overlay) {}
     @Override public void setVerticalScrollbarOverlay(boolean overlay) {}
@@ -766,7 +769,20 @@ public final class GeckoWebViewProvider
         return new GeckoBackForwardList(mBridge.historySnapshot(),
                 !mBridge.hasExplicitAboutLoad(), mFavicon.lookup());
     }
-    @Override public void postUrl(String url, byte[] postData) { throw todo("postUrl"); }
+    @Override public void postUrl(String url, byte[] postData) {
+        // No GeckoView POST-body primitive (GeckoSession.Loader only takes
+        // additionalHeaders; POST appears solely as repost-confirm prompts).
+        // POST-body plumbing is a Gecko-patch candidate (0003 §4 open item);
+        // until then degrade to no-op: a wrong-method GET risks side effects,
+        // and throwing kills the host process (see section comment).
+        if (url == null || url.isEmpty()) {
+            android.util.Log.w(TAG, "postUrl: null/empty url, dropped");
+            return;
+        }
+        android.util.Log.w(TAG, "postUrl: POST body upload not implemented, "
+                + "navigation dropped url=" + url + " bytes="
+                + (postData != null ? postData.length : -1));
+    }
     // Chromium semantics: data is loaded as-is; baseUrl only resolves
     // relative URLs inside it; historyUrl (when non-null) is shown in the
     // address bar / history INSTEAD of the data: URL.
@@ -810,10 +826,23 @@ public final class GeckoWebViewProvider
             @NonNull ValueCallback<String> callback) {
         mJs.evaluate(script, callback);
     }
-    @Override public void saveWebArchive(String filename) { throw todo("saveWebArchive"); }
+    @Override public void saveWebArchive(String filename) {
+        // No Gecko .mht serialization primitive — honest no-op (AGENTS §4:
+        // nothing to reuse, nothing to build on yet).
+        android.util.Log.w(TAG, "saveWebArchive: webarchive serialization not "
+                + "implemented, dropped file=" + filename);
+    }
     @Override public void saveWebArchive(String basename, boolean autoname,
             ValueCallback<String> callback) {
-        throw todo("saveWebArchive");
+        android.util.Log.w(TAG, "saveWebArchive: webarchive serialization not "
+                + "implemented, dropped base=" + basename);
+        if (callback != null) {
+            try {
+                callback.onReceiveValue(null);
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "saveWebArchive callback threw", t);
+            }
+        }
     }
     @Override public boolean canGoBackOrForward(int steps) {
         return mBridge.canGoBackOrForward(steps);
@@ -911,8 +940,9 @@ public final class GeckoWebViewProvider
         try {
             return mPrint.createAdapter(mWebView.getContext(), documentName);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "createPrintDocumentAdapter threw", t);
-            throw todo("createPrintDocumentAdapter");
+            android.util.Log.w(TAG, "createPrintDocumentAdapter: print backend "
+                    + "unavailable, returning failing adapter", t);
+            return ProviderFallbacks.failingPrintAdapter(documentName);
         }
     }
     @Override public float getScale() { return 1.0f; }
