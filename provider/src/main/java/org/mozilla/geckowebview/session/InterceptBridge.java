@@ -147,7 +147,7 @@ public final class InterceptBridge {
 
     /**
      * Settings-policy navigation verdict shared by the subframe path and
-     * the main-frame path (P2NavigationDelegate): true = DENY the load.
+     * the main-frame path (SplitNavigationDelegate): true = DENY the load.
      * Host exceptions degrade to allow (never break navigation on a
      * logging/metrics throwable).
      */

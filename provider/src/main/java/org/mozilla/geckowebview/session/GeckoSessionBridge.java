@@ -219,7 +219,7 @@ public final class GeckoSessionBridge
     // @UiThread — hop, bounded (MainThread), same background-creation case.
     public void setInterceptBridge(@NonNull InterceptBridge intercept) {
         org.mozilla.geckowebview.runtime.MainThread.call(() -> {
-            mSession.setNavigationDelegate(new P2NavigationDelegate(
+            mSession.setNavigationDelegate(new SplitNavigationDelegate(
                     new NavigationBridge(this), intercept,
                     this::completeBlockedNavigation));
             return null;
@@ -631,7 +631,7 @@ public final class GeckoSessionBridge
 
     /**
      * Completes a main-frame navigation the settings policy blocked
-     * (P2NavigationDelegate DENY): Gecko fires nothing after a
+     * (SplitNavigationDelegate DENY): Gecko fires nothing after a
      * LoadRequest DENY, so without this every load-gate (CTS
      * WebViewSyncLoader triple gate, app spinners) hangs forever on a
      * blocked load. Synthesizes the terminal trio — progress 100,

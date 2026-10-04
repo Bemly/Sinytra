@@ -148,7 +148,7 @@ public final class InterceptBridgeTest {
         assertTrue(host.lastRequest.getRequestHeaders().isEmpty());
     }
 
-    // --- main-frame policy gate (P2NavigationDelegate shares this) ---
+    // --- main-frame policy gate (SplitNavigationDelegate shares this) ---
 
     private static InterceptBridge.Host policyHost(final boolean blocked,
             final boolean throwing) {

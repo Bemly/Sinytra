@@ -6,14 +6,14 @@ import org.mozilla.geckoview.AllowOrDeny;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 
-// P2 navigation fan-out: main-frame loads go through NavigationBridge
+// Main/subframe split fan-out: main-frame loads go through NavigationBridge
 // (shouldOverrideUrlLoading + error mapping); subframe loads go through
 // InterceptBridge (allow/deny via app shouldInterceptRequest). Settings
 // policy (blockNetworkLoads, mixed frames, file access) gates BOTH paths
 // first — Chromium never consults the app for policy-blocked loads, and
 // the main-frame path historically skipped the check entirely (CTS
 // testBlockNetworkLoads loaded despite the flag).
-final class P2NavigationDelegate implements GeckoSession.NavigationDelegate {
+final class SplitNavigationDelegate implements GeckoSession.NavigationDelegate {
     private final NavigationBridge mMain;
     private final InterceptBridge mIntercept;
     // Runs after a main-frame policy DENY (may be null: plain DENY then).
@@ -23,12 +23,12 @@ final class P2NavigationDelegate implements GeckoSession.NavigationDelegate {
     @Nullable
     private final Runnable mOnPolicyBlocked;
 
-    P2NavigationDelegate(@NonNull NavigationBridge main,
+    SplitNavigationDelegate(@NonNull NavigationBridge main,
             @NonNull InterceptBridge intercept) {
         this(main, intercept, null);
     }
 
-    P2NavigationDelegate(@NonNull NavigationBridge main,
+    SplitNavigationDelegate(@NonNull NavigationBridge main,
             @NonNull InterceptBridge intercept,
             @Nullable Runnable onPolicyBlocked) {
         mMain = main;
