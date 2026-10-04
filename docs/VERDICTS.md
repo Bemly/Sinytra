@@ -12,10 +12,10 @@
 | testUserAgentString_default | OK | 串行 |
 | testUserAgentStringTest | OK | 串行 |
 | testAccessUserAgentString | OK | 串行 |
-| testAccessAllowFileAccess | FAIL·gate-timeout | file 族；待复跑区分 Type-A/真问题 |
+| testAccessAllowFileAccess | FAIL·deterministic→0020 | 复跑：datadir 半过（标题到），asset 半标题停留上一页 → 0020 |
 | testAccessCacheMode_defaultValue | OK | 串行 |
-| testAccessCacheMode_cacheElseNetwork | FAIL·gate-timeout | http 普通加载门挂；待复跑 |
-| testAccessCacheMode_noCache | FAIL·gate-timeout | loadUrl 门；疑 M5-A1 族（STATUS §1x cache stall），待复跑+归因 |
+| testAccessCacheMode_cacheElseNetwork | FAIL·load#2-stall | 两次咨询全 HIT，第二次永不完成；系统性形状（Type-A vs localhost 串行待区分） |
+| testAccessCacheMode_noCache | FAIL·Type-A | tab 0.5s 出生健康，ALLOW 后静默；非 spawn 慢 |
 | testAccessCacheMode_cacheOnly | FAIL·待定位 | 同上，待复跑+归因 |
 | testAccessCursiveFontFamily | OK | 串行 |
 | testAccessFantasyFontFamily | OK | 串行 |
@@ -53,7 +53,7 @@
 | testLoadsImagesAutomatically_loadImagesWithoutReload | OK | 串行 |
 | testBlockNetworkImage | OK | 串行 |
 | testBlockNetworkLoads | OK | 串行（此前已闭，保持绿） |
-| testLocalImageLoads | FAIL·gate-timeout | file 族（asset 图）；0020 范围，待复跑+归因 |
+| testLocalImageLoads | FAIL·deterministic→0020 | asset 页本身不可加载（门挂两次同形） |
 | testIframesWhenAccessFromFileURLsEnabled | FAIL·null-url | 确定性缺口：`file:///android_asset/` 无映射，getUrl null → 0020 |
 | testIframesWhenAccessFromFileURLsDisabled | OK | 串行（拦截侧正确） |
 | testXHRWhenAccessFromFileURLsEnabled | FAIL·empty-title | 确定性缺口：asset 内 XHR 取不到文件 → 0020 |
@@ -66,3 +66,10 @@
 >（MixedMode server path）、待复跑区分 7（全为 gate-timeout：
 > AllowFileAccess/cacheElseNetwork/noCache/cacheOnly/JavaScriptEnabled/
 > AppCacheEnabled/DatabaseDisabled）。
+>
+> 复跑轮（卫生后）：AllowFileAccess → deterministic→0020（datadir 半过，
+> asset 半标题停留）；cacheElseNetwork → load#2-stall（两次咨询全 HIT，
+> 第二次永不完成）；noCache → Type-A（tab 0.5s 健康出生，ALLOW 后静默）。
+> 随后设备进坏窗口（服务启动超时 + 12 僵尸 tab，对照 dataUri 同步挂），
+> cacheOnly/JavaScriptEnabled/AppCacheEnabled/DatabaseDisabled 四条复跑作废，
+> 待清场重验（此后每个 verdict 自带绿对照）。
