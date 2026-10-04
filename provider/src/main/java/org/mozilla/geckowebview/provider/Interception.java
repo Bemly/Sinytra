@@ -101,6 +101,8 @@ final class Interception {
                                     : mHost.bridge().getUrl();
                     if (LoadPolicy.blockSubresource(info.contentPolicyType,
                             info.uri, page, mHost.settings())) {
+                        android.util.Log.d(TAG, "policy-block " + info.uri
+                                + " type=" + info.contentPolicyType);
                         return new ResponseBridge.WebResourceResponseHolder(
                                 "text/plain", "utf-8", 200,
                                 new java.io.ByteArrayInputStream(new byte[0]));
