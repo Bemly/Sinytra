@@ -41,6 +41,26 @@
 - [HistoryDelegate](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.HistoryDelegate.html)
 - [ProgressDelegate](https://mozilla.github.io/geckoview/javadoc/mozilla-central/org/mozilla/geckoview/GeckoSession.ProgressDelegate.html)
 
+## Bugzilla（纪律：Gecko 侧疑难先翻 bugzilla 再动手，2026-10-04 用户立规）
+
+> Fission / process-switch / progress-listener / actor-lifecycle 类问题，
+> 上游大概率已有公开讨论。动手前按关键词搜一遍，把相关 bug 号记在这里。
+
+- [1673953](https://bugzilla.mozilla.org/show_bug.cgi?id=1673953)
+  `[gv-junit-fis] Run GeckoSessionTestRuleTest on Fission`（NEW，assignee
+  m_kato；blocking 1673729；depends on 1657028/1892884/1676531）。
+  与我方 0024 §10 直接同构：Fission 下 process switching 时
+  `BrowserChild::DestroyWindow` 摘掉 progress listener → `NS_BINDING_ABORTED`
+  丢 → 新窗口 PageStart 被压住（comment 12，m_kato 原话 "may seem to be
+  a timing issue"）；受影响的正是跨 session 建页计数测试
+  （`waitForPageStops_acrossSessionCreation` /
+  `createOpenSession_canInterleaveOtherCalls`——与 CTS WebViewSyncLoader
+  三条件门同族）；单跑不换进程、全量跑才换（comment 13，与我方绿挂交替
+  同形）；复现法是 `--run-until-failure` 循环（comment 11）。
+  nika（comment 15）：多进程竞态下多个 load 会被 mash 在一起，fission
+  逻辑会刻意压住"前一个没见到 STATE_STOP 就开下一个"的 progress 通知。
+  结论：我方 ALLOW→PageStart 静默优先按此机制查，不再当环境问题。
+
 ## 相关第三方实现（比对参考，非上游语义来源）
 
 > 同题独立实现，用于交叉验证与借鉴；取用处与结论见 `RELATED-PROJECTS.md`。

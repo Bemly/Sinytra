@@ -195,5 +195,12 @@ expected:<[0]> but was:<[1]>  (WebSettingsTest.java:837)
   content 主循环任务级停顿（lost wakeup / sync IPC 长尾，UI watchdog 看
   不到 tab 线程）。待手段：hang 住时抓 tab child 线程栈（debuggerd 在本
   ROM 无输出是已知限制）或 parser/docshell-inner module 日志。
+- 上游对照（2026-10-04，用户指认，已核实记 `SOURCES.md`）：
+  bug 1673953 comment 12（m_kato）——process switching 期间
+  `BrowserChild::DestroyWindow` 摘 progress listener → `NS_BINDING_ABORTED`
+  丢 → 新窗口 PageStart 被压，"may seem to be a timing issue"；且单跑不换
+  进程、全套跑才换（comment 13），复现靠循环（comment 11）。
+  我方 loadData 逐导航换 BC/tab + ALLOW 后 PageStart 缺席，与该机制逐项
+  对得上：优先按此查（fission 换进程触发条件 / listener 空窗），不再当环境问题。
 - 纪律重申：verdict 轮按标准 CTS 流程走（双清 + 静置 + 串行 + 记录），
   不再为 flake 改逻辑；reboot 先请示。
