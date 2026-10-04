@@ -1138,13 +1138,16 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   consult→load→`page-start newFans`→像素→全文 11 条（含回关按钮），screencap×3。
   头像占位：0.25KB/s 网络下子资源未到，image 策略默认放行，待网络正常时复核，
   不当 bridge 缺口追。
-- **头像缺口收窄（未闭，2026-10-05 04:40）**：`noface.jpg` 经 Canary 直载端到端成像
-  （`CANARY PASS success=true`），图片管线本身无辜；B 站页在 5 轮里一次真实
-  头像请求都没发过（filter/DENY/error 全零，滚动不触发）——缺口在“页从不升级
-  占位→实图”（懒加载门或数据面），不在 fetch/解码。另记候选缺口：`:web` 进程
-  在 runtime 就绪前于后台线程调 CookieManager（`cookie op before runtime
-  exists`×7），我方直接 drop（FALSE），Chromium 是随时可写；若宿主在首个
-  WebView 前预置登录 cookie，会静默丢失——待登录链路专项确认，不在此轮修。
+- **头像缺口证伪（2026-10-05 04:49，同机同页像素对照）**：`blate2.png` 上
+  7 个实拍头像全出；剩下 4 个灰机器人（bili_87677282977/bili_70837481505/
+  东坡居士的小弟的小弟/因为如）在 stock 对照轮同号同占位——那就是这些号的
+  真实默认头像，不是我方缺口。前一条“页从不升级占位”作废（logcat 轮转 +
+  首屏采样偏差导致的误判，证据优先，旧结论删除不留）。
+  2x 加载 bound（相对 stock 冷启动到头像全实图）已接受为验收线，测量留到
+  网络健康窗口（今晚 150KB/s 烂到 0.00KB/s，绝对计时无意义，不记）。
+- **候选缺口（未闭）**：`:web` 进程在 runtime 就绪前于后台线程调 CookieManager
+  （`cookie op before runtime exists`×7），我方直接 drop（FALSE），Chromium
+  随时可写；若宿主在首个 WebView 前预置登录 cookie，会静默丢失——待专项确认。
 - **诊断卫生**：`[diag]` 临时日志（consult/query/pass-through/synthesize/page-start/
   attach 六处）同轮加齐、同轮 `git checkout` 清掉，干净构建重装，Current 不变。
   教训：日常号上对照矩阵少切 provider（每次切换换一个 jar，登录态即丢）。
