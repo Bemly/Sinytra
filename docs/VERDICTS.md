@@ -205,3 +205,49 @@
 > batch4 前 3.6G，均 ≥2G 门；load ~15（MTK D 态常驻，见 STATUS §1v，非 verdict
 > 否决项）。Pac testDefaultNetworkIsNull 的 240s 空洞为 runner 超时击中，
 > 非产品信号，需单独重跑补 verdict。
+
+## STATUS 已有结论补记（2026-10-02/03 轮，串行单测，本轮未重跑）
+
+> 出处 `STATUS.md` §1v/§1x。只转 verdict，不转归因细节（归因见 STATUS）。
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| CookieManagerTest.testGetInstance | OK | STATUS §1v 12/14 輪 |
+| CookieManagerTest.testFlush | OK | 同上 |
+| CookieManagerTest.testAcceptCookie | OK | 同上 |
+| CookieManagerTest.testSetCookie | OK | 同上 |
+| CookieManagerTest.testSetCookieNullCallback | OK | 同上 |
+| CookieManagerTest.testSetCookieCallback | OK | 同上 |
+| CookieManagerTest.testRemoveCookies | OK | 同上（含 0016 空清谎报修复后） |
+| CookieManagerTest.testRemoveCookiesNullCallback | OK | 同上 |
+| CookieManagerTest.testRemoveCookiesCallback | OK | 同上 |
+| CookieManagerTest.testSameSiteNoneRequiresSecure | OK | 同上 |
+| CookieManagerTest.testSchemefulSameSite | OK | 同上 |
+| CookieManagerTest.testb3167208 | OK | 同上 |
+| CookieManagerTest.testSameSiteLaxByDefault | FAIL·已知缺口 | 本台账 WebViewSslTest 后「opens」节已记（batch4 串行复现） |
+| CookieManagerTest.testThirdPartyCookie | OK | 同上节已记（batch4 串行绿） |
+| CookieTest.testDomain | OK | STATUS §1v，0014 同 host Domain 存 domain cookie 后 5/5 |
+| CookieTest.testEmptyValue | OK | 同上 |
+| CookieTest.testInvalidDomain | OK | 同上 |
+| CookieTest.testPath | OK | 同上 |
+| CookieTest.testSubDomain | OK | 同上 |
+| PostMessageTest.testSimpleMessageToMainFrame | OK | STATUS §1v，transport 重写后 8/9 |
+| PostMessageTest.testClose | OK | 同上 |
+| PostMessageTest.testWildcardOriginMatchesAnything | OK | 同上 |
+| PostMessageTest.testEmptyStringOriginMatchesAnything | OK | 同上 |
+| PostMessageTest.testMultipleMessagesToMainFrame | OK | 同上 |
+| PostMessageTest.testMessageChannel | OK | 同上（转移修复后翻绿） |
+| PostMessageTest.testWebMessageHandler | OK | 同上 |
+| PostMessageTest.testWebMessageDefaultHandler | OK | 同上 |
+| PostMessageTest.testReceiveMessagePort | FAIL·待 patch | page→Java 端口转移（`message.getPorts()` null → 回调 NPE）；需 Gecko MessagePort IPDL 级 plumbing（P2 patch 候选） |
+| HttpAuthHandlerTest.testCancel | OK | STATUS §1v 单过 |
+| DateSorterTest（5 全） | OK | STATUS §1x 横扫：testConstants/testConstructor/testGetBoundary/testGetIndex/testGetLabel |
+| MimeTypeMapTest（6 全） | OK | STATUS §1x 横扫 |
+| URLUtilTest（16 全） | OK | STATUS §1x 横扫 |
+| TestProcessClientTest（4 全） | OK | STATUS §1x 横扫 |
+| WebBackForwardListTest.testGetCurrentItem | OK | STATUS §1x 单跑过（mProgress=15 卡死随 UA/title 多米诺同愈） |
+| WebViewStartupTest.testGetCurrentWebViewPackageOnUiThread | OK | STATUS §1x 单跑 5/5（含后台创建 MainThread 有界 hop 修复） |
+| WebViewStartupTest.testGetCurrentWebViewPackageOnBackgroundThread | OK | 同上 |
+| WebViewStartupTest.testGetWebViewLooperOnUiThread | OK | 同上（单跑；全类跑仍卡第 4 位 fresh-process `Loading provider` 后零输出，未入我方代码，见 STATUS §1x） |
+| WebViewStartupTest.testGetWebViewLooperCreatedOnUiThreadFromInstrThread | OK | 同上 |
+| WebViewStartupTest.testGetWebViewLooperCreatedOnBackgroundThreadFromInstThread | OK | 同上 |
