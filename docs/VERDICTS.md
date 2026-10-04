@@ -161,7 +161,8 @@
 |---|---|---|
 | testSetNetwork | OK | 串行（no-op 绑定成立） |
 | testCreatePacProcessor | FAIL·待查 | `expected:<PROXY 1.2.3.4:8080> but was:<null>`（:76）；JsBridge eval 传输回 null，TestProcessService 进程内传输就绪性待查 |
-| testDefaultNetworkIsNull | TIMEOUT·待重跑 | 20:33:56 起零输出，至 20:37:57 下一条才接续 = 240s toybox timeout 击中，无 instrumentation 结果，不记 OK/FAIL |
+| PacProcessorTest#testDefaultNetworkIsNull | TIMEOUT·待重跑 | 20:33:56 起零输出，至 20:37:57 下一条才接续 = 240s toybox timeout 击中，无 instrumentation 结果，不记 OK/FAIL |
+| testDefaultNetworkIsNull（重跑） | OK | batch7 串行绿（首轮 TIMEOUT 系 flake/坏窗口，非产品信号，关闭） |
 
 ## CookieManagerTest opens（2，2026-10-04 串行）
 
@@ -203,8 +204,8 @@
 
 > 健康注记（2026-10-04 夜）：batch 前 MemAvailable 4.9G → batch3 前 3.6G →
 > batch4 前 3.6G，均 ≥2G 门；load ~15（MTK D 态常驻，见 STATUS §1v，非 verdict
-> 否决项）。Pac testDefaultNetworkIsNull 的 240s 空洞为 runner 超时击中，
-> 非产品信号，需单独重跑补 verdict。
+> 否决项）。batch5-7 健康：批间 MemAvailable 5.2G→5.2G→5.1G，均远超 2G 门。
+> Pac 首轮 TIMEOUT 已由 batch7 重跑关闭（绿）；新 TIMEOUT 空洞各归各节。
 
 ## STATUS 已有结论补记（2026-10-02/03 轮，串行单测，本轮未重跑）
 
@@ -251,3 +252,110 @@
 | WebViewStartupTest.testGetWebViewLooperOnUiThread | OK | 同上（单跑；全类跑仍卡第 4 位 fresh-process `Loading provider` 后零输出，未入我方代码，见 STATUS §1x） |
 | WebViewStartupTest.testGetWebViewLooperCreatedOnUiThreadFromInstrThread | OK | 同上 |
 | WebViewStartupTest.testGetWebViewLooperCreatedOnBackgroundThreadFromInstThread | OK | 同上 |
+
+## WebViewClientTest（26，2026-10-04 batch5 串行：4 OK / 15 FAIL / 7 N/A）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testOnReceivedHttpAuthRequest | OK | 串行 |
+| testOnRenderProcessGoneDefault | OK | 串行（默认行为面） |
+| testShouldOverrideKeyEvent | OK | 串行 |
+| testShouldOverrideUrlLoadingDefault | OK | 串行 |
+| testOnSafeBrowsingBillingCode | N/A | runner `OK (0 tests)`：dex 有名但无可运行用例（helper/注解剥离），不计分母 |
+| testOnSafeBrowsingCode | N/A | 同上 |
+| testOnSafeBrowsingHitBackToSafety | N/A | 同上 |
+| testOnSafeBrowsingHitProceed | N/A | 同上 |
+| testOnSafeBrowsingMalwareCode | N/A | 同上 |
+| testOnSafeBrowsingPhishingCode | N/A | 同上 |
+| testOnSafeBrowsingUnwantedSoftwareCode | N/A | 同上 |
+| testDoUpdateVisitedHistory | FAIL·gate-timeout | `unexpected timeout`（:421），待健康窗口重验 |
+| testLoadPage | FAIL·gate-timeout | `unexpected timeout`（:291），待健康窗口重验 |
+| testOnFormResubmission | FAIL·gate-timeout | `unexpected timeout`（:402），待健康窗口重验 |
+| testOnRenderProcessGone | FAIL·gate-timeout | `unexpected timeout`（:623）；关联 terminate()=false honest token，待查 |
+| testShouldOverrideUrlLoading | FAIL·gate-timeout | `mLoaded/mNewPicture/mProgress=0`（:170），待健康窗口重验 |
+| testOnPageCommitVisibleCalled | FAIL·未实现 | future TimeoutException（:793）；仓内无 onPageCommitVisible |
+| testOnScaleChanged | FAIL·未实现 | `unexpected timeout`（:479）；zoom 全 stub |
+| testOnUnhandledKeyEvent | FAIL·未实现 | `unexpected timeout`（:461）；仓内无 key-event 桥 |
+| testShouldOverrideUrlLoadingOnCreateWindow | FAIL·未实现 | `unexpected timeout`（:222）；无 onCreateWindow 桥（同 ChromeClient 窗口族） |
+| testOnReceivedError | FAIL·映射待查 | `expected:<-10> but was:<-1>`（:342）；ErrorBridge 错误码映射 |
+| testOnReceivedErrorForSubresource | FAIL·待查 | assertNotNull（:361，回调未达） |
+| testOnReceivedHttpError | FAIL·待查 | assertNotNull（:375，回调未达） |
+| testOnReceivedLoginRequest | FAIL·待查 | assertTrue（:318） |
+| testShouldInterceptRequestParams | FAIL·待查 | AssertionError（:542）；0001-0003 链路在 harness 成立，CTS 变体待专用复现 |
+| testShouldInterceptRequestResponse | FAIL·替身状态行缺口 | `expected:<404[Not Found]> but was:<404[]>`（:594）；reason-phrase 未进合成响应，0001-0003 patch 侧 |
+
+## WebViewTest（77，2026-10-04 batch6 串行：27 OK / 48 FAIL / 1 CRASH / 1 TIMEOUT）
+
+OK（27，全串行）：testAccessPluginList / testAndroidAssetAnchor / testAndroidAssetQueryParam（0020 asset 映射端到端成立）/ testConstructor / testCreatingWebViewCreatesCookieSyncManager / testDebugDump / testDestroy / testFindAddress / testGetOriginalUrl / testGetWebChromeClient / testLoadData / testLoadDataWithBaseUrl_javascriptCanAccessOrigin / testLoadDataWithBaseUrl_resolvesRelativeToBaseUrl / testLoadDataWithBaseUrl_unencodedContentHttpBaseUrl / testLoadUrl / testPlatformNotifications / testPostUrlWithNonNetworkUrl / testPrinting / testScrollBarOverlay / testSetLayoutParams / testSetMapTrackballToArrowKeys / testSetSafeBrowsingAllowlistWithMalformedList / testSetWebChromeClient / testStartSafeBrowsingWithNullCallbackDoesntCrash / testStopLoading / testVisualStateCallbackCalled / testWebViewClassLoaderReturnsNonNull。
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testPostUrlWithNetworkUrl | FAIL·process-crash（真 bug，优先修） | `UnsupportedOperationException: postUrl: P1/P2`（provider `todo():694` 经 `postUrl:769` 上抛，杀 CTS 进程）；违反 AGENTS §7 delegate 异常不上抛纪律。同族：`saveWebArchive`×2（:813-816）、`createPrintDocumentAdapter`（:915）同为裸 throw |
+| testUseRemovedJavascriptInterface | TIMEOUT·待重跑 | 21:04:33 起零输出至 21:08:34 = 240s 超时击中，无结果，不记 FAIL |
+| testCanInjectHeaders | FAIL·基线同挂 | `Referer not found`（:453）；Chromium 基线同 fail（CTS.md §4），不计回归 |
+| testSetNetworkAvailable | FAIL·基线同挂 | `unexpected timeout`（:2208）；基线同 fail，不计回归 |
+| testAddJavascriptInterfaceNullObject | FAIL·语义差异 | `IAE: injectedObject`（provider:1019 上抛）；null-object 容忍语义待按 AOSP 对齐（抛 vs 忽略） |
+| testSaveAndRestoreState | FAIL·空快照缺口 | `Should return null when nothing to save, was GeckoBackForwardList`（:2030）；StateBridge 空表仍返快照 |
+| testSetPictureListener | FAIL·行为差异（需决策） | `expected null, was Picture`（:941）；b9ed3c1 合成 onNewPicture + 空 Picture 与 CTS 期待冲突，设计决策点 |
+| testGetHitTestResult | FAIL·未实现 | NPE `getType() on null`（:1908）；`getHitTestResult()` return null stub（:921） |
+| testGetVisibleTitleHeight | FAIL·未实现 | future timeout（:463）；`getVisibleTitleHeight()` return 0 stub |
+| testFlingScroll | FAIL·未实现 | `unexpected timeout`（:1695）；`flingScroll(){}` stub（:1036） |
+| testRequestFocusNodeHref | FAIL·未实现 | `unexpected timeout`（:1753）；`{}` stub（:922） |
+| testRequestImageRef | FAIL·未实现 | future timeout（:1820）；`{}` stub（:923） |
+| testPauseResumeTimers | FAIL·未实现 | assertTrue（:2284）；`pauseTimers/resumeTimers(){}` stub（:929-930） |
+| testSetInitialScale | FAIL·未实现 | `unexpected timeout`（:1961）；`setInitialScale(){}` stub（:919） |
+| testGetSafeBrowsingPrivacyPolicyUrl | FAIL·未实现 | `not well-formed URL`（:2841）；无 SB 后端 |
+| testSetSafeBrowsingAllowlistWithValidList | FAIL·未实现 | `should be successful`（:2493）；honest false |
+| testStartSafeBrowsingInvokesCallback | FAIL·未实现 | assertTrue（:2666）；无 SB 后端 |
+| testStartSafeBrowsingUseApplicationContext | FAIL·未实现 | assertTrue（:2634）；同上 |
+| testCreatingWebViewWithDeviceEncrpytionFails | FAIL·未实现（minor） | `should have thrown`（:240）；device-protected storage 未校验 |
+| testCreatingWebViewWithMultipleEncryptionContext | FAIL·未实现（minor） | （:264）；同上 |
+| testSetCustomTextClassifier | FAIL·未实现 | `expected same NO_OP`（:2591）；仓内无 TextClassifier |
+| testSaveWebArchive | FAIL·未实现 | gate `mLoaded=false`（:1283）表象下是 `todo()` throw；crash 未发生系门先挂 |
+| testAddJavascriptInterface | FAIL·gate-timeout | `mLoaded=false`（:624），待健康窗口重验 |
+| testClearHistory | FAIL·gate-timeout | future timeout（:2002），待健康窗口重验 |
+| testFindAll | FAIL·gate-timeout | `mLoaded=false`（:1374），待健康窗口重验 |
+| testGoBackAndForward | FAIL·gate-timeout | future timeout（:537），待健康窗口重验 |
+| testEvaluateJavascript | FAIL·transport 待查 | `expected:<2> but was:<null>`（:2328）；首跳 honest-null 同族（MiniWV 观察），待重验区分 |
+| testAddJavascriptInterfaceExceptions | FAIL·transport 待查 | `expected:<"pass"> but was:<null>`（:762） |
+| testJavascriptInterfaceCustomPropertiesClearedOnReload | FAIL·transport 待查 | `expected:<42> but was:<null>`（:776） |
+| testJavascriptInterfaceForClientPopup | FAIL·待查 | future timeout（:833）；popup 桥无 |
+| testRemoveJavascriptInterface | FAIL·待查 | `expected:<[object]> but was:<[undefined]>`（:679） |
+| testAccessHttpAuthUsernamePassword | FAIL·待查 | assertNotNull（:1004）；harness httpAuth store round-trip 成立，CTS 变体待专用复现 |
+| testWebViewDatabaseAccessHttpAuthUsernamePassword | FAIL·待查 | assertNotNull（:1071）；同上 |
+| testAppCanInjectHeadersViaImmutableMap | FAIL·待查 | `expected:<1> but was:<0>`（:428）；header 注入面 |
+| testAppInjectedXRequestedWithHeaderIsNotOverwritten | FAIL·待查 | `expected:<1> but was:<0>`（:404）；同上 |
+| testGetWebViewClient | FAIL·待查 | assertNotNull（:2535） |
+| testFindNext | FAIL·待查 | future timeout（:1404） |
+| testDocumentHasImages | FAIL·待查 | future timeout（:1485） |
+| testGetContentHeight | FAIL·待查 | `unexpected timeout`（:1585） |
+| testPageScroll | FAIL·待查 | `unexpected timeout`（:1538）；`pageUp/Down=false` stub 关联 |
+| testRequestChildRectangleOnScreen | FAIL·待查 | `unexpected timeout`（:2109） |
+| testCapturePicture | FAIL·待查 | `unexpected timeout`（:882）；空 Picture 合成后内容面仍不到 |
+| testPrintingPagesCount | FAIL·待查 | future timeout（:2421） |
+| testSetDownloadListener | FAIL·待查 | `expected:<100> but was:<-1>`（:2168）；listener 已接（:667），进度语义 |
+| testLoadDataWithBaseUrl_dataBaseUrlIgnoresHistoryUrl | FAIL·history-url 待查 | `Current URL (https://www.example.com/) should be data URI`（:1190） |
+| testLoadDataWithBaseUrl_historyUrl | FAIL·HSTS 升级所致 | `expected http: was https:`（:1146）；baseUrl 进 necko 被 HSTS 升级（PostMessage 单测同根，已有 canonicalKey；history 面未覆盖） |
+| testLoadDataWithBaseUrl_nullHistoryUrlShowsAsAboutBlank | FAIL·history-url 待查 | `expected about:blank was https://www.baseurl.com/`（:1156） |
+| testLoadDataWithBaseUrl_nullSafe | FAIL·history-url 待查 | `expected about:blank was data:text/html;base64,`（:1230） |
+| testLoadDataWithBaseUrl_urlEncodedContentDataBaseUrl | FAIL·编码残留 | `expected Hello World[!] was [%21]`（:1224）；§1x 双重编码修复的例外分支 |
+| testLoadUrlDoesNotStripParamsWhenLoadingContentUrls | FAIL·待查 | NPE `uriString`（:382） |
+
+## GeolocationTest（5，2026-10-04 batch7 串行：1 OK / 4 FAIL）
+
+| 用例 | verdict | 备注 |
+|---|---|---|
+| testGeolocationPermissions | OK | 串行；修正 STATUS §1v「整类不可跑」——permission 面可跑（UiAutomation 空只杀 prompt 交互类） |
+| testGeolocationRequestDeniedOnInsecureOrigin | FAIL·gate-timeout | `mLoaded=false`（load 门挂），待健康窗口重验 |
+| testSimpleGeolocationRequestAcceptAlways | FAIL·基线同挂 | `JS didn't get position`；Chromium 基线同 fail（真机定位未开，CTS.md §4），不计回归 |
+| testSimpleGeolocationRequestAcceptOnce | FAIL·基线同挂 | 同上 |
+| testSimpleGeolocationRequestReject | FAIL·产品信号 | `JS got position`（应拒却给了）；insecure-origin 仍给位置，STATUS §2-step3 已记 |
+
+> 全量覆盖（2026-10-04 夜）：294/294 全部有 verdict 或 N/A——WebSettings 51 +
+> Ssl 15 + Zoom 9 + DataDir 6 + ChromeClient 11 + Tracing 7 + Pac 3 +
+> CookieManager 14 + HttpAuth 3 + HistoryItem 1 + STATUS 补记 51 +
+> batch1 附带 13 + WebViewClient 26 + WebViewTest 77 + Geo 5 = 292；
+> 另 2 N/A（RenderProcessClient.OnExecutor helper、WebViewTest$2 inner 非独立用例）。
+> 其中基线同挂不计回归：Geo×2 + CanInjectHeaders + SetNetworkAvailable。
+> 待重跑：testUseRemovedJavascriptInterface（TIMEOUT 空洞）。
+> 真 bug（证据确凿）：postUrl 裸 throw 杀进程（AGENTS §7 纪律违反，同族 saveWebArchive×2/createPrintDocumentAdapter）。
