@@ -204,6 +204,18 @@ public final class GeckoWebViewProvider
         });
         mBridge.setExtraDelegates(mFanOut.prompts(), mFanOut.prompts(), mFanOut);
         mBridge.setInterceptBridge(mIntercept);
+        mBridge.setReopenHost(new GeckoSessionBridge.ReopenHost() {
+            @Override
+            @NonNull
+            public Context appContext() {
+                return mWebView.getContext().getApplicationContext();
+            }
+
+            @Override
+            public void repushFilters() {
+                mInterception.repushFilters();
+            }
+        });
         // Runtime create + session open are @UiThread (GeckoView contract),
         // but the framework may create the provider on a background looper
         // (CTS WebViewStartupTest) — hop there, bounded (MainThread); the
