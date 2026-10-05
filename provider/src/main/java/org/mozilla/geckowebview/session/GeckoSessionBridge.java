@@ -90,6 +90,17 @@ public final class GeckoSessionBridge
     // overhead; a lost dispatch is re-issued bounded (see the guard).
     private final NavigationCommitGuard mCommitGuard =
             new NavigationCommitGuard();
+    // Last navigation for post-reopen re-issue (guard exhaustion path).
+    // Transient navigation state, bridge-owned like mUrl/mPendingHold.
+    @Nullable
+    private Runnable mLastDispatch;
+    @Nullable
+    private String mLastUrl;
+    // Reopen budget: one rescue reopen per proof-of-life (PageStart refills).
+    // A reopen that still finds no commit gives up loudly instead of looping.
+    private boolean mReopenUsed;
+    // Set on close(): a dead bridge must never reopen its session.
+    private boolean mClosed;
 
     @Nullable
     private ContentBridge.Host mContentHost;
@@ -284,6 +295,9 @@ public final class GeckoSessionBridge
     public void onPageStarted(@NonNull String url) {
         // Commit signal: the LoadUri dispatch landed (disarms the guard).
         mCommitGuard.disarm();
+        // Proof of life: the pipeline serves this session — refill the
+        // one-shot reopen budget for future stalls.
+        mReopenUsed = false;
         // Chromium order: finished-before-next-start. A held success-finish
         // belongs to the previous navigation and must fire before this one
         // begins (CTS issues the next load right after the assert, so holds
@@ -612,7 +626,10 @@ public final class GeckoSessionBridge
         // fully wedged pipeline (device-verified). Retries from one arm stay
         // inside the guard's own generation/attempt budget.
         final String guardUrl = url;
-        mCommitGuard.arm(() -> dispatchLoad(guardUrl, bypassCache));
+        final Runnable redispatch = () -> dispatchLoad(guardUrl, bypassCache);
+        mLastDispatch = redispatch;
+        mLastUrl = guardUrl;
+        mCommitGuard.arm(redispatch, this::reopenSessionOnce);
         dispatchLoad(url, bypassCache);
     }
 
@@ -639,7 +656,10 @@ public final class GeckoSessionBridge
         mPendingTraversalUrl = null;
         mUrl = url;
         final byte[] guardData = data;
-        mCommitGuard.arm(() -> dispatchFileLoad(guardData, mimeType));
+        final Runnable redispatch = () -> dispatchFileLoad(guardData, mimeType);
+        mLastDispatch = redispatch;
+        mLastUrl = url;
+        mCommitGuard.arm(redispatch, this::reopenSessionOnce);
         dispatchFileLoad(data, mimeType);
     }
 
@@ -670,7 +690,10 @@ public final class GeckoSessionBridge
         mPendingTraversalUrl = null;
         mUrl = url;
         final byte[] guardData = data;
-        mCommitGuard.arm(() -> dispatchDataLoad(guardData, mimeType));
+        final Runnable redispatch = () -> dispatchDataLoad(guardData, mimeType);
+        mLastDispatch = redispatch;
+        mLastUrl = url;
+        mCommitGuard.arm(redispatch, this::reopenSessionOnce);
         dispatchDataLoad(data, mimeType);
     }
 
@@ -678,6 +701,78 @@ public final class GeckoSessionBridge
     private void dispatchDataLoad(@NonNull byte[] data,
             @NonNull String mimeType) {
         mSession.load(new GeckoSession.Loader().data(data, mimeType));
+    }
+
+    // Rescue path for guard exhaustion (session window never attached).
+    // Implemented by the provider (owns the app context + filter table);
+    // unset (tests) degrades reopen to a loud give-up.
+    public interface ReopenHost {
+        @NonNull
+        android.content.Context appContext();
+
+        void repushFilters();
+    }
+
+    @Nullable
+    private ReopenHost mReopenHost;
+
+    public void setReopenHost(@Nullable ReopenHost host) {
+        mReopenHost = host;
+    }
+
+    // Commit-guard exhaustion: bounded redispatches found no commit — not
+    // even a blank PageStart, i.e. the session window never attached
+    // natively. Rescue once per proof-of-life: close + reopen the session
+    // (fresh native window; delegates/filters persist on the bridge) and
+    // re-issue the last navigation under a fresh bounded chain. A reopen
+    // that still finds no commit gives up loudly — same white screen as
+    // before, but diagnosed instead of silent. Runs on main (the guard
+    // fires on the main handler; open/close hop direct-run there).
+    private void reopenSessionOnce() {
+        if (mClosed) {
+            return;
+        }
+        if (mReopenUsed) {
+            android.util.Log.w(TAG, "commit guard exhausted after reopen;"
+                    + " giving up url=" + mLastUrl);
+            return;
+        }
+        mReopenUsed = true;
+        android.util.Log.i(TAG,
+                "commit guard exhausted; reopening session once url="
+                        + mLastUrl);
+        ReopenHost host = mReopenHost;
+        if (host == null) {
+            android.util.Log.w(TAG, "no reopen host; giving up");
+            return;
+        }
+        try {
+            mSession.close();
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "session close before reopen threw", t);
+        }
+        try {
+            android.content.Context app = host.appContext();
+            mSession.open(org.mozilla.geckowebview.runtime.GeckoRuntimeHolder
+                    .get(app));
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "session reopen threw; giving up", t);
+            return;
+        }
+        try {
+            host.repushFilters();
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "filter repush after reopen threw", t);
+        }
+        Runnable last = mLastDispatch;
+        if (last != null) {
+            mCommitGuard.arm(last, this::reopenSessionOnce);
+            try {
+                last.run();
+            } catch (Throwable t) {
+                android.util.Log.w(TAG, "redispatch after reopen threw", t);
+            }
+        }
     }
 
     /**
@@ -1002,6 +1097,7 @@ public final class GeckoSessionBridge
     }
 
     public void close() {
+        mClosed = true;
         mCommitGuard.disarm();
         long startMs = android.os.SystemClock.uptimeMillis();
         try {
