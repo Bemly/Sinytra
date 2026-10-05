@@ -1,6 +1,7 @@
 package org.mozilla.geckowebview.session;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 // Commit guard for direct navigations (loadUrl / loadDataUri / loadFileUrl).
 //
@@ -22,6 +23,13 @@ import androidx.annotation.NonNull;
 // with backoff covering a slow parent bring-up (~14s total). A newer arm
 // supersedes pending retries via the generation guard (same pattern as the
 // Interception filter retries).
+//
+// When even the bounded retries find no commit (session window never attached
+// natively — device-verified class: zero PageStarts including blank), the
+// guard fires the exhaustion action ONCE per arm: the bridge uses it to
+// close + reopen the session (fresh native window) and try once more. A
+// reopen that still finds no commit gives up loudly — same white screen as
+// before, but diagnosed instead of silent.
 //
 // JVM-safe by construction: no GeckoResult / GeckoSession references (those
 // need a live UI Looper — see InterceptBridgeTest). Scheduling degrades to a
@@ -51,13 +59,27 @@ final class NavigationCommitGuard {
     private int mGeneration;
     @NonNull
     private Runnable mRedispatch = () -> {};
+    @Nullable
+    private Runnable mExhausted;
+    private boolean mExhaustedFired;
 
     // Arms the guard for one navigation. The redispatch runnable must re-issue
-    // the same navigation (it re-arms with a fresh generation, superseding
-    // this chain). Any in-flight chain from a previous navigation is
-    // superseded, never stacked.
+    // the same navigation WITHOUT re-arming (it runs inside this generation's
+    // budget; re-arming would reset the attempt count and loop forever on a
+    // fully wedged pipeline — device-verified). Any in-flight chain from a
+    // previous navigation is superseded, never stacked.
     synchronized void arm(@NonNull Runnable redispatch) {
+        arm(redispatch, null);
+    }
+
+    // Same, plus a one-shot exhaustion action fired when the bounded retries
+    // still find no commit (session window never attached natively). Null =
+    // no action (retries just stop).
+    synchronized void arm(@NonNull Runnable redispatch,
+            @Nullable Runnable onExhausted) {
         mRedispatch = redispatch;
+        mExhausted = onExhausted;
+        mExhaustedFired = false;
         int generation = ++mGeneration;
         schedule(generation, 1);
     }
@@ -102,11 +124,35 @@ final class NavigationCommitGuard {
                     if (!isLive(generation, mGeneration)) {
                         return;
                     }
+                    if (attempt >= MAX_ATTEMPTS) {
+                        fireExhaustedLocked();
+                        return;
+                    }
                     schedule(generation, attempt + 1);
                 }
             }, delayForAttempt(attempt));
         } catch (Throwable t) {
             android.util.Log.w(TAG, "commit guard schedule threw", t);
+        }
+    }
+
+    // Fires the exhaustion action once: the bounded retries found no commit.
+    // Caller holds the monitor (or is inside the synchronized fire path).
+    private void fireExhaustedLocked() {
+        if (mExhaustedFired) {
+            return;
+        }
+        mExhaustedFired = true;
+        Runnable exhausted = mExhausted;
+        if (exhausted == null) {
+            return;
+        }
+        android.util.Log.w(TAG, "commit guard exhausted; no PageStart after "
+                + MAX_ATTEMPTS + " attempts");
+        try {
+            exhausted.run();
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "commit guard exhausted threw", t);
         }
     }
 }

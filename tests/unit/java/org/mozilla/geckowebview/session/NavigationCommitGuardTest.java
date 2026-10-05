@@ -46,4 +46,13 @@ public final class NavigationCommitGuardTest {
         guard.disarm();
         assertEquals(0, count[0]);
     }
+
+    @Test
+    public void exhaustionStaysInertWithoutLooper() {
+        NavigationCommitGuard guard = new NavigationCommitGuard();
+        boolean[] exhausted = {false};
+        guard.arm(() -> {}, () -> exhausted[0] = true);
+        guard.disarm();
+        assertFalse(exhausted[0]);
+    }
 }
