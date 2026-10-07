@@ -26,5 +26,9 @@
         <activity
             android:name="org.mozilla.geckowebview.provider.JsTitleProbeActivity"
             android:exported="true" />
+        <!-- Background-thread multi-session burst probe (Bilibili pattern). -->
+        <activity
+            android:name="org.mozilla.geckowebview.provider.BurstProbeActivity"
+            android:exported="true" />
     </application>
 </manifest>

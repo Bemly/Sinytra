@@ -79,6 +79,16 @@ public class JsTitleProbeActivity extends Activity {
                     runProbe("I-data-blockedimg", CTS_SHAPE_HTML, false, 0);
                     mImagesAuto = true;
                 }
+                // Sinytra 0020 file-subframe discriminator (CTS
+                // testIframesWhenAccessFromFileURLsEnabled shape): top
+                // file:///android_asset/ page whose onload copies the
+                // iframe location into the title. Expect the file URL;
+                // "about:blank" = subframe never committed.
+                if (match(only, "J")) {
+                    runFileProbe("J-file-iframe",
+                            "file:///android_asset/cts-probe/frame_outer.html",
+                            "file:///android_asset/cts-probe/frame_inner.html");
+                }
                 Log.i(TAG, "PROBE DONE");
             } catch (Throwable t) {
                 Log.e(TAG, "PROBE FAILED", t);
@@ -198,5 +208,90 @@ public class JsTitleProbeActivity extends Activity {
         } else {
             w.loadData(html, "text/html", "utf-8");
         }
+    }
+
+    // file:// navigation probe (0020): loads a file:///android_asset/ URL
+    // directly (no loadData involved) and polls the title, which the page
+    // sets from its iframe's location on body onload.
+    private void runFileProbe(String name, String url, String expectTitle)
+            throws Exception {
+        CountDownLatch finished = new CountDownLatch(1);
+        runOnUiThread(() -> {
+            WebView w = new WebView(JsTitleProbeActivity.this);
+            w.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 700));
+            mRoot.addView(w);
+            w.setWebViewClient(new WebViewClient() {
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    if (url == null || url.startsWith("about:")) {
+                        return;
+                    }
+                    finished.countDown();
+                }
+            });
+            w.setWebChromeClient(new WebChromeClient());
+            w.getSettings().setJavaScriptEnabled(true);
+            try {
+                w.loadUrl(url);
+            } catch (Throwable t) {
+                Log.e(TAG, name + " load threw", t);
+                finished.countDown();
+            }
+        });
+        boolean ok = finished.await(60, TimeUnit.SECONDS);
+        long finishedAt = android.os.SystemClock.uptimeMillis();
+        String title = null;
+        for (int i = 0; i < 20; i++) {
+            CountDownLatch got = new CountDownLatch(1);
+            runOnUiThread(() -> {
+                try {
+                    WebView top =
+                            (WebView) mRoot.getChildAt(mRoot.getChildCount() - 1);
+                    titleHolder[0] = top.getTitle();
+                } catch (Throwable t) {
+                    titleHolder[0] = "THREW:" + t;
+                }
+                got.countDown();
+            });
+            got.await(5, TimeUnit.SECONDS);
+            title = titleHolder[0];
+            if (expectTitle.equals(title)) {
+                break;
+            }
+            Thread.sleep(500);
+        }
+        Log.i(TAG, "PROBE " + name + " finished=" + ok + " title=" + title
+                + " expect=" + expectTitle + " titleLagMs="
+                + (android.os.SystemClock.uptimeMillis() - finishedAt));
+        // Origin witness (0020): file: codebase -> "file://", null
+        // principal -> "null". Determines whether cross-file reads can
+        // ever succeed (same-origin needs file: codebase on both sides).
+        CountDownLatch originGot = new CountDownLatch(1);
+        runOnUiThread(() -> {
+            try {
+                WebView w = (WebView) mRoot.getChildAt(mRoot.getChildCount() - 1);
+                w.evaluateJavascript("document.location.origin", value -> {
+                    Log.i(TAG, "PROBE " + name + " origin=" + value);
+                    originGot.countDown();
+                });
+            } catch (Throwable t) {
+                Log.e(TAG, name + " origin eval threw", t);
+                originGot.countDown();
+            }
+        });
+        originGot.await(30, TimeUnit.SECONDS);
+        CountDownLatch removed = new CountDownLatch(1);
+        runOnUiThread(() -> {
+            try {
+                WebView w = (WebView) mRoot.getChildAt(mRoot.getChildCount() - 1);
+                mRoot.removeView(w);
+                w.destroy();
+            } catch (Throwable t) {
+                Log.e(TAG, name + " teardown threw", t);
+            }
+            removed.countDown();
+        });
+        removed.await(10, TimeUnit.SECONDS);
     }
 }

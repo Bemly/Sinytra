@@ -1,0 +1,17 @@
+<html>
+<head>
+<title>DEFAULT TITLE</title>
+<script type="text/javascript">
+function load() {
+  try {
+    document.title = document.getElementById('frame').contentWindow.location.href;
+  } catch (e) {
+    document.title = 'XERR:' + e;
+  }
+}
+</script>
+</head>
+<body onload="load()">
+<iframe id="frame" src="./frame_inner.html"></iframe>
+</body>
+</html>
