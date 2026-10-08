@@ -24,6 +24,13 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
         // over. Default no-op so existing Hosts are unaffected.
         default void onAppOverrideDeny(@NonNull String url) {
         }
+        // Post-commit redirect leg (main frame only): a redirect LoadRequest
+        // for a new document after a commit. The bridge may arm a bounded
+        // resume watch for the target — a redirect target whose commit never
+        // arrives otherwise stalls silently forever (device-verified S3:
+        // cross-origin switch drops session listeners, fission class).
+        void onRedirectLeg(@NonNull String uri, boolean isRedirect,
+                @Nullable String triggerUri);
         // sslPrimaryError: SslError primary constant when the failure was an
         // SSL cert error (drives onReceivedSslError), -1 otherwise.
         void onLoadError(int errorCode, int sslPrimaryError, @NonNull String description,
@@ -48,6 +55,15 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
                         "Host.onAppOverrideDeny threw", t);
             }
             return GeckoResult.fromValue(AllowOrDeny.DENY);
+        }
+        if (request.uri != null) {
+            try {
+                mHost.onRedirectLeg(request.uri, request.isRedirect,
+                        request.triggerUri);
+            } catch (Throwable t) {
+                android.util.Log.w("Sinytra/navigation",
+                        "Host.onRedirectLeg threw", t);
+            }
         }
         return null;
     }

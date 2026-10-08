@@ -85,6 +85,14 @@ public final class SessionRescue {
         mReopenHost = host;
     }
 
+    // Guard liveness for redirect-leg decisions (bridge asks before arming
+    // a post-commit redirect leg so a leg never hijacks an in-flight chain:
+    // an armed chain's own redispatch already replays the full navigation
+    // including its redirects). True from arm() until the chain ends
+    // (disarm, exhaustion give-up, close); cold-extension and post-reopen
+    // re-arms keep it true.
+    private boolean mArmed;
+
     // Arms the guard for one navigation without resetting any other rescue
     // state. The redispatch runnable must re-issue the same navigation
     // WITHOUT re-arming (it runs inside this generation's budget; re-arming
@@ -94,12 +102,98 @@ public final class SessionRescue {
         mLastDispatch = redispatch;
         mLastUrl = url;
         mGuard.arm(redispatch, this::reopenSessionOnce);
+        mArmed = true;
     }
 
     // Disarms: the navigation committed (PageStart / LocationChange), was
     // dismissed by design (policy block / app override), or the session died.
     void disarm() {
         mGuard.disarm();
+        mArmed = false;
+    }
+
+    // Whether a guard chain is currently live (for redirect-leg arming).
+    boolean isArmed() {
+        return mArmed;
+    }
+
+    static boolean isAboutBlank(@Nullable String url) {
+        // NOTE: compare full strings — a hardcoded length here was once 12
+        // for the 11-char "about:blank" and silently never matched.
+        return "about:blank".equalsIgnoreCase(url);
+    }
+
+    // Last app-visible non-blank commit (delivered PageStart). A redirect
+    // LoadRequest for a different document after such a commit arms a
+    // bounded resume watch (redirect legs whose target never commits stall
+    // silently forever — device-verified S3 cross-origin switch). Cleared
+    // by new direct navigations (their own guard chain covers the window).
+    @Nullable
+    private String mLastCommittedUrl;
+
+    // App-visible commit (non-blank by construction: the caller delivers
+    // only non-swallowed starts). Traversals/reloads keep it: their commits
+    // re-set it, and the guard-quiet check in watchRedirectLeg governs.
+    void noteCommit(@NonNull String url) {
+        mLastCommittedUrl = url;
+    }
+
+    void clearCommit() {
+        mLastCommittedUrl = null;
+    }
+
+    /**
+     * Pure (JVM-locked): arm a bounded resume watch for a post-commit
+     * redirect leg. Only a quiet pipeline (no live guard chain — an armed
+     * chain's own redispatch already replays the full navigation including
+     * its redirects) after a delivered non-blank commit, for a redirect to
+     * a different document, earns a watch. Same-document (fragment),
+     * non-redirect, uncommitted, and blank navigations stay quiet: they
+     * either expect no PageStart or are covered by their own chain.
+     */
+    static boolean shouldArmRedirectLeg(boolean guardArmed,
+            @Nullable String committedUrl, boolean isRedirect,
+            @Nullable String lrUrl) {
+        if (guardArmed || committedUrl == null || !isRedirect || lrUrl == null
+                || isAboutBlank(lrUrl)) {
+            return false;
+        }
+        return isCrossDocument(committedUrl, lrUrl);
+    }
+
+    // Pure (JVM-locked): different documents ignoring the fragment —
+    // case-insensitive, no normalization beyond that (redirect targets
+    // arriving byte-identical still count as same and stay quiet).
+    static boolean isCrossDocument(@NonNull String committedUrl,
+            @NonNull String lrUrl) {
+        return !stripFragment(committedUrl)
+                .equalsIgnoreCase(stripFragment(lrUrl));
+    }
+
+    @NonNull
+    private static String stripFragment(@NonNull String url) {
+        int hash = url.indexOf('#');
+        return hash < 0 ? url : url.substring(0, hash);
+    }
+
+    // Post-commit redirect leg entry: arms the standard bounded chain for
+    // the target as a fresh top-level navigation (proven to commit: direct
+    // loads draw). The redispatch is raw — routing through a re-arming
+    // entry would loop (same invariant as every other redispatch).
+    // Consults/trickle extend via the poke path, so slow-but-alive redirect
+    // chains are never duplicated; the target's own PageStart disarms at
+    // once on the healthy path. History wart (accepted): the retry lands as
+    // its own entry instead of folding into the redirect chain —
+    // REPLACE_HISTORY left for a follow-up (no CTS redirect test waits out
+    // the 30s-class budget, so sequences are unchanged there).
+    void watchRedirectLeg(@NonNull String uri, boolean isRedirect,
+            @NonNull Runnable redispatch) {
+        if (!shouldArmRedirectLeg(mArmed, mLastCommittedUrl, isRedirect,
+                uri)) {
+            return;
+        }
+        arm(redispatch, uri);
+        android.util.Log.d(TAG, "redirectLeg watch url=" + uri);
     }
 
     /**
@@ -123,7 +217,7 @@ public final class SessionRescue {
     // Closed: a dead bridge must never reopen its session.
     void onClosed() {
         mClosed = true;
-        mGuard.disarm();
+        disarm();
     }
 
     public void reload(@Nullable String currentUrl) {
@@ -147,7 +241,7 @@ public final class SessionRescue {
     void stop() {
         // The app cancelled: no commit will arrive, and the guard must not
         // resurrect a stopped navigation.
-        mGuard.disarm();
+        disarm();
         mSession.stop();
     }
 
@@ -177,6 +271,9 @@ public final class SessionRescue {
     // before, but diagnosed instead of silent. Runs on main (the guard
     // fires on the main handler; open/close hop direct-run there).
     private void reopenSessionOnce() {
+        // The firing chain is consumed here; cold-extension and post-reopen
+        // paths re-arm below, give-up paths leave it disarmed.
+        mArmed = false;
         if (mClosed) {
             return;
         }
@@ -205,6 +302,7 @@ public final class SessionRescue {
             Runnable last = mLastDispatch;
             if (last != null) {
                 mGuard.arm(last, this::reopenSessionOnce);
+                mArmed = true;
                 try {
                     last.run();
                 } catch (Throwable t) {
@@ -249,6 +347,7 @@ public final class SessionRescue {
         Runnable last = mLastDispatch;
         if (last != null) {
             mGuard.arm(last, this::reopenSessionOnce);
+            mArmed = true;
             try {
                 last.run();
             } catch (Throwable t) {

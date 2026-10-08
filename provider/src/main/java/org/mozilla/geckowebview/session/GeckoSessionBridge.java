@@ -66,6 +66,8 @@ public final class GeckoSessionBridge
     // The translation layer drops that leading entry unless the app asked
     // for it (GeckoBackForwardList ctor flag).
     private boolean mExplicitAboutLoad;
+    // Last app-visible commit is tracked in rescue (commit memory for the
+    // redirect-leg resume watch); see SessionRescue.noteCommit/clearCommit.
     // Pending history-traversal target (goBack/goForward/goBackOrForward):
     // the URL we asked Gecko to traverse to. Silent traversals (bfcache
     // restores with no history event) leave OUR translated list frozen, so
@@ -341,7 +343,7 @@ public final class GeckoSessionBridge
         // arms it, any non-blank Start disarms it. Stops pair with the most
         // recent Start, so only a blank Stop for a blank Start is swallowed —
         // a real load failing while mUrl is still blank still reports.
-        mBlankStartOutstanding = isAboutBlank(url);
+        mBlankStartOutstanding = SessionRescue.isAboutBlank(url);
         // Swallow the implicit initial about:blank Start (symmetric to the
         // finish-side swallow in onPageFinished): Chromium never reports the
         // session's implicit blank commit, and real apps crash on it
@@ -356,7 +358,20 @@ public final class GeckoSessionBridge
         if (shouldSwallowBlankStart(url, mExplicitAboutLoad)) {
             return;
         }
+        // App-visible commit (non-blank by construction: blanks return
+        // above): redirect legs after this point may arm a resume watch.
+        mRescue.noteCommit(url);
         mClient.onPageStarted(url);
+    }
+
+    @Override
+    public void onRedirectLeg(@NonNull String uri, boolean isRedirect,
+            @Nullable String triggerUri) {
+        // Post-commit redirect legs arm a bounded resume watch in rescue;
+        // all state and the arming predicate live there, the bridge only
+        // forwards the delegate event with a raw (never re-arming) dispatch.
+        mRescue.watchRedirectLeg(uri, isRedirect,
+                () -> dispatchLoad(uri, false));
     }
 
     @Override
@@ -371,7 +386,7 @@ public final class GeckoSessionBridge
             // explicit about: loads (flagged at loadUrl time) always report.
             // (URL adoption for the blank slot happens lazily in getUrl(),
             // not here — history updates land after PageStop.)
-            if (isAboutBlank(mUrl) && !mExplicitAboutLoad
+            if (SessionRescue.isAboutBlank(mUrl) && !mExplicitAboutLoad
                     && mBlankStartOutstanding) {
                 mBlankStartOutstanding = false;
                 mNavigating = false;
@@ -387,7 +402,7 @@ public final class GeckoSessionBridge
             // which would fake a timestamp-only check (confirmed on device:
             // no hold armed, first getTitle() read still ""), and JS-onload titles
             // land after the stop.
-            if (!isAboutBlank(mUrl)
+            if (!SessionRescue.isAboutBlank(mUrl)
                     && shouldHoldForTitle(mTitle, mLastTitleMs,
                             mLastPageStartMs)) {
                 armFinishHold();
@@ -521,11 +536,8 @@ public final class GeckoSessionBridge
     // is swallowed.
     private boolean mBlankStartOutstanding;
 
-    private static boolean isAboutBlank(@Nullable String url) {
-        // NOTE: compare full strings — a hardcoded length here was once 12
-        // for the 11-char "about:blank" and silently never matched.
-        return "about:blank".equalsIgnoreCase(url);
-    }
+    // Blank identity lives in SessionRescue (single home for blank/commit
+    // semantics alongside the resume-watch commit memory).
 
     /**
      * Pure (JVM-locked): swallow only the session's implicit blank commit
@@ -534,7 +546,7 @@ public final class GeckoSessionBridge
      */
     static boolean shouldSwallowBlankStart(@Nullable String url,
             boolean explicitAboutLoad) {
-        return !explicitAboutLoad && isAboutBlank(url);
+        return !explicitAboutLoad && SessionRescue.isAboutBlank(url);
     }
 
     private static long now() {
@@ -637,6 +649,9 @@ public final class GeckoSessionBridge
         // exactly what the app asked for (WebViewTest.testGetOriginalUrl).
         mOriginalUrl = url;
         mPendingTraversalUrl = null;
+        // New direct navigation: its own guard chain covers the window, and
+        // any redirect-leg watch belongs to the previous commit.
+        mRescue.clearCommit();
         // Optimistic URL: the app asked for this document now. LocationChange
         // never fires for intercepted channels and history updates land after
         // PageStop, so without this getUrl() reads stale state until Gecko
@@ -685,6 +700,9 @@ public final class GeckoSessionBridge
         mExplicitAboutLoad = false;
         mOriginalUrl = url;
         mPendingTraversalUrl = null;
+        // New direct navigation: its own guard chain covers the window, and
+        // any redirect-leg watch belongs to the previous commit.
+        mRescue.clearCommit();
         mUrl = url;
         final byte[] guardData = data;
         final Runnable redispatch = () -> dispatchFileLoad(guardData, mimeType);
@@ -717,6 +735,9 @@ public final class GeckoSessionBridge
                         android.util.Base64.NO_WRAP);
         mOriginalUrl = url;
         mPendingTraversalUrl = null;
+        // New direct navigation: its own guard chain covers the window, and
+        // any redirect-leg watch belongs to the previous commit.
+        mRescue.clearCommit();
         mUrl = url;
         final byte[] guardData = data;
         final Runnable redispatch = () -> dispatchDataLoad(guardData, mimeType);
@@ -873,7 +894,7 @@ public final class GeckoSessionBridge
         // time races empty history. Adopting on read sees the settled state
         // (WebViewTest.testLoadUrl asserts after completion). Only fills a
         // blank/unknown slot, never overwrites a real URL.
-        if (isAboutBlank(mUrl)) {
+        if (SessionRescue.isAboutBlank(mUrl)) {
             String adopted = currentHistoryUrl();
             if (adopted != null) {
                 mUrl = adopted;

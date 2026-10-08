@@ -45,6 +45,81 @@ public final class GeckoSessionBridgeTriageTest {
     }
 
     @Test
+    public void redirectLeg_armsAfterQuietCommit() {
+        assertTrue(SessionRescue.shouldArmRedirectLeg(false,
+                "https://www.coolapk.com/link?url=x", true,
+                "https://github.com/Bemly/kokoro-no-kitsune/releases/tag/27001b"));
+    }
+
+    @Test
+    public void redirectLeg_armedChainNeverHijacked() {
+        assertFalse(SessionRescue.shouldArmRedirectLeg(true,
+                "https://a.example/", true, "https://b.example/"));
+    }
+
+    @Test
+    public void redirectLeg_uncommittedNeverArms() {
+        assertFalse(SessionRescue.shouldArmRedirectLeg(false, null,
+                true, "https://b.example/"));
+    }
+
+    @Test
+    public void redirectLeg_nonRedirectNeverArms() {
+        assertFalse(SessionRescue.shouldArmRedirectLeg(false,
+                "https://a.example/", false, "https://b.example/"));
+    }
+
+    @Test
+    public void redirectLeg_sameDocumentNeverArms() {
+        assertFalse(SessionRescue.shouldArmRedirectLeg(false,
+                "https://a.example/p", true, "https://a.example/p#frag"));
+        assertFalse(SessionRescue.shouldArmRedirectLeg(false,
+                "HTTPS://A.EXAMPLE/p", true, "https://a.example/p"));
+        assertFalse(SessionRescue.shouldArmRedirectLeg(false,
+                "https://a.example/", true, null));
+        assertFalse(SessionRescue.shouldArmRedirectLeg(false,
+                "https://a.example/", true, "about:blank"));
+    }
+
+    @Test
+    public void rescue_armedTransitions() {
+        // SessionRescue(null): @NonNull is advisory; arm/disarm touch only
+        // the guard generation on the JVM (scheduling degrades inert
+        // without a Looper), never the session.
+        SessionRescue rescue = new SessionRescue(null);
+        assertFalse(rescue.isArmed());
+        rescue.arm(() -> {
+        }, "https://a.example/");
+        assertTrue(rescue.isArmed());
+        rescue.disarm();
+        assertFalse(rescue.isArmed());
+    }
+
+    @Test
+    public void rescue_redirectLegArmsOnlyPostCommitCrossDocument() {
+        SessionRescue rescue = new SessionRescue(null);
+        Runnable redispatch = () -> {
+        };
+        // Uncommitted: quiet even for a cross-document redirect.
+        rescue.watchRedirectLeg("https://b.example/", true, redispatch);
+        assertFalse(rescue.isArmed());
+        // Commit, then same-document: quiet.
+        rescue.noteCommit("https://a.example/p");
+        rescue.watchRedirectLeg("https://a.example/p#frag", true,
+                redispatch);
+        assertFalse(rescue.isArmed());
+        // Commit, then cross-document redirect: armed.
+        rescue.watchRedirectLeg("https://b.example/", true, redispatch);
+        assertTrue(rescue.isArmed());
+        // New direct navigation clears the commit memory.
+        rescue.clearCommit();
+        rescue.disarm();
+        rescue.noteCommit("https://a.example/p");
+        rescue.watchRedirectLeg("https://b.example/", false, redispatch);
+        assertFalse(rescue.isArmed());
+    }
+
+    @Test
     public void blankStart_implicitSwallowed() {
         assertTrue(GeckoSessionBridge.shouldSwallowBlankStart("about:blank",
                 false));
