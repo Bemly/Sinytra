@@ -129,8 +129,7 @@ public class GeckoCookieManagerTest {
     }
 
     @Test
-    public void setCookie_nullUrlOrValue_callbackReceivesFalse() {
-        final AtomicBoolean got = new AtomicBoolean(true);
+    public void setCookie_nullUrlOrValue_callbackReceivesFalse() {        final AtomicBoolean got = new AtomicBoolean(true);
         final AtomicReference<Boolean> value = new AtomicReference<>();
         ValueCallback<Boolean> callback = new ValueCallback<Boolean>() {
             @Override
@@ -147,5 +146,17 @@ public class GeckoCookieManagerTest {
         manager.setCookie("https://example.com/", null, callback);
         assertTrue(got.get());
         assertEquals(Boolean.FALSE, value.get());
+    }
+
+    // --- runtime-less void setCookie must return silently (no controller
+    // on the JVM, never touches a Looper). The main-thread fire-and-forget
+    // branch and the cross-op completion chain need a live GeckoResult +
+    // main looper, so they are device-harness covered (cookieJar probe +
+    // third-party host runs), same as the jar round-trip itself. ---
+    @Test
+    public void setCookie_validArgsNoController_returnsSilently() {
+        GeckoCookieManager manager = new GeckoCookieManager(null);
+        manager.setCookie("https://example.com/", "a=1");
+        manager.setCookie("file:///x.html", "a=1");
     }
 }

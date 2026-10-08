@@ -67,7 +67,7 @@ public final class GeckoCookieManager {
 
     public void setAcceptCookie(boolean accept) {
         mAcceptCookie = accept;
-        applyPolicy();
+        applyPolicy(true);
     }
 
     public boolean acceptCookie() {
@@ -88,7 +88,7 @@ public final class GeckoCookieManager {
 
     public void setAcceptThirdPartyCookies(@Nullable Object webview, boolean accept) {
         mThirdParty = accept;
-        applyPolicy();
+        applyPolicy(true);
     }
 
     public boolean acceptThirdPartyCookies(@Nullable Object webview) {
@@ -112,7 +112,7 @@ public final class GeckoCookieManager {
         return ContentBlocking.CookieBehavior.ACCEPT_FIRST_PARTY;
     }
 
-    private void applyPolicy() {
+    private void applyPolicy(boolean settle) {
         int behavior = cookieBehaviorFor(mAcceptCookie, mThirdParty);
         if (behavior == mLastAppliedBehavior) {
             return;
@@ -171,7 +171,9 @@ public final class GeckoCookieManager {
                     + " posted=" + posted + ")", error);
             return;
         }
-        waitForBehavior();
+        if (settle) {
+            waitForBehavior();
+        }
         mLastAppliedBehavior = behavior;
     }
 
@@ -215,7 +217,20 @@ public final class GeckoCookieManager {
             }
             return;
         }
-        applyPolicy();
+        if (callback == null && isMainThread()) {
+            // Fire-and-forget on the UI thread ONLY (2026-10-08 coolapk
+            // wedge): the void setCookie contract is async in Chromium —
+            // no landing guarantee on return — while OUR blocking path
+            // parks the caller up to TIMEOUT_MS per call. Third-party
+            // hosts call this synchronously on main during fragment setup
+            // (5 serial calls = 25s + ANR when answers never arrive).
+            // Background callers keep the blocking path: CTS drives the
+            // void variant off-main and reads back with getCookie.
+            applyPolicy(false);
+            fireAndForget(() -> controller.setCookie(url, value), url, value);
+            return;
+        }
+        applyPolicy(true);
         if (callback == null) {
             // Synchronous contract: the op must have landed when we return.
             Boolean landed =
@@ -250,7 +265,7 @@ public final class GeckoCookieManager {
         if (controller == null) {
             return "";
         }
-        applyPolicy();
+        applyPolicy(true);
         String cookie = blockingOp(() -> controller.getCookie(url), "");
         return cookie != null ? cookie : "";
     }
@@ -308,7 +323,8 @@ public final class GeckoCookieManager {
         final CountDownLatch done = new CountDownLatch(1);
         queryHandler().post(() -> {
             try {
-                op.get().accept(
+                GeckoResult<T> issued = op.get();
+                issued.accept(
                         v -> {
                             value.set(v);
                             done.countDown();
@@ -332,6 +348,44 @@ public final class GeckoCookieManager {
         }
         T result = value.get();
         return result != null ? result : fallback;
+    }
+
+    // WARNING (2026-10-08): never await a GeckoResult from a runnable on
+    // this same serial query thread — a completed result's replay post can
+    // only run on the parked looper, so the await burns its full budget and
+    // delays issuance past the caller's own deadline (broke harness
+    // cookieJar hasCookies 2/2). The void setCookie therefore carries no
+    // landing guarantee (Chromium parity); read-after-write uses the
+    // callback variant or a blocking read.
+
+    /**
+     * Fire-and-forget jar write for the UI-thread void setCookie: issues
+     * the op on the query thread and returns immediately (Chromium's void
+     * setCookie is async).
+     */
+    private void fireAndForget(@NonNull Supplier<GeckoResult<Boolean>> op,
+            @NonNull String url, @NonNull String value) {
+        queryHandler().post(() -> {
+            GeckoResult<Boolean> issued;
+            try {
+                issued = op.get();
+            } catch (Throwable t) {
+                Log.w(TAG, "cookie op could not be issued", t);
+                return;
+            }
+            try {
+                issued.accept(
+                        accepted -> {
+                            if (!Boolean.TRUE.equals(accepted)) {
+                                Log.w(TAG, "setCookie refused url=" + url
+                                        + " value=" + value);
+                            }
+                        },
+                        e -> Log.w(TAG, "setCookie failed url=" + url, e));
+            } catch (Throwable t) {
+                Log.w(TAG, "cookie op could not be issued", t);
+            }
+        });
     }
 
     /** Async variant: the app callback is invoked on the UI thread. */
@@ -434,6 +488,13 @@ public final class GeckoCookieManager {
     @NonNull
     private static Handler mainHandler() {
         return new Handler(Looper.getMainLooper());
+    }
+
+    // Explicit non-null main check (JVM-safe: both loopers are null
+    // there, and == alone would wrongly report "main").
+    private static boolean isMainThread() {
+        Looper main = Looper.getMainLooper();
+        return main != null && Looper.myLooper() == main;
     }
 
     @NonNull
