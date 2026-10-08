@@ -1367,6 +1367,20 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   GeckoViewNavigation）。provider 重编即可（无 Gecko 改动，不触发 omni 铁律）。
   Canary 验门：`Adding debug configuration` + `Adding environment variables
   {MOZ_LOG=…}` 双行齐出。verdict 轮保持 OFF（扰动时序），捕获轮专用。
+- **DEAD_CAUGHT（子 agent 取证轮，pid 10970，`/tmp/moz-dead.log` 6731 行）**：
+  共享前缀（runtime 建→parent BC 0x1/0x2→chrome xhtml channel→EnsureBuiltIn
+  START）与 Canary 健康基线逐行一致；**第一个 diverge：`filter observer
+  registered / transport 就绪` 缺席** → 无 `Process GetNewOrUsed for
+  webIsolated=<目标>` → 无子进程出生（本轮零新 :tab/:gpu）→ 无 `[Child]
+  DocumentChannel ctor uri=<目标>` → 零 PageStart。install 重试 2→5→`never
+  acked`，filter 重试随后 give-up，guard cold 4/4→reopen→give-up。`No listener
+  for` 零行，`onPageStarted threw` 零行（无回归），挂载正常。结论：目标导航从未
+  到达 Gecko 层；Gecko 本体健康（Canary 同机构造绿），死亡点在宿主进程内
+  transport/扩展通道建立之前。另证伪"无 MOZ_LOG 即无信息"：M1-M4 的静默本身
+  就是反证（necko 下全活则查上，necko 上全死则查 dispatch/actor 层——本轮属后者）。
+  下一步候选：首触投毒假说（首个早窗口 dispatch 永久毒化 install 状态机，
+  0025 同族——验证法：延迟首次接触 N 秒，看死亡率是否变化；需小补丁/开关），
+  或 MiniWV 最小宿主复现（区分酷安特有 vs 通用竞态）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
