@@ -1407,9 +1407,15 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   早已消失（没建起来，不是建了卡住）。教训：18:28 命运线被 buffer 转掉（20
   分钟后才首 pull）——关键轮 2 分钟一 pull。
 - **咨询线程模型（纸面）**：C++ 经 session EventDispatcher 把每次咨询发到 UI
-  线程同步问 App（`Dispatch+callback`，necko 异步等；0001 patch:644）。单线程
-  串行下一次 block 即全堵——但 UI 活着，故 S3 不是咨询卡 UI，而是咨询根本没
-  发起（necko 不建 body 通道）。`kill -QUIT` 在 user 包无输出（§1x 记录不变）。
+  线程同步问 App（`Dispatch+callback`，necko 异步等；0001 patch:644）。UI 活着
+  故 S3 不是咨询卡 UI。`kill -QUIT` 在 user 包无输出（§1x 记录不变）。
+- **stop-first 否决（纸面推演，未动手）**：重发前 `stop()` 杀的是当前加载，
+  给不了前序 link 缺失的 STOP——fission 压制不解除，白忙。redirect resume 的
+  价值仅在"commit 慢但终到"（给慢链多几次干净重发的机会），不解决压制本身。
+  压制解除的钥匙仍在上游语义（前序窗口的 STATE_STOP），待定。
+- **S3 观察轮（待跑）**：当前构建不动，密集 pull 看 refire 后的咨询是否发生
+  （dispatch 着陆否），+ rx + 提交三件套。问题清单：refire 咨询零发生=派发死；
+  咨询发生无提交=压制；两者时间线即答案。
 - **直载 DRAWN（Canary 同 URL，`PageStop success=true`）**：同页直载 2 分钟完整
   渲染（header/tabs/正文/截图全像素）。引擎能画此页；S3 只发生在 link→github
   redirect 链之后。机制定稿：link 提交（我方咨询暂停通道促成 early commit）→
