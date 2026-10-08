@@ -462,6 +462,36 @@ public final class JsBridge {
             sPendingSessions.add(session);
         }
         try {
+            issueInstall(runtime, 1);
+        } catch (Throwable t) {
+            synchronized (LOCK) {
+                sInstallStarted = false;
+                sPendingSessions.clear();
+            }
+            Log.w(TAG, "ensureBuiltIn threw", t);
+        }
+    }
+
+    // Install watchdog: ensureBuiltIn is fire-and-forget into the Gecko
+    // pipeline — dispatched before the parent JS modules finish attaching,
+    // NEITHER callback ever fires (device-verified class, 2026-10-08
+    // coolapk fresh process: "installing extension" then silence while
+    // Gecko reached RUNNING 400ms later). The old code retried never
+    // ("honest-null until retry" comment with no retry: sInstallStarted
+    // stayed true forever, pending sessions accumulated, transport dead
+    // for the process lifetime). Re-issue bounded until the installed ack
+    // lands; give up loudly and re-arm (a later bind() restarts fresh).
+    // Pure delay helper is JVM-locked; the schedule itself needs a Looper
+    // (device-covered like the Interception filter retries).
+    static final int MAX_INSTALL_ATTEMPTS = 5;
+
+    static long installRetryDelayMs(int attempt) {
+        return Math.min(4000L << (attempt - 1), 8000L);
+    }
+
+    private static void issueInstall(@NonNull GeckoRuntime runtime,
+            int attempt) {
+        try {
             runtime.getWebExtensionController()
                     .ensureBuiltIn(EXTENSION_LOCATION, EXTENSION_ID)
                     .accept(ext -> {
@@ -484,10 +514,51 @@ public final class JsBridge {
                 sPendingSessions.clear();
             }
             Log.w(TAG, "ensureBuiltIn threw", t);
+            return;
+        }
+        scheduleInstallWatchdog(runtime, attempt);
+    }
+
+    private static void scheduleInstallWatchdog(@NonNull GeckoRuntime runtime,
+            int attempt) {
+        final android.os.Handler handler;
+        try {
+            handler = new android.os.Handler(
+                    android.os.Looper.getMainLooper());
+        } catch (Throwable t) {
+            return;
+        }
+        final long delay = installRetryDelayMs(attempt);
+        try {
+            handler.postDelayed(() -> {
+                synchronized (LOCK) {
+                    if (sExtension != null) {
+                        return;
+                    }
+                    if (!sInstallStarted) {
+                        return;
+                    }
+                }
+                if (attempt >= MAX_INSTALL_ATTEMPTS) {
+                    synchronized (LOCK) {
+                        sInstallStarted = false;
+                    }
+                    Log.w(TAG, "ensureBuiltIn never acked after "
+                            + MAX_INSTALL_ATTEMPTS
+                            + " attempts; transport down, re-arm on next bind");
+                    return;
+                }
+                Log.i(TAG, "ensureBuiltIn no ack yet, retrying attempt="
+                        + (attempt + 1));
+                issueInstall(runtime, attempt + 1);
+            }, delay);
+        } catch (Throwable t) {
+            Log.w(TAG, "install watchdog schedule threw", t);
         }
     }
 
-    private static void onExtensionReady(@NonNull WebExtension ext) {
+        private static void onExtensionReady(@NonNull WebExtension ext) {
+
         java.util.List<GeckoSession> sessions;
         synchronized (LOCK) {
             sessions = new java.util.ArrayList<>(sPendingSessions);
