@@ -301,7 +301,13 @@ public final class GeckoSessionBridge
 
     @Override
     public boolean shouldOverrideUrlLoading(@NonNull String url) {
-        return mClient.shouldOverrideUrlLoading(url);
+        // 8x onLoadRequest churn 取证 (R2 配对): 与
+        // SplitNavigationDelegate.onLoadRequest 及下述 loadUrl 行按时间戳对齐 —
+        // 每个 LR 后有无宿主侧 loadUrl 重入即判 R2 (宿主双载), 无重入则倾向 R1
+        // (页面驱动重复顶层导航). true=override (app 接管), false=allow (放行).
+        boolean override = mClient.shouldOverrideUrlLoading(url);
+        Log.d(TAG, "shouldOverride url=" + url + " override=" + override);
+        return override;
     }
 
     @Override
@@ -694,6 +700,9 @@ public final class GeckoSessionBridge
         mLastDispatch = redispatch;
         mLastUrl = guardUrl;
         mCommitGuard.arm(redispatch, this::reopenSessionOnce);
+        // 8x onLoadRequest churn 取证 (R2 配对): 只记宿主入口 dispatch, guard
+        // 重发走 dispatchLoad 直调不经此行, 故本行出现即宿主侧 loadUrl 重入.
+        Log.d(TAG, "loadUrl url=" + url + " bypassCache=" + bypassCache);
         dispatchLoad(url, bypassCache);
     }
 

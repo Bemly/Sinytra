@@ -40,8 +40,13 @@ final class SplitNavigationDelegate implements GeckoSession.NavigationDelegate {
     @Override
     public GeckoResult<AllowOrDeny> onLoadRequest(@NonNull GeckoSession session,
             @NonNull LoadRequest request) {
+        // 8x onLoadRequest churn 取证: 原生四字段, 时间戳与
+        // GeckoSessionBridge.shouldOverride/loadUrl 行配对判 R2 有无宿主重入.
         android.util.Log.d("Sinytra/navigation",
-                "onLoadRequest " + request.uri);
+                "onLoadRequest " + request.uri
+                        + " isRedirect=" + request.isRedirect
+                        + " hasUserGesture=" + request.hasUserGesture
+                        + " triggerUri=" + request.triggerUri);
         if (request.uri != null && mIntercept.policyBlocksNavigation(
                 request.uri, true, request.triggerUri)) {
             android.util.Log.i("Sinytra/navigation",
