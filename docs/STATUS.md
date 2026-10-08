@@ -1417,6 +1417,18 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   STATE_STOP——link 无 PageStop——后续通知被压住）→ 字节走完但 session 全聋。
   修法：redirect leg 提交后无 commit 则有界 resume（fresh top 导航，直载已证
   可提交），见下条。
+- **GPU-bind 挂起（S2 新主犯，日志对照实锤）**：绿轮 `ServiceAllocator $gpu
+  updateBindings` 后必跟 tab bind（慢绿轮：GPU 3 次失败→SW-WR fallback→
+  compositor 初始化→blank PageStart→install ack，31s 之谜即 3×~10s）；
+  死轮 GPU bind 请求一次后无成功、无失败、无 fallback，tab 零出生。父 Gecko
+  主线程 futex 睡零 CPU = 等这个 init（condvar，非 binder 帧，故线程栈无特征；
+  早前 P-IDLE 结论修正：不是"空闲无事做"，是等 GPU init 等到天荒地老）。
+  JS 全死是果不是因（parent main 被 GPU init  parked，JS 模块一个都跑不起来：
+  install/filter/storage/BCWebProgress 全灭，但 native 线程照转）。0009 的跨包
+  bind（coolapk→provider 导出 service）在某些启动下落入"请求发出、AMS 无记录、
+  无失败、无超时"的黑洞——`dumpsys activity services` 死轮宿主零 bind 记录。
+  下一步：死轮必取 `-b system/-b events`（bind 握手/AM 日志从没看过，全在那）
+  + service 全 dump，看请求卡在 Gecko 侧还是 system_server 侧。
 - **redirect resume 落地（`d26f514`，未验证）**：`SessionRescue` 新增 armed 跟踪
   + commit 记忆 + `watchRedirectLeg`（谓词 JVM 锁 6 则）；`NavigationBridge`
   加 `onRedirectLeg` 回调（主帧 LR 全量信息）；静默 redirect 用 raw dispatch
