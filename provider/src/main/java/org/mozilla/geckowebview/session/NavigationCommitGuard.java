@@ -35,6 +35,18 @@ import androidx.annotation.Nullable;
 // checks: a chattering pipeline never exhausts; a truly silent one (zero
 // consults — the §1z lost-dispatch class) exhausts exactly as before.
 //
+// Total-refire cap (2026-10-08 S3 fission-suppression round): pokes reset
+// the ladder, so a pipeline with ANY consult activity never exhausts —
+// while its refires keep restarting the very load that would commit
+// (each fresh loadUri lands behind the same poisoned predecessor and its
+// commit is suppressed forever; device-verified 6s churn, 8.75MB re-download,
+// zero PageStarts in 16min). Fires therefore ALSO count cumulatively per
+// arm: past MAX_TOTAL_FIRES without a commit the approach is futile and the
+// chain is forced into exhaustion (close+reopen = fresh session whose
+// initial navigation commits — Canary-proven). Slow-but-alive loads are
+// unaffected (their commit disarms long before; a 60s-header server sees
+// ~8 refires under the cap).
+//
 // When even the bounded retries find no commit (session window never attached
 // natively — device-verified class: zero PageStarts including blank), the
 // guard fires the exhaustion action ONCE per arm: the bridge uses it to
@@ -52,6 +64,10 @@ final class NavigationCommitGuard {
     // silent guard at 2s is almost certainly a lost dispatch, not a slow
     // network. Three attempts cover ~14s of slow parent bring-up.
     static final int MAX_ATTEMPTS = 3;
+
+    // Total refires per arm before the chain is forced into exhaustion
+    // (see class header): ~2,6,14,22…s cadence, so 12 refires ≈ 90s envelope.
+    static final int MAX_TOTAL_FIRES = 12;
 
     // Pure (JVM-locked): attempt is 1-based; 2s doubling to an 8s cap.
     static long delayForAttempt(int attempt) {
@@ -79,6 +95,14 @@ final class NavigationCommitGuard {
         return attempt + 1;
     }
 
+    // Pure (JVM-locked): cumulative refire cap. Pokes keep the ladder alive
+    // for trickle patience, but every refire restarts the download — past
+    // this many refires without a commit, restarting is futile (S3) and the
+    // chain must escalate to reopen instead of churning forever.
+    static boolean shouldForceExhaust(int totalFires) {
+        return totalFires > MAX_TOTAL_FIRES;
+    }
+
     private static final String TAG = "Sinytra/session";
 
     private int mGeneration;
@@ -90,6 +114,10 @@ final class NavigationCommitGuard {
     // Set by poke() (necko consult observed); consumed by the next check.
     // Attempts count consecutive QUIET checks (see class header).
     private boolean mProgress;
+    // Cumulative refires this arm (never reset by pokes; reset by arm()).
+    // Caps the self-sustaining churn where refires restart a load whose
+    // commit is suppressed forever (see class header).
+    private int mTotalFires;
 
     // Arms the guard for one navigation. The redispatch runnable must re-issue
     // the same navigation WITHOUT re-arming (it runs inside this generation's
@@ -108,6 +136,7 @@ final class NavigationCommitGuard {
         mRedispatch = redispatch;
         mExhausted = onExhausted;
         mExhaustedFired = false;
+        mTotalFires = 0;
         int generation = ++mGeneration;
         schedule(generation, 1);
     }
@@ -157,6 +186,15 @@ final class NavigationCommitGuard {
                         return;
                     }
                     if (!extend) {
+                        mTotalFires++;
+                        if (shouldForceExhaust(mTotalFires)) {
+                            android.util.Log.w(TAG,
+                                    "commit guard forcing exhaustion after "
+                                            + mTotalFires
+                                            + " refires without commit");
+                            fireExhaustedLocked();
+                            return;
+                        }
                         fire = mRedispatch;
                     } else {
                         android.util.Log.d(TAG, "commit guard extending"

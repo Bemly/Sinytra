@@ -85,4 +85,18 @@ public final class NavigationCommitGuardTest {
         guard.poke();
         guard.disarm();
     }
+
+    // --- total-refire cap (2026-10-08 S3 fission-suppression round): pokes
+    // reset the ladder, so consult chatter alone must not authorize infinite
+    // refires. Past the cap without a commit the chain escalates to reopen.
+
+    @Test
+    public void forceExhaust_boundsTotalRefires() {
+        assertFalse(NavigationCommitGuard.shouldForceExhaust(0));
+        assertFalse(NavigationCommitGuard.shouldForceExhaust(1));
+        assertFalse(NavigationCommitGuard.shouldForceExhaust(
+                NavigationCommitGuard.MAX_TOTAL_FIRES));
+        assertTrue(NavigationCommitGuard.shouldForceExhaust(
+                NavigationCommitGuard.MAX_TOTAL_FIRES + 1));
+    }
 }
