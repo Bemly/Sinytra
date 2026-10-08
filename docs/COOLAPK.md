@@ -98,10 +98,14 @@ $S shell "su -c 'cat /sys/class/net/wlan0/statistics/rx_bytes'"
 10. `de44369` reload 加 commit-guard（harness 47 行 0 FAIL 验证；单测 210 绿）。
 11. `428518d` churn 取证日志上机（LR 四字段 + override/loadUrl 配对；下轮绿管线直接判 R1/R2）。
 12. `20b7f96` 预运行时后台读有界等首 controller（主线程保持诚实空；单测 216 绿）。
+13. churn 判 R1（18 发全非 redirect、宿主 loadUrl 仅 1 发；R2 死；R5 早已证伪）。
+14. bridge 拆分：`SessionRescue.java` 387 行，bridge 1238→972（harness 47 行 0 FAIL）。
+15. `764750e` 死进程取证门上机（MOZ_LOG M1-M4 + geckoview.logging；Canary 双行验门通过）。
 
 ## 5. 未闭（新会话从这里开工，按序）
 
 0. **像素 verdict（首位）**：修后轮视图已挂载但撞 trickle 窗（0.7KB/s），等一个"修复+带宽"双齐窗口（本轮保持加载中）。对照纪律：以后每次对照必带整机 rx delta + 交替顺序（此前"同分钟"对照无窗口会计是漏洞；时变带宽实锤 86 倍摆动）。
+0b. **死进程捕获（取证门已开，就等一轮死的）**：fresh 轮若 25s 内无 install ack + guard 进 cold 扩展，即死轮嫌疑——落盘整轮 `-b main`（MOZ_LOG 体积大，只取 main buffer），对照 Canary 健康基线找第一个 diverge 点（M1 DocumentChannel 有无 ctor）。verdict 轮取证门保持 OFF，别忘关回去。
 
 1. **部分 fresh 酷安进程 Java→Gecko-JS 全死**（extension/filter/storage
    零回答，0025 亦救不回；session 回声正常；同构建他轮全绿）。

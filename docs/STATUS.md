@@ -1350,6 +1350,23 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   定时），主线程保持诚实空值（ANR 同构已避），写侧 queue/fail-fast 不动。
   JVM 216 绿（+6），lint 绿，同批 harness 绿。`GeckoCookieManager` 621→740 行
   （<1000，合规）。§1z/§5-3 的读侧项关闭；bridge 拆分债务仍 open。
+- **churn 判决（子 agent 设备轮，取证版构建）**：**R1（页面/shim 驱动）**——
+  18 发 LR 全 `isRedirect=false/hasUserGesture=false/triggerUri=null`，宿主
+  `loadUrl` 全程仅 1 发（首发），18 个 `shouldOverride=false` 一一配对；
+  **R2（宿主双载）死**（零新增宿主 loadUrl）。guard 重发三证伪维持。同轮兼捕
+  第二例完全死进程（cold 4/4→reopen→give-up，零 PageStart；本轮零新 tab 进程、
+  零 `No listener for` 行；挂载正常、无 crash 回归、install 时间戳无 mixed-build）。
+- **bridge 拆分还债（子 agent 实现，未提交→已合入）**：`SessionRescue.java`
+  新文件 387 行（guard/熄火/cold/reopen/reload/stop/close/settings + 纯静态
+  history helpers）；`GeckoSessionBridge.java` 1238→**972**（<1000 ✓）。
+  Readiness/ReopenHost 留桥上垫片，provider 零改动。JVM 217 绿（锁只增不减），
+  lint 绿，取证构建 harness 47 行 0 FAIL + GLUE PASS（拆分设备验证关闭）。
+- **死进程取证门上机（`764750e`，只动 debug yaml）**：`MOZ_LOG:
+  DocumentChannel:5,nsDocShell:5,BrowsingContext:5,Process:5,timestamp` +
+  `geckoview.logging: Debug`（JS-dispatch 层真门，MOZ_LOG 照不到 Messaging/
+  GeckoViewNavigation）。provider 重编即可（无 Gecko 改动，不触发 omni 铁律）。
+  Canary 验门：`Adding debug configuration` + `Adding environment variables
+  {MOZ_LOG=…}` 双行齐出。verdict 轮保持 OFF（扰动时序），捕获轮专用。
 
 ## 2. 下一步（按顺序，一次做一件）
 
