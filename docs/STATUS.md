@@ -1250,6 +1250,16 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   0025 的 retry 路径本轮未触发（首试即赢，race 赢了）——验证的是"不再
   毒化"，自愈重发待输掉 race 的轮次实证。黑屏余量 = 纯网络饥饿 + ②。
   终裁条件：健康网络下 fresh 酷安轮一次绘出即全案关闭。
+- **bromite 对照（用户要求实测，已跑）**：切 bromite 同 App 同链接，
+  ~60s **完整渲染**（header/tabs/notes/截图全像素）。用户结论成立：
+  stock 就是能到。连带证伪"纯网络"单因解释（同网同机我们黑）。
+  机制差值定位：Chromium/Fennec 在慢网上只是等；我方 guard 在慢
+  commit 下 close+reopen**从零重下**——trickle 下永世不得翻身
+  （10:21/11:44 exhaust 实锤）；另咨询链是额外开销。修法即本轮
+  guard 进展感知（`cee3e7e`）：咨询即延长、只对真静默重下。
+  JVM +3 锁（202 全绿），harness 46 PASS / GLUE PASS（健康路径零变化
+  已验）。慢网终裁仍待，但此后慢网行为 = 等（与 Chromium 同构），
+  不再是杀。
 - **渲染面现状**：M1 后标题到、子资源 burst、spinner 转，但 release 页
   10 分钟仍黑（a11y 零文本节点 = parser 饿死）。同机同网对照：
   Canary 直连同 URL ~60s 完整渲染；Fennec github 主页 ~50s 绘出——
