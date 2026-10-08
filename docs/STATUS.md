@@ -1315,6 +1315,25 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   带宽回来即见分晓）；② 15:48 轮目标 `onLoadRequest` 700ms 内 8 连发（次次咨询
   裁决，2s 后才 PageStart）——通道 churn，单轮目击，待复现定位（necko 重试 vs
   我方 0001 包装抖动）；③ reload 无 guard、`:web` 读侧诚实空、bridge 拆分债务依旧。
+- **守轮 verdict（子 agent 独立观测，26 分钟）**：修后轮 15:59→16:25 仅 +415KB
+  （~0.6KB/s），命运线零新增（16:06 后无一条 Gecko Page/Progress/Title/Error），
+  进程存活且页面在前台。三截图纯黑、a11y 21 节点零文本、无标题。结论
+  `STILL_BLACK_TRICKLE`：纯带宽窗未到，不满足 MOZ_LOG 升级条件（rx 增长但仍黑
+  才升级——本轮连增长都没有）。带宽判断以整机 rx delta 为准，不以状态栏为准。
+- **8 连发溯源（子 agent 纸面，`/tmp/cool2.log` pid 20493）**：8 次 LR 间隔
+  3/2/22/9/64/89/496ms，8/8 全 `HIT→pass-through→OnSuccess`（零 synthesize），
+  每次配对宿主 `shouldOverrideUrlLoading` 同 URL（ALLOW）；头部 3 发与首个裁决
+  无关（docshell 层重开火）。排序：R1 页面驱动重复顶层导航（shim JS，最高；
+  `OnLoadRequest` 只在 browserDOMWindow 开火，necko 重试不经此路）；
+  R2 宿主 shouldOverride 双载；R3 necko 通道重试（只解释 HIT 多重不解释 LR
+  多重，降级）；R5 guard 重发**已证伪**（量级/目标/撤防三不符）。下轮证伪预测
+  已就绪：`SplitNavigationDelegate.onLoadRequest` 加
+  `isRedirect/hasUserGesture/triggerUri` 一行日志（R1 证实条件）+
+  `shouldOverride` 返回值/`loadUrl` 配对日志（R2 证实条件）。
+- **reload guard（子 agent 实现，`de44369`）**：`reload()` 加 guard（raw
+  `mSession.reload()` 重发 + `reopenSessionOnce` 熄火；`stop/goBack/goForward`
+  不动）。JVM 210 绿，lint 绿，harness **47 PASS 行 0 FAIL + GLUE PASS**。
+  上条 ③ 的 reload 项关闭；`:web` 读侧与 bridge 拆分仍 open。
 
 ## 2. 下一步（按顺序，一次做一件）
 

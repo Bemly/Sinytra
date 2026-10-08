@@ -95,6 +95,7 @@ $S shell "su -c 'cat /sys/class/net/wlan0/statistics/rx_bytes'"
 7. `b8673b6` 熄火分诊（cold 4/4 等待，不烧 reopen）。
 8. `ddfc6b9` filter 冷预算（15.5s→63.5s，对齐 install 60s 窗口；31s bring-up 轮实证救活）。
 9. `66ee067` 隐式初始 about:blank 不派发 onPageStarted（酷安 getQueryParameter 崩→WebView 永不挂载→永久黑；修后 dumpsys 挂载确认，零 threw）。
+10. `de44369` reload 加 commit-guard（harness 47 行 0 FAIL 验证；单测 210 绿）。
 
 ## 5. 未闭（新会话从这里开工，按序）
 
