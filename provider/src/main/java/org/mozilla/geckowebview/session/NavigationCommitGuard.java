@@ -47,6 +47,19 @@ import androidx.annotation.Nullable;
 // unaffected (their commit disarms long before; a 60s-header server sees
 // ~8 refires under the cap).
 //
+// Consult latch (2026-10-08 coolapk COMMIT-SUPPRESSED round, pid 794):
+// the cap above still lets a consulting-but-never-committing pipeline churn
+// (13 refires, every one HIT→pass-through→OnSuccess→RedirectToRealChannel
+// with zero PageStarts, then reopen died identically on the naked retry —
+// refiring restarts the download against a content side that never consumes).
+// Once ANY necko consult reaches Java for this arm, the dispatch provably
+// landed, so re-issuing can never help: the latch freezes refires (every
+// check extends) while keeping the quiet path intact. A latched chain ends
+// by commit/error-disarm (normal), never by exhaustion; a truly silent one
+// (zero consults — the §1z lost-dispatch class) exhausts exactly as before.
+// Real network failures still surface via onLoadError (disarm), so waiting
+// is Chromium-identical, not a hang.
+//
 // When even the bounded retries find no commit (session window never attached
 // natively — device-verified class: zero PageStarts including blank), the
 // guard fires the exhaustion action ONCE per arm: the bridge uses it to
@@ -95,6 +108,13 @@ final class NavigationCommitGuard {
         return attempt + 1;
     }
 
+    // Pure (JVM-locked): the check's extend decision. Either fresh necko
+    // progress or the consult latch (dispatch provably landed) extends;
+    // only a quiet check on an unlatched arm re-issues.
+    static boolean shouldExtend(boolean progressSeen, boolean consultLatched) {
+        return progressSeen || consultLatched;
+    }
+
     // Pure (JVM-locked): cumulative refire cap. Pokes keep the ladder alive
     // for trickle patience, but every refire restarts the download — past
     // this many refires without a commit, restarting is futile (S3) and the
@@ -114,6 +134,10 @@ final class NavigationCommitGuard {
     // Set by poke() (necko consult observed); consumed by the next check.
     // Attempts count consecutive QUIET checks (see class header).
     private boolean mProgress;
+    // Consult latch (see class header): once any consult reaches Java for
+    // this arm, the dispatch provably landed — every later check extends,
+    // never refires. Reset by arm()/disarm() with the rest of the chain.
+    private boolean mConsultLatched;
     // Cumulative refires this arm (never reset by pokes; reset by arm()).
     // Caps the self-sustaining churn where refires restart a load whose
     // commit is suppressed forever (see class header).
@@ -137,6 +161,7 @@ final class NavigationCommitGuard {
         mExhausted = onExhausted;
         mExhaustedFired = false;
         mTotalFires = 0;
+        mConsultLatched = false;
         int generation = ++mGeneration;
         schedule(generation, 1);
     }
@@ -147,14 +172,28 @@ final class NavigationCommitGuard {
     synchronized void disarm() {
         mGeneration++;
         mProgress = false;
+        mConsultLatched = false;
     }
 
     // NeckO-progress poke: a consult reached Java for any URL, so the
     // pipeline is alive — the next check extends instead of re-issuing.
     // Never poked by Java-side dispatch echoes (those would mask a real
-    // stall); only the necko consult path calls this.
+    // stall); only the necko consult path calls this. The first poke also
+    // sets the consult latch (see class header): from then on this arm only
+    // extends, because its dispatch provably landed and re-issuing can only
+    // restart a load whose commit is suppressed downstream.
     synchronized void poke() {
         mProgress = true;
+        if (!mConsultLatched) {
+            mConsultLatched = true;
+            android.util.Log.d(TAG, "commit guard consult-latched;"
+                    + " refires suspended for this navigation");
+        }
+    }
+
+    // Test-only: whether the consult latch is set (same-package tests).
+    synchronized boolean isConsultLatched() {
+        return mConsultLatched;
     }
 
     private void schedule(final int generation, final int attempt) {
@@ -178,7 +217,7 @@ final class NavigationCommitGuard {
                     if (!isLive(generation, mGeneration)) {
                         return;
                     }
-                    boolean extend = mProgress;
+                    boolean extend = shouldExtend(mProgress, mConsultLatched);
                     mProgress = false;
                     next = nextAttempt(extend, attempt);
                     if (next < 0) {

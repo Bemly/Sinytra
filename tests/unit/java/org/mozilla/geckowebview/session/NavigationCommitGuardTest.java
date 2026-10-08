@@ -99,4 +99,51 @@ public final class NavigationCommitGuardTest {
         assertTrue(NavigationCommitGuard.shouldForceExhaust(
                 NavigationCommitGuard.MAX_TOTAL_FIRES + 1));
     }
+
+    // --- consult latch (2026-10-08 coolapk COMMIT-SUPPRESSED round): once
+    // any consult reaches Java the dispatch provably landed, so the arm only
+    // extends from then on. Lifecycle is Looper-free (flag only). ---
+
+    @Test
+    public void shouldExtend_latchOrProgressExtends() {
+        assertFalse(NavigationCommitGuard.shouldExtend(false, false));
+        assertTrue(NavigationCommitGuard.shouldExtend(true, false));
+        assertTrue(NavigationCommitGuard.shouldExtend(false, true));
+        assertTrue(NavigationCommitGuard.shouldExtend(true, true));
+    }
+
+    @Test
+    public void latch_setByFirstPokeOnly() {
+        NavigationCommitGuard guard = new NavigationCommitGuard();
+        guard.arm(() -> {
+            throw new AssertionError("must stay inert without Looper");
+        });
+        assertFalse(guard.isConsultLatched());
+        guard.poke();
+        assertTrue(guard.isConsultLatched());
+        guard.poke();
+        assertTrue(guard.isConsultLatched());
+        guard.disarm();
+    }
+
+    @Test
+    public void latch_clearedByDisarm() {
+        NavigationCommitGuard guard = new NavigationCommitGuard();
+        guard.arm(() -> {});
+        guard.poke();
+        assertTrue(guard.isConsultLatched());
+        guard.disarm();
+        assertFalse(guard.isConsultLatched());
+    }
+
+    @Test
+    public void latch_clearedByRearm() {
+        NavigationCommitGuard guard = new NavigationCommitGuard();
+        guard.arm(() -> {});
+        guard.poke();
+        assertTrue(guard.isConsultLatched());
+        guard.arm(() -> {});
+        assertFalse(guard.isConsultLatched());
+        guard.disarm();
+    }
 }
