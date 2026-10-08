@@ -11,7 +11,7 @@ env:
   # enabled below). First-diverge vs a healthy PASS baseline is the only
   # output. Forensics-only: verbose enough to perturb timing, verdict
   # rounds keep this OFF.
-  MOZ_LOG: DocumentChannel:5,nsDocShell:5,BrowsingContext:5,Process:5,timestamp
+  MOZ_LOG: DocumentChannel:5,nsDocShell:5,BrowsingContext:5,Process:5,nsHttp:3,timestamp
 prefs:
   network.connectivity-service.enabled: false
   network.captive-portal-service.enabled: false
