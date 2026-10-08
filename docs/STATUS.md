@@ -2,6 +2,7 @@
 
 > 实现进展与待办（给新会话的交接页）。技术细节见 `ARCHITECTURE.md` /
 > `API_MAPPING.md` / `BOOTSTRAP.md`，阶段定义见 `ROADMAP.md`。
+> 酷安黑屏主任务的测试方法与诊断交接见 `docs/COOLAPK.md`（新会话先读）。
 > 更新时间：2026-09-27（**第三方宿主跑通**：patch 栈 0008–0010 落地，
 > 自建 MiniWV 最小宿主真机渲染 example.com、child 进程挂 provider uid，
 > 反射 harness **41 PASS + P0 GLUE PASS** 不退，JVM **78 锁**；切换态
