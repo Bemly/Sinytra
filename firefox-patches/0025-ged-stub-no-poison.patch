@@ -1,0 +1,57 @@
+From 1887be4f95c11d0ac73456965c810080cfa9a65c Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Thu, 8 Oct 2026 12:47:51 +0800
+Subject: [PATCH] Sinytra patch 0025: never poison ged stubs on module-load
+ failure
+
+---
+ .../modules/geckoview/GeckoViewUtils.sys.mjs  | 30 +++++++++++++++++--
+ 1 file changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewUtils.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewUtils.sys.mjs
+index e16e0ea7f8..451ebdc8d7 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewUtils.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewUtils.sys.mjs
+@@ -101,11 +101,37 @@ export var GeckoViewUtils = {
+ 
+     if (ged) {
+       const listener = (event, data, callback) => {
++        // Sinytra 0025: never poison the stub on module-load failure.
++        // The old code unregistered first and evaluated scope[name]
++        // inline: a throw (module unloadable while startup is still
++        // settling in a cold third-party host process) left NO listener
++        // behind while the native table still reported one, so every
++        // later query hung forever with no error (device-verified on
++        // GetCookie/SetCookie/GetAllPermissions alike — stock messages
++        // included, so this is upstream mechanism, not embedder logic;
++        // no known upstream bug for this shape, searched 2026-10-08).
++        // Keep the stub and answer onError instead: the querier degrades
++        // honestly and a later dispatch retries the load (self-healing
++        // once startup settles).
++        let target = null;
++        try {
++          target = scope[name];
++        } catch (e) {
++          // Fall through to onError below with the stub intact.
++        }
++        if (!target) {
++          if (callback) {
++            try {
++              callback.onError("module not loaded: " + name);
++            } catch (e) {}
++          }
++          return;
++        }
+         lazy.EventDispatcher.instance.unregisterListener(listener, event);
+         if (!once) {
+-          lazy.EventDispatcher.instance.registerListener(scope[name], event);
++          lazy.EventDispatcher.instance.registerListener(target, event);
+         }
+-        scope[name].onEvent(event, data, callback);
++        target.onEvent(event, data, callback);
+       };
+       lazy.EventDispatcher.instance.registerListener(listener, ged);
+     }
+-- 
+2.55.0
+
