@@ -74,6 +74,9 @@ public final class GeckoWebViewProvider
         implements WebViewProvider, ClientFanOut.Owner,
         org.mozilla.geckowebview.compat.CompatHost.WebViewBackend {
     private static final String TAG = "Sinytra/session";
+    // One-shot child warm-up per host process (see preloadChildProcesses).
+    private static final java.util.concurrent.atomic.AtomicBoolean sPreloaded =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     private final WebView mWebView;
     private final GeckoWebViewFactoryProvider mFactory;
@@ -222,8 +225,12 @@ public final class GeckoWebViewProvider
         // session itself always lives on main, the creator looper stays the
         // WebView's looper. Genuine failures throw fast, never hang.
         org.mozilla.geckowebview.runtime.MainThread.call(() -> {
-            mBridge.session().open(GeckoRuntimeHolder.get(
-                    webView.getContext().getApplicationContext()));
+            android.content.Context app =
+                    webView.getContext().getApplicationContext();
+            org.mozilla.geckoview.GeckoRuntime runtime =
+                    GeckoRuntimeHolder.get(app);
+            preloadChildProcesses();
+            mBridge.session().open(runtime);
             return null;
         });
         // Liveness gate for filter retries (set before the first push):
@@ -335,6 +342,28 @@ public final class GeckoWebViewProvider
                 android.util.Log.w(TAG, "images policy push threw", t);
             }
         });
+    }
+
+    // Ring-breaker for cold-start child demand (2026-10-08 fully-dead class:
+    // first content/GPU demand can deadlock when nothing ever requests the
+    // first bind; ~50% dead in third-party hosts, never in clean processes).
+    // Public API, no patch: preload GPU+CONTENT once per host process after
+    // runtime init, before open() (warmUp() covers CONTENT only; green rounds
+    // show GPU-first). One-shot; returns at once (launcher hop inside), never
+    // breaks construction.
+    private static void preloadChildProcesses() {
+        if (!sPreloaded.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            org.mozilla.gecko.process.GeckoProcessManager.getInstance()
+                    .preload(
+                            org.mozilla.gecko.process.GeckoProcessType.GPU,
+                            org.mozilla.gecko.process.GeckoProcessType.CONTENT);
+        } catch (Throwable t) {
+            android.util.Log.w(TAG,
+                    "child preload threw; continuing without", t);
+        }
     }
 
     // Adds the GeckoViewHost as the WebView's child. Idempotent: no-op once
