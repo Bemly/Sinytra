@@ -67,6 +67,59 @@ public class GeckoCookieManagerTest {
         assertFalse(manager.acceptThirdPartyCookies(null));
     }
 
+    // --- file-scheme gate (Chromium parity: accepted by default; shut gate
+    // makes file: URLs behave like an empty jar). The framework reaches
+    // these through the hidden *Impl methods (device framework.jar); a
+    // missing override was the WEBVIEW TEST AbstractMethodError. ---
+
+    @Test
+    public void fileScheme_defaultAccepted_flagRoundTrip() {
+        GeckoCookieManager manager = new GeckoCookieManager(null);
+        assertTrue(manager.allowFileSchemeCookies());
+        manager.setAcceptFileSchemeCookies(false);
+        assertFalse(manager.allowFileSchemeCookies());
+        manager.setAcceptFileSchemeCookies(true);
+        assertTrue(manager.allowFileSchemeCookies());
+    }
+
+    @Test
+    public void isFileScheme_matchesCaseInsensitively_nullSafe() {
+        assertTrue(GeckoCookieManager.isFileScheme("file:///android_asset/x.html"));
+        assertTrue(GeckoCookieManager.isFileScheme("FILE:///x"));
+        assertFalse(GeckoCookieManager.isFileScheme("https://example.com/"));
+        assertFalse(GeckoCookieManager.isFileScheme(null));
+    }
+
+    @Test
+    public void fileScheme_blocked_getReturnsEmpty() {
+        GeckoCookieManager manager = new GeckoCookieManager(null);
+        manager.setAcceptFileSchemeCookies(false);
+        assertEquals("", manager.getCookie("file:///android_asset/x.html"));
+    }
+
+    @Test
+    public void fileScheme_blocked_setCallbackReceivesFalse() {
+        final AtomicReference<Boolean> value = new AtomicReference<>();
+        ValueCallback<Boolean> callback = new ValueCallback<Boolean>() {
+            @Override
+            public void onReceiveValue(@Nullable Boolean result) {
+                value.set(result);
+            }
+        };
+        GeckoCookieManager manager = new GeckoCookieManager(null);
+        manager.setAcceptFileSchemeCookies(false);
+        manager.setCookie("file:///x.html", "a=1", callback);
+        assertEquals(Boolean.FALSE, value.get());
+    }
+
+    @Test
+    public void impl_hiddenFileSchemeMethods_roundTrip() {
+        GeckoCookieManager manager = new GeckoCookieManager(null);
+        GeckoCookieManagerImpl impl = new GeckoCookieManagerImpl(manager);
+        impl.setAcceptFileSchemeCookiesImpl(false);
+        assertFalse(impl.allowFileSchemeCookiesImpl());
+    }
+
     // --- null-arg guards must degrade honestly before any runtime
     // resolution (GeckoRuntime is not touchable on the JVM). ---
 

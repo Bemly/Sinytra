@@ -42,6 +42,11 @@ public final class GeckoCookieManager {
     private static volatile Handler sQueryHandler;
 
     private volatile boolean mAcceptCookie = true;
+    // File-scheme cookie gate (Chromium parity: accepted by default, same as
+    // AwCookieManager). Enforced locally on the file: scheme — the Gecko jar
+    // cannot express "no cookies for this scheme", so when the gate is shut
+    // file: URLs behave exactly like an empty jar.
+    private volatile boolean mAcceptFileSchemeCookies = true;
     // Global policy (WebView's is per-WebView; per-WebView granularity would
     // need per-context cookie behavior in Gecko — documented v1 divergence).
     // null = untouched; reported as false, matching WebView's default for
@@ -67,6 +72,18 @@ public final class GeckoCookieManager {
 
     public boolean acceptCookie() {
         return mAcceptCookie;
+    }
+
+    public void setAcceptFileSchemeCookies(boolean accept) {
+        mAcceptFileSchemeCookies = accept;
+    }
+
+    public boolean allowFileSchemeCookies() {
+        return mAcceptFileSchemeCookies;
+    }
+
+    static boolean isFileScheme(@Nullable String url) {
+        return url != null && url.regionMatches(true, 0, "file:", 0, 5);
     }
 
     public void setAcceptThirdPartyCookies(@Nullable Object webview, boolean accept) {
@@ -184,6 +201,13 @@ public final class GeckoCookieManager {
             }
             return;
         }
+        if (!mAcceptFileSchemeCookies && isFileScheme(url)) {
+            Log.w(TAG, "setCookie refused (file scheme not accepted) url=" + url);
+            if (callback != null) {
+                callback.onReceiveValue(Boolean.FALSE);
+            }
+            return;
+        }
         StorageController controller = controllerOrNull();
         if (controller == null) {
             if (callback != null) {
@@ -217,6 +241,9 @@ public final class GeckoCookieManager {
     @NonNull
     public String getCookie(@NonNull String url) {
         if (url == null) {
+            return "";
+        }
+        if (!mAcceptFileSchemeCookies && isFileScheme(url)) {
             return "";
         }
         StorageController controller = controllerOrNull();

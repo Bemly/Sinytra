@@ -34,6 +34,24 @@ public final class GeckoCookieManagerImpl extends CookieManager {
         return mDelegate.acceptCookie();
     }
 
+    // Hidden android.webkit.CookieManager abstract methods. They are absent
+    // from the public android.jar (compile-time invisible — hence no
+    // @Override, which would fail compilation), but the API-34 framework
+    // calls them: the static setAcceptFileSchemeCookies() /
+    // allowFileSchemeCookies() delegate to getInstance().<Impl>(). Verified
+    // against the on-device framework.jar (dexdump of
+    // Landroid/webkit/CookieManager;: allowFileSchemeCookiesImpl()Z and
+    // setAcceptFileSchemeCookiesImpl(Z)V). Leaving them out throws
+    // AbstractMethodError at runtime (WEBVIEW TEST crash, 2026-10-08: App
+    // calls setAcceptFileSchemeCookies on permission grant).
+    public void setAcceptFileSchemeCookiesImpl(boolean accept) {
+        mDelegate.setAcceptFileSchemeCookies(accept);
+    }
+
+    public boolean allowFileSchemeCookiesImpl() {
+        return mDelegate.allowFileSchemeCookies();
+    }
+
     @Override
     public void setAcceptThirdPartyCookies(WebView webview, boolean accept) {
         mDelegate.setAcceptThirdPartyCookies(webview, accept);
