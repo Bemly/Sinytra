@@ -3,15 +3,9 @@
 # Release builds package only the base file — sinytra.log.enabled stays
 # default-false there and no Sinytra instrumentation reaches logcat.
 env:
-  # Dead-process forensics (2026-10-08, coolapk fully-dead class: session
-  # echo alive but install ack/filter/storage/PageStart never arrive, guard
-  # runs cold 4/4 -> reopen -> give-up). M1-M4 bound the death point from
-  # below (necko handoff); the JS-dispatch layer itself is MOZ_LOG-blind
-  # (Messaging/GeckoViewNavigation use the geckoview.logging pref gate,
-  # enabled below). First-diverge vs a healthy PASS baseline is the only
-  # output. Forensics-only: verbose enough to perturb timing, verdict
-  # rounds keep this OFF.
-  MOZ_LOG: DocumentChannel:5,nsDocShell:5,BrowsingContext:5,Process:5,nsHttp:5,timestamp
+  # Forensics gate (STAYS OFF for verdict rounds; enable only for death
+  # capture rounds, COOLAPK.md §5-0b):
+  # MOZ_LOG: DocumentChannel:5,nsDocShell:5,BrowsingContext:5,Process:5,nsHttp:5,timestamp
 prefs:
   network.connectivity-service.enabled: false
   network.captive-portal-service.enabled: false
@@ -20,7 +14,7 @@ prefs:
   # JS-dispatch layer logging (same forensics round as MOZ_LOG above):
   # GeckoViewNavigation/Settings/StorageController debug chain. The
   # dispatch-death prime suspect lives here, not in MOZ_LOG.
-  geckoview.logging: Debug
+  # geckoview.logging: Debug
   # M3 experiment (2026-10-02, 0017 triage): GPU process OFF to isolate
   # whether the provider-scoped GPU process boundary is a necessary
   # condition for the sync-compositor UI hang (1855536 class). With no GPU
