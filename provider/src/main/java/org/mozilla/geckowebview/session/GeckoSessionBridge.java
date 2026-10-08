@@ -899,8 +899,23 @@ public final class GeckoSessionBridge
     }
 
     public void reload() {
-        mCommitGuard.disarm();
         mPendingTraversalUrl = null;
+        // Commit guard (same class as loadUrl/loadFileUrl/loadDataUri: a
+        // dropped LoadUri dispatch yields PageStart-then-silence with no
+        // recovery — device-observed on reload). Reuses the reopen path via
+        // mLastDispatch/mLastUrl. The redispatch calls mSession.reload()
+        // directly, never this method: routing back through reload() would
+        // re-arm (fresh generation, attempt reset) and turn the bounded
+        // retry into an infinite loop on a wedged pipeline (same reason as
+        // the loadUrl raw-dispatch pattern). Boundaries: a reload on the
+        // implicit about:blank still arms — its blank PageStart disarms at
+        // once, zero overhead. stop() races an in-flight check via the
+        // guard's generation liveness (stop disarms; the check goes inert),
+        // existing mechanism, nothing new.
+        final Runnable redispatch = () -> mSession.reload();
+        mLastDispatch = redispatch;
+        mLastUrl = mUrl;
+        mCommitGuard.arm(redispatch, this::reopenSessionOnce);
         mSession.reload();
     }
 
