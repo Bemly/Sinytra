@@ -355,6 +355,20 @@ public final class GeckoSessionBridge
         // recent Start, so only a blank Stop for a blank Start is swallowed —
         // a real load failing while mUrl is still blank still reports.
         mBlankStartOutstanding = isAboutBlank(url);
+        // Swallow the implicit initial about:blank Start (symmetric to the
+        // finish-side swallow in onPageFinished): Chromium never reports the
+        // session's implicit blank commit, and real apps crash on it
+        // (device-verified 2026-10-08: coolapk Uri.getQueryParameter on the
+        // non-hierarchical about:blank inside onPageStarted →
+        // UnsupportedOperationException → its fragment setup dies → the
+        // WebView never attaches → permanent black under a fully live
+        // session: bytes/title/callbacks all flowing). Explicit about:
+        // loads (flagged at loadUrl time) always report. Internal
+        // bookkeeping above (guard disarm, budgets, pairing bit) still
+        // runs — only app delivery is skipped.
+        if (shouldSwallowBlankStart(url, mExplicitAboutLoad)) {
+            return;
+        }
         mClient.onPageStarted(url);
     }
 
@@ -524,6 +538,16 @@ public final class GeckoSessionBridge
         // NOTE: compare full strings — a hardcoded length here was once 12
         // for the 11-char "about:blank" and silently never matched.
         return "about:blank".equalsIgnoreCase(url);
+    }
+
+    /**
+     * Pure (JVM-locked): swallow only the session's implicit blank commit
+     * start — the one Gecko reports without the app ever loading it.
+     * Explicit about: loads report (Chromium parity); every real URL reports.
+     */
+    static boolean shouldSwallowBlankStart(@Nullable String url,
+            boolean explicitAboutLoad) {
+        return !explicitAboutLoad && isAboutBlank(url);
     }
 
     private static long now() {

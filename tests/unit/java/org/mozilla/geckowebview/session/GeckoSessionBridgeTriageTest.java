@@ -35,4 +35,31 @@ public final class GeckoSessionBridgeTriageTest {
         assertFalse(GeckoSessionBridge.shouldWaitForTransport(true,
                 GeckoSessionBridge.MAX_COLD_EXTENSIONS));
     }
+
+    @Test
+    public void blankStart_implicitSwallowed() {
+        assertTrue(GeckoSessionBridge.shouldSwallowBlankStart("about:blank",
+                false));
+        assertTrue(GeckoSessionBridge.shouldSwallowBlankStart("ABOUT:BLANK",
+                false));
+    }
+
+    @Test
+    public void blankStart_explicitAlwaysReports() {
+        assertFalse(GeckoSessionBridge.shouldSwallowBlankStart("about:blank",
+                true));
+        assertFalse(GeckoSessionBridge.shouldSwallowBlankStart("ABOUT:BLANK",
+                true));
+    }
+
+    @Test
+    public void blankStart_realUrlsAlwaysReport() {
+        assertFalse(GeckoSessionBridge.shouldSwallowBlankStart(
+                "https://example.com/", false));
+        assertFalse(GeckoSessionBridge.shouldSwallowBlankStart(
+                "https://example.com/", true));
+        assertFalse(GeckoSessionBridge.shouldSwallowBlankStart(null, false));
+        assertFalse(GeckoSessionBridge.shouldSwallowBlankStart("about:srcdoc",
+                false));
+    }
 }
