@@ -1533,6 +1533,17 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   下一步：实验 E——MiniWV-2 最小第三方宿主直载 github（foreign+direct 格），
   判定 redirect-chain 专属 vs 进程全局；fission pref 已回退（诊断性，无收益
   不留）。
+- **实验 E 施工 + 环境退化（2026-10-09 00:50，轮作废）**：`/tmp/miniwv2.apk`
+  （子 agent 构建，moe.bemly.minimalwv/target34，url extra 覆盖；`build.sh`
+  可重跑）+ `/tmp/cool-round.sh` 改 dump 驱动定位（feed 布局漂移，固定坐标
+  作废；另修 check 窗口过紧 + stdout 污染）。A 轮对照绿（foreign 直载
+  example 3s 完）。B 轮教训两条：① MiniWV 换 URL 必须重装（task intent 复用
+  吃掉 extra，force-stop 不清）；② 取证门 ON 的 nsHttp 洪水 2 分钟吃光
+  buffer，app 行全轮转——门已默认 OFF（`f1030c7`）。00:40 后环境退化：
+  AMS `Ignoring finishAttachApplication`（miniwv/provide-child 多 UID），
+  新起 MiniWV resumed 但零日志（21 行），轮次作废。按 DEVICE §6：reboot 需
+  明确目的 + 用户拍板，不在深夜烧轮；明晨卫生窗口重跑 E（门 OFF 后 app 行
+  可留存 + rx 会计 + 5 分钟窗）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
