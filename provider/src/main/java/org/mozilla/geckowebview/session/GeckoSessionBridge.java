@@ -83,52 +83,33 @@ public final class GeckoSessionBridge
     // until the next flush), so copyBackForwardList prefers this.
     @Nullable
     private GeckoSession.HistoryDelegate.HistoryList mHistoryList;
-    // Commit guard for lost LoadUri dispatches (cold-start window): armed on
-    // every direct navigation, disarmed by the first commit signal
-    // (PageStart / LocationChange) or by design-silent outcomes (policy
-    // block / app override / stop / close). A healthy load pays zero
-    // overhead; a lost dispatch is re-issued bounded (see the guard).
-    private final NavigationCommitGuard mCommitGuard =
-            new NavigationCommitGuard();
-    // Last navigation for post-reopen re-issue (guard exhaustion path).
-    // Transient navigation state, bridge-owned like mUrl/mPendingHold.
-    @Nullable
-    private Runnable mLastDispatch;
-    @Nullable
-    private String mLastUrl;
-    // Reopen budget: one rescue reopen per proof-of-life (PageStart refills).
-    // A reopen that still finds no commit gives up loudly instead of looping.
-    private boolean mReopenUsed;
-    // Transport liveness for exhaustion triage (wired by the provider to the
-    // JS transport readiness; null = unknown, assume ready = legacy path).
-    // Cold extensions: bounded re-arms while the pipeline itself is still
-    // coming up (PageStart refills like the reopen budget). Public: the
-    // provider (different package) implements it.
-    public interface Readiness {
-        boolean isReady();
+    // Rescue + live-session outputs (commit guard, exhaustion triage,
+    // reopen, reload/stop/close/settings push, history index helpers):
+    // owned here, driven from the Host/navigation shells below.
+    private final SessionRescue mRescue;
+
+    // Provider-facing contracts (implemented by the provider in another
+    // package): canonical types live on SessionRescue; these subtypes keep
+    // the GeckoSessionBridge.* names stable so callers are untouched.
+    public interface Readiness extends SessionRescue.Readiness {
     }
 
-    @Nullable
-    private Readiness mTransportReady;
-    static final int MAX_COLD_EXTENSIONS = 4;
-    private int mColdExtensions;
+    public interface ReopenHost extends SessionRescue.ReopenHost {
+        @Override
+        @NonNull
+        android.content.Context appContext();
+
+        @Override
+        void repushFilters();
+    }
 
     public void setTransportReady(@Nullable Readiness readiness) {
-        mTransportReady = readiness;
+        mRescue.setTransportReady(readiness);
     }
 
-    /**
-     * Pure (JVM-locked): exhaustion triage. A pipeline that is still
-     * bringing itself up gets waited out (re-arm, cold budget); only a
-     * ready-but-silent pipeline earns close+reopen. Reopening into an
-     * unready pipeline restarts the download against nothing and burns
-     * the one reopen on cold start instead of on a real stall.
-     */
-    static boolean shouldWaitForTransport(boolean ready, int coldUsed) {
-        return !ready && coldUsed < MAX_COLD_EXTENSIONS;
+    public void setReopenHost(@Nullable ReopenHost host) {
+        mRescue.setReopenHost(host);
     }
-    // Set on close(): a dead bridge must never reopen its session.
-    private boolean mClosed;
 
     @Nullable
     private ContentBridge.Host mContentHost;
@@ -151,8 +132,8 @@ public final class GeckoSessionBridge
                     mHistoryList = historyList;
                     adoptHistoryUrl(historyList);
                     Log.i(TAG, "history: onHistoryStateChange size=" + historyList.size()
-                            + " index=" + safeIndex(historyList)
-                            + " urls=" + snapshotUrls(historyList));
+                            + " index=" + SessionRescue.safeIndex(historyList)
+                            + " urls=" + SessionRescue.snapshotUrls(historyList));
                 }
 
                 @Override
@@ -196,8 +177,8 @@ public final class GeckoSessionBridge
                     mSessionState = sessionState;
                     adoptHistoryUrl(sessionState);
                     Log.i(TAG, "history: onSessionStateChange size=" + sessionState.size()
-                            + " index=" + safeIndex(sessionState)
-                            + " urls=" + snapshotUrls(sessionState));
+                            + " index=" + SessionRescue.safeIndex(sessionState)
+                            + " urls=" + SessionRescue.snapshotUrls(sessionState));
                 }
             });
             session.setContentDelegate(new GeckoSession.ContentDelegate() {
@@ -209,6 +190,7 @@ public final class GeckoSessionBridge
             });
             return session;
         });
+        mRescue = new SessionRescue(mSession);
         mContentHost = null;
     }
 
@@ -283,7 +265,7 @@ public final class GeckoSessionBridge
     @Override
     public void onUrlChanged(@NonNull String url) {
         mUrl = url;
-        mCommitGuard.disarm();
+        mRescue.disarm();
         mClient.onUrlChanged(url);
     }
 
@@ -314,7 +296,7 @@ public final class GeckoSessionBridge
     public void onAppOverrideDeny(@NonNull String url) {
         // The app took over this URL (no PageStart by design): the commit
         // guard must stand down, or it would re-issue a taken-over URL.
-        mCommitGuard.disarm();
+        mRescue.disarm();
     }
 
     /**
@@ -324,7 +306,7 @@ public final class GeckoSessionBridge
      * download from zero and guarantees it never finishes).
      */
     public void noteConsultActivity() {
-        mCommitGuard.poke();
+        mRescue.poke();
     }
 
     @Override
@@ -338,12 +320,11 @@ public final class GeckoSessionBridge
     @Override
     public void onPageStarted(@NonNull String url) {
         // Commit signal: the LoadUri dispatch landed (disarms the guard).
-        mCommitGuard.disarm();
+        mRescue.disarm();
         // Proof of life: the pipeline serves this session — refill the
         // one-shot reopen budget (and the cold-extension budget) for
         // future stalls.
-        mReopenUsed = false;
-        mColdExtensions = 0;
+        mRescue.noteProofOfLife();
         // Chromium order: finished-before-next-start. A held success-finish
         // belongs to the previous navigation and must fire before this one
         // begins (CTS issues the next load right after the assert, so holds
@@ -578,7 +559,7 @@ public final class GeckoSessionBridge
     // order. Device-locked (testLoadUrl/testGetCurrentItem/goBack flows).
     private void adoptHistoryUrl(
             @Nullable List<GeckoSession.HistoryDelegate.HistoryItem> list) {
-        String current = currentHistoryUrl(list);
+        String current = SessionRescue.currentHistoryUrl(list);
         if (current != null && !current.equals(mUrl)) {
             mUrl = current;
         }
@@ -613,32 +594,11 @@ public final class GeckoSessionBridge
 
     @Nullable
     private String currentHistoryUrl() {
-        String fromLive = currentHistoryUrl(mHistoryList);
+        String fromLive = SessionRescue.currentHistoryUrl(mHistoryList);
         if (fromLive != null) {
             return fromLive;
         }
-        return currentHistoryUrl(mSessionState);
-    }
-
-    @Nullable
-    private static String currentHistoryUrl(
-            @Nullable List<GeckoSession.HistoryDelegate.HistoryItem> list) {
-        if (list == null || list.isEmpty()) {
-            return null;
-        }
-        int index = safeIndex(list);
-        if (index < 0 || index >= list.size()) {
-            return null;
-        }
-        try {
-            String uri = list.get(index).getUri();
-            if (uri == null || isAboutBlank(uri)) {
-                return null;
-            }
-            return uri;
-        } catch (UnsupportedOperationException | IndexOutOfBoundsException e) {
-            return null;
-        }
+        return SessionRescue.currentHistoryUrl(mSessionState);
     }
 
     @Override
@@ -697,9 +657,7 @@ public final class GeckoSessionBridge
         // inside the guard's own generation/attempt budget.
         final String guardUrl = url;
         final Runnable redispatch = () -> dispatchLoad(guardUrl, bypassCache);
-        mLastDispatch = redispatch;
-        mLastUrl = guardUrl;
-        mCommitGuard.arm(redispatch, this::reopenSessionOnce);
+        mRescue.arm(redispatch, guardUrl);
         // 8x onLoadRequest churn 取证 (R2 配对): 只记宿主入口 dispatch, guard
         // 重发走 dispatchLoad 直调不经此行, 故本行出现即宿主侧 loadUrl 重入.
         Log.d(TAG, "loadUrl url=" + url + " bypassCache=" + bypassCache);
@@ -730,9 +688,7 @@ public final class GeckoSessionBridge
         mUrl = url;
         final byte[] guardData = data;
         final Runnable redispatch = () -> dispatchFileLoad(guardData, mimeType);
-        mLastDispatch = redispatch;
-        mLastUrl = url;
-        mCommitGuard.arm(redispatch, this::reopenSessionOnce);
+        mRescue.arm(redispatch, url);
         dispatchFileLoad(data, mimeType);
     }
 
@@ -764,9 +720,7 @@ public final class GeckoSessionBridge
         mUrl = url;
         final byte[] guardData = data;
         final Runnable redispatch = () -> dispatchDataLoad(guardData, mimeType);
-        mLastDispatch = redispatch;
-        mLastUrl = url;
-        mCommitGuard.arm(redispatch, this::reopenSessionOnce);
+        mRescue.arm(redispatch, url);
         dispatchDataLoad(data, mimeType);
     }
 
@@ -776,111 +730,9 @@ public final class GeckoSessionBridge
         mSession.load(new GeckoSession.Loader().data(data, mimeType));
     }
 
-    // Rescue path for guard exhaustion (session window never attached).
-    // Implemented by the provider (owns the app context + filter table);
-    // unset (tests) degrades reopen to a loud give-up.
-    public interface ReopenHost {
-        @NonNull
-        android.content.Context appContext();
-
-        void repushFilters();
-    }
-
-    @Nullable
-    private ReopenHost mReopenHost;
-
-    public void setReopenHost(@Nullable ReopenHost host) {
-        mReopenHost = host;
-    }
-
-    // Commit-guard exhaustion: bounded redispatches found no commit — not
-    // even a blank PageStart, i.e. the session window never attached
-    // natively. Rescue once per proof-of-life: close + reopen the session
-    // (fresh native window; delegates/filters persist on the bridge) and
-    // re-issue the last navigation under a fresh bounded chain. A reopen
-    // that still finds no commit gives up loudly — same white screen as
-    // before, but diagnosed instead of silent. Runs on main (the guard
-    // fires on the main handler; open/close hop direct-run there).
-    private void reopenSessionOnce() {
-        if (mClosed) {
-            return;
-        }
-        // Transport triage (2026-10-08 coolapk fresh-process round):
-        // exhaustion fired while the JS transport itself was still
-        // installing (first ack landed ~32s in, past both 14s chains).
-        // Reopening into an unready pipeline restarts the download
-        // against nothing and burns the one reopen on cold start.
-        // Wait it out instead (bounded); only a ready-but-silent
-        // pipeline earns close+reopen.
-        boolean ready = true;
-        try {
-            Readiness readiness = mTransportReady;
-            if (readiness != null) {
-                ready = readiness.isReady();
-            }
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "transport readiness threw", t);
-        }
-        if (shouldWaitForTransport(ready, mColdExtensions)) {
-            mColdExtensions++;
-            android.util.Log.i(TAG,
-                    "commit guard exhausted but transport not ready; waiting"
-                            + " (cold extension " + mColdExtensions + "/"
-                            + MAX_COLD_EXTENSIONS + ") url=" + mLastUrl);
-            Runnable last = mLastDispatch;
-            if (last != null) {
-                mCommitGuard.arm(last, this::reopenSessionOnce);
-                try {
-                    last.run();
-                } catch (Throwable t) {
-                    android.util.Log.w(TAG,
-                            "redispatch after cold extension threw", t);
-                }
-            }
-            return;
-        }
-        if (mReopenUsed) {
-            android.util.Log.w(TAG, "commit guard exhausted after reopen;"
-                    + " giving up url=" + mLastUrl);
-            return;
-        }
-        mReopenUsed = true;
-        android.util.Log.i(TAG,
-                "commit guard exhausted; reopening session once url="
-                        + mLastUrl);
-        ReopenHost host = mReopenHost;
-        if (host == null) {
-            android.util.Log.w(TAG, "no reopen host; giving up");
-            return;
-        }
-        try {
-            mSession.close();
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "session close before reopen threw", t);
-        }
-        try {
-            android.content.Context app = host.appContext();
-            mSession.open(org.mozilla.geckowebview.runtime.GeckoRuntimeHolder
-                    .get(app));
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "session reopen threw; giving up", t);
-            return;
-        }
-        try {
-            host.repushFilters();
-        } catch (Throwable t) {
-            android.util.Log.w(TAG, "filter repush after reopen threw", t);
-        }
-        Runnable last = mLastDispatch;
-        if (last != null) {
-            mCommitGuard.arm(last, this::reopenSessionOnce);
-            try {
-                last.run();
-            } catch (Throwable t) {
-                android.util.Log.w(TAG, "redispatch after reopen threw", t);
-            }
-        }
-    }
+    // Guard-exhaustion rescue (close + reopen + re-issue) lives in
+    // SessionRescue; the provider's ReopenHost is wired through setReopenHost
+    // above and the guard re-arms via arm() at the loadUrl family.
 
     /**
      * Completes a main-frame navigation the settings policy blocked
@@ -897,7 +749,7 @@ public final class GeckoSessionBridge
     public void completeBlockedNavigation() {
         // Policy DENY produces no PageStart by design: stand the commit
         // guard down explicitly (same reason as the app-override path).
-        mCommitGuard.disarm();
+        mRescue.disarm();
         // A DENY produces no Gecko PageStart to flush a held success-finish
         // (see onPageStarted): flush here so finished order never inverts.
         firePendingHold();
@@ -909,40 +761,23 @@ public final class GeckoSessionBridge
 
     public void reload() {
         mPendingTraversalUrl = null;
-        // Commit guard (same class as loadUrl/loadFileUrl/loadDataUri: a
-        // dropped LoadUri dispatch yields PageStart-then-silence with no
-        // recovery — device-observed on reload). Reuses the reopen path via
-        // mLastDispatch/mLastUrl. The redispatch calls mSession.reload()
-        // directly, never this method: routing back through reload() would
-        // re-arm (fresh generation, attempt reset) and turn the bounded
-        // retry into an infinite loop on a wedged pipeline (same reason as
-        // the loadUrl raw-dispatch pattern). Boundaries: a reload on the
-        // implicit about:blank still arms — its blank PageStart disarms at
-        // once, zero overhead. stop() races an in-flight check via the
-        // guard's generation liveness (stop disarms; the check goes inert),
-        // existing mechanism, nothing new.
-        final Runnable redispatch = () -> mSession.reload();
-        mLastDispatch = redispatch;
-        mLastUrl = mUrl;
-        mCommitGuard.arm(redispatch, this::reopenSessionOnce);
-        mSession.reload();
+        // Guard + redispatch live in SessionRescue (same bounded retry +
+        // reopen path as the loadUrl family); traversal state stays here.
+        mRescue.reload(mUrl);
     }
 
     public void stopLoading() {
-        // The app cancelled: no commit will arrive, and the guard must not
-        // resurrect a stopped navigation.
-        mCommitGuard.disarm();
-        mSession.stop();
+        mRescue.stop();
     }
 
     public void goBack() {
-        mCommitGuard.disarm();
+        mRescue.disarm();
         recordTraversalTarget(-1);
         mSession.goBack();
     }
 
     public void goForward() {
-        mCommitGuard.disarm();
+        mRescue.disarm();
         recordTraversalTarget(1);
         mSession.goForward();
     }
@@ -952,12 +787,12 @@ public final class GeckoSessionBridge
     private void recordTraversalTarget(int steps) {
         GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
         int target = live != null && !live.isEmpty()
-                ? targetIndex(live, steps) : -1;
+                ? SessionRescue.targetIndex(live, steps) : -1;
         List<GeckoSession.HistoryDelegate.HistoryItem> base = live;
         if (target < 0) {
             GeckoSession.SessionState state = mSessionState;
             if (state != null && !state.isEmpty()) {
-                target = targetIndex(state, steps);
+                target = SessionRescue.targetIndex(state, steps);
                 base = state;
             }
         }
@@ -976,11 +811,11 @@ public final class GeckoSessionBridge
     public boolean canGoBackOrForward(int steps) {
         GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
         if (live != null && !live.isEmpty()) {
-            return targetIndex(live, steps) >= 0;
+            return SessionRescue.targetIndex(live, steps) >= 0;
         }
         GeckoSession.SessionState state = mSessionState;
         if (state != null && !state.isEmpty()) {
-            return targetIndex(state, steps) >= 0;
+            return SessionRescue.targetIndex(state, steps) >= 0;
         }
         if (steps < 0) {
             return mCanGoBack;
@@ -996,15 +831,15 @@ public final class GeckoSessionBridge
             reload();
             return;
         }
-        mCommitGuard.disarm();
+        mRescue.disarm();
         recordTraversalTarget(steps);
         GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
         int target = live != null && !live.isEmpty()
-                ? targetIndex(live, steps) : -1;
+                ? SessionRescue.targetIndex(live, steps) : -1;
         if (target < 0) {
             GeckoSession.SessionState state = mSessionState;
             if (state != null && !state.isEmpty()) {
-                target = targetIndex(state, steps);
+                target = SessionRescue.targetIndex(state, steps);
             }
         }
         if (target >= 0) {
@@ -1016,18 +851,8 @@ public final class GeckoSessionBridge
         }
     }
 
-    private static int targetIndex(
-            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> list, int steps) {
-        int current = safeIndex(list);
-        if (current < 0) {
-            return -1;
-        }
-        int target = current + steps;
-        return target >= 0 && target < list.size() ? target : -1;
-    }
-
     public void clearHistory() {
-        mCommitGuard.disarm();
+        mRescue.disarm();
         mSession.purgeHistory();
         mSessionState = null;
         mHistoryList = null;
@@ -1103,56 +928,20 @@ public final class GeckoSessionBridge
         return mExplicitAboutLoad;
     }
 
-    // Live-push WebSettings state onto the session. Every mapped key is
-    // non-initOnly in GV158 (allowJavascript/userAgentMode/viewportMode/
-    // userAgentOverride/allowImages), so no construction plumbing is needed — the
-    // provider calls this before every navigation (set-then-load is the
-    // CTS norm) and the facade defaults (JS off, mobile UA) apply
-    // verbatim. Never throws: a closed session degrades silently.
+    // Live-push WebSettings state onto the session (SessionRescue owns the
+    // live handle; mapping contract unchanged — see its javadoc).
     public void applyWebSettings(boolean javaScriptEnabled,
             @Nullable String userAgentOverride, boolean desktopMode,
             boolean wideViewport, boolean loadsImagesAutomatically,
             boolean fileReadsAllowed) {
-        try {
-            org.mozilla.geckoview.GeckoSessionSettings settings =
-                    mSession.getSettings();
-            settings.setAllowJavascript(javaScriptEnabled);
-            settings.setAllowImages(loadsImagesAutomatically);
-            settings.setUserAgentMode(desktopMode
-                    ? org.mozilla.geckoview.GeckoSessionSettings
-                            .USER_AGENT_MODE_DESKTOP
-                    : org.mozilla.geckoview.GeckoSessionSettings
-                            .USER_AGENT_MODE_MOBILE);
-            settings.setViewportMode(wideViewport
-                    ? org.mozilla.geckoview.GeckoSessionSettings
-                            .VIEWPORT_MODE_MOBILE
-                    : org.mozilla.geckoview.GeckoSessionSettings
-                            .VIEWPORT_MODE_DESKTOP);
-            settings.setUserAgentOverride(userAgentOverride);
-            // File-reads flag (0020): the bundle re-dispatches on change,
-            // so the strict-origin mirror tracks the latest navigation.
-            settings.setSinytraFileReadsAllowed(fileReadsAllowed);
-        } catch (Throwable t) {
-            Log.w(TAG, "applyWebSettings threw", t);
-        }
+        mRescue.applyWebSettings(javaScriptEnabled, userAgentOverride,
+                desktopMode, wideViewport, loadsImagesAutomatically,
+                fileReadsAllowed);
     }
 
-    // Pushes the image policy onto the live session NOW (setter path, no
-    // navigation). The Gecko bundle only re-dispatches on change, so
-    // same-value sets are free no-ops. Hops to main, bounded (MainThread):
-    // setters may arrive on any thread (CTS drives them off-UI), while the
-    // session lives on main. Never throws: delivery failure degrades to the
-    // next pre-navigation push. Device-locked (needs a live session).
+    // Pushes the image policy onto the live session NOW (see SessionRescue).
     public void applyImagesPolicy(boolean loadsImagesAutomatically) {
-        try {
-            org.mozilla.geckowebview.runtime.MainThread.call(() -> {
-                mSession.getSettings()
-                        .setAllowImages(loadsImagesAutomatically);
-                return null;
-            });
-        } catch (Throwable t) {
-            Log.w(TAG, "applyImagesPolicy threw", t);
-        }
+        mRescue.applyImagesPolicy(loadsImagesAutomatically);
     }
 
     // Ask Gecko to push the latest session data (incl. navigation history)
@@ -1173,66 +962,11 @@ public final class GeckoSessionBridge
         GeckoSession.SessionState state = mSessionState;
         List<GeckoSession.HistoryDelegate.HistoryItem> snapshot = historySnapshot();
         Log.i(TAG, "history: [" + where + "] live="
-                + describe(live) + " state=" + describe(state)
-                + " snapshot=" + describe(snapshot));
-    }
-
-    private static String describe(
-            @Nullable List<GeckoSession.HistoryDelegate.HistoryItem> list) {
-        if (list == null) {
-            return "null";
-        }
-        return "size=" + list.size() + " index=" + safeIndex(list)
-                + " urls=" + snapshotUrls(list);
-    }
-
-    private static int safeIndex(
-            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> list) {
-        if (list instanceof GeckoSession.HistoryDelegate.HistoryList) {
-            try {
-                return ((GeckoSession.HistoryDelegate.HistoryList) list)
-                        .getCurrentIndex();
-            } catch (UnsupportedOperationException e) {
-                return -1;
-            }
-        }
-        return list.isEmpty() ? -1 : list.size() - 1;
-    }
-
-    @NonNull
-    private static String snapshotUrls(
-            @NonNull List<GeckoSession.HistoryDelegate.HistoryItem> list) {
-        StringBuilder sb = new StringBuilder("[");
-        boolean first = true;
-        for (GeckoSession.HistoryDelegate.HistoryItem item : list) {
-            if (!first) {
-                sb.append(", ");
-            }
-            first = false;
-            try {
-                sb.append(item.getUri());
-            } catch (UnsupportedOperationException e) {
-                sb.append("<invalid>");
-            }
-        }
-        return sb.append(']').toString();
+                + SessionRescue.describe(live) + " state=" + SessionRescue.describe(state)
+                + " snapshot=" + SessionRescue.describe(snapshot));
     }
 
     public void close() {
-        mClosed = true;
-        mCommitGuard.disarm();
-        long startMs = android.os.SystemClock.uptimeMillis();
-        try {
-            // session.close is @UiThread; the creator thread may be a
-            // background looper (CTS WebViewStartupTest) — hop, bounded.
-            org.mozilla.geckowebview.runtime.MainThread.call(() -> {
-                mSession.close();
-                return null;
-            });
-        } finally {
-            android.util.Log.d(TAG, "session.close took "
-                    + (android.os.SystemClock.uptimeMillis() - startMs)
-                    + "ms");
-        }
+        mRescue.close();
     }
 }

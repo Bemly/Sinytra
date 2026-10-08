@@ -16,24 +16,32 @@ public final class GeckoSessionBridgeTriageTest {
 
     @Test
     public void triage_unreadyWithinBudget_waits() {
-        assertTrue(GeckoSessionBridge.shouldWaitForTransport(false, 0));
-        assertTrue(GeckoSessionBridge.shouldWaitForTransport(false,
-                GeckoSessionBridge.MAX_COLD_EXTENSIONS - 1));
+        assertTrue(SessionRescue.shouldWaitForTransport(false, 0));
+        assertTrue(SessionRescue.shouldWaitForTransport(false,
+                SessionRescue.MAX_COLD_EXTENSIONS - 1));
     }
 
     @Test
     public void triage_unreadyOverBudget_reopens() {
-        assertFalse(GeckoSessionBridge.shouldWaitForTransport(false,
-                GeckoSessionBridge.MAX_COLD_EXTENSIONS));
-        assertFalse(GeckoSessionBridge.shouldWaitForTransport(false,
-                GeckoSessionBridge.MAX_COLD_EXTENSIONS + 10));
+        assertFalse(SessionRescue.shouldWaitForTransport(false,
+                SessionRescue.MAX_COLD_EXTENSIONS));
+        assertFalse(SessionRescue.shouldWaitForTransport(false,
+                SessionRescue.MAX_COLD_EXTENSIONS + 10));
     }
 
     @Test
     public void triage_readyAlwaysReopens() {
-        assertFalse(GeckoSessionBridge.shouldWaitForTransport(true, 0));
-        assertFalse(GeckoSessionBridge.shouldWaitForTransport(true,
-                GeckoSessionBridge.MAX_COLD_EXTENSIONS));
+        assertFalse(SessionRescue.shouldWaitForTransport(true, 0));
+        assertFalse(SessionRescue.shouldWaitForTransport(true,
+                SessionRescue.MAX_COLD_EXTENSIONS));
+    }
+
+    @Test
+    public void triage_coldBudgetIsMonotonic() {
+        // Every extension step below the cap waits; the cap itself reopens.
+        for (int used = 0; used < SessionRescue.MAX_COLD_EXTENSIONS; used++) {
+            assertTrue(SessionRescue.shouldWaitForTransport(false, used));
+        }
     }
 
     @Test
