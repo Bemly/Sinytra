@@ -59,10 +59,31 @@ public final class GeckoCookieManager {
     private volatile StorageController mController;
     // Pre-runtime void writes, drained FIFO on first controller (B, above).
     private final PendingWrites mPending = new PendingWrites();
+    // Pre-runtime background-read gate: first-controller monitor that
+    // getCookie/hasCookies wait on (bounded) off the main thread. Pure
+    // monitor, JVM-locked; signalled once at the single mController
+    // publication point in controllerOrNull.
+    private final ControllerGate mGate = new ControllerGate();
+    // Bounded first-controller wait for background pre-runtime reads,
+    // aligned with TIMEOUT_MS (storage 5s discipline). Worst case stacks
+    // with the existing per-stage bounds (fetch + query), all on a
+    // background thread — never the main thread (no ANR).
+    private static final long PRE_RUNTIME_READ_WAIT_MS = TIMEOUT_MS;
+    private volatile long mPreRuntimeWaitMs = PRE_RUNTIME_READ_WAIT_MS;
 
     @VisibleForTesting
     int pendingCountForTest() {
         return mPending.size();
+    }
+
+    @VisibleForTesting
+    ControllerGate gateForTest() {
+        return mGate;
+    }
+
+    @VisibleForTesting
+    void setPreRuntimeWaitForTest(long waitMs) {
+        mPreRuntimeWaitMs = waitMs;
     }
     // Stored as-is; the app context is only resolved when the UI-thread
     // cold-start path actually creates the runtime (JVM locks pass null).
@@ -283,10 +304,21 @@ public final class GeckoCookieManager {
         }
         StorageController controller = controllerOrNull();
         if (controller == null) {
-            return "";
+            // Pre-runtime read (2026-10-08 :web background-read gap):
+            // background callers bounded-wait for the first controller
+            // (login race: Chromium serves reads any time); the main
+            // thread keeps honest-empty — parking it here replays the M1
+            // 25s ANR. Queueing is not an option: this API returns
+            // synchronously, so a deferred answer has nowhere to go
+            // (only the write/clear side owns a callback to deliver to).
+            controller = awaitFirstController("getCookie", url);
+            if (controller == null) {
+                return "";
+            }
         }
         applyPolicy(true);
-        String cookie = blockingOp(() -> controller.getCookie(url), "");
+        final StorageController ready = controller;
+        String cookie = blockingOp(() -> ready.getCookie(url), "");
         return cookie != null ? cookie : "";
     }
 
@@ -313,9 +345,16 @@ public final class GeckoCookieManager {
     public boolean hasCookies() {
         StorageController controller = controllerOrNull();
         if (controller == null) {
-            return false;
+            // Same pre-runtime gate as getCookie above (sync contract:
+            // no callback to defer to, so background callers wait bounded
+            // and the main thread stays honest-empty).
+            controller = awaitFirstController("hasCookies", "-");
+            if (controller == null) {
+                return false;
+            }
         }
-        Boolean has = blockingOp(controller::hasCookies, Boolean.FALSE);
+        final StorageController ready = controller;
+        Boolean has = blockingOp(ready::hasCookies, Boolean.FALSE);
         return has != null && has;
     }
 
@@ -425,6 +464,37 @@ public final class GeckoCookieManager {
         });
     }
 
+    // Pre-runtime background-read gate: waits (bounded) for the first
+    // controller to land, then re-resolves once. Main-thread callers
+    // never wait (M1 25s ANR); the write side never routes through here
+    // (8d0f537 queue/fail-fast contract is owned by setCookie — pushing
+    // every caller through this gate would silently change it).
+    //
+    // Deadlock audit: the park is on a plain Java monitor whose wake
+    // chain is the controller publisher (main thread, never the query
+    // thread) or the timeout — no GeckoResult/Looper is involved, so the
+    // M1 serial-query-thread self-deadlock cannot recur, and the caller
+    // holds no query latch while waiting (the blockingOp latch comes
+    // after). Pure-JVM except the re-resolve, which short-circuits
+    // before any Looper when no runtime exists.
+    @Nullable
+    private StorageController awaitFirstController(@NonNull String op,
+            @NonNull String detail) {
+        if (isMainThread()) {
+            Log.w(TAG, op + " before runtime on main thread"
+                    + " (honest empty) " + detail);
+            return null;
+        }
+        boolean signalled = mGate.await(mPreRuntimeWaitMs);
+        StorageController controller = controllerOrNull();
+        if (controller == null) {
+            Log.w(TAG, op + " before runtime (honest empty; first-controller"
+                    + " wait " + (signalled ? "woke without controller"
+                            : "timed out") + ") " + detail);
+        }
+        return controller;
+    }
+
     @Nullable
     private StorageController controllerOrNull() {
         StorageController cached = mController;
@@ -456,6 +526,9 @@ public final class GeckoCookieManager {
         StorageController controller = ref.get();
         if (controller != null && mController == null) {
             mController = controller;
+            // First controller: wake pre-runtime background readers (the
+            // only publication point; idempotent).
+            mGate.signal();
             drainPending(controller);
         }
         return controller;
@@ -616,6 +689,52 @@ public final class GeckoCookieManager {
 
         synchronized int dropped() {
             return mDropped;
+        }
+    }
+
+    /**
+     * First-controller monitor for pre-runtime background reads. Pure (no
+     * Gecko, no Looper): JVM-locked. The waiter parks on a plain monitor
+     * (spurious-wakeup loop + deadline + interrupt-restore); the wake
+     * chain is the publisher thread or the timeout — never a
+     * GeckoResult/Looper replay, so no query-thread self-deadlock.
+     */
+    static final class ControllerGate {
+        private boolean mSignalled;
+
+        /** Records first-controller arrival; idempotent, wakes all. */
+        synchronized void signal() {
+            mSignalled = true;
+            notifyAll();
+        }
+
+        synchronized boolean isSignalled() {
+            return mSignalled;
+        }
+
+        /**
+         * Waits up to {@code timeoutMs} for {@link #signal()}; true when
+         * signalled (including pre-signalled: returns immediately), false
+         * on timeout or interrupt (flag restored).
+         */
+        synchronized boolean await(long timeoutMs) {
+            if (mSignalled || timeoutMs <= 0) {
+                return mSignalled;
+            }
+            long deadline = System.currentTimeMillis() + timeoutMs;
+            while (!mSignalled) {
+                long remaining = deadline - System.currentTimeMillis();
+                if (remaining <= 0) {
+                    break;
+                }
+                try {
+                    wait(remaining);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            return mSignalled;
         }
     }
 }

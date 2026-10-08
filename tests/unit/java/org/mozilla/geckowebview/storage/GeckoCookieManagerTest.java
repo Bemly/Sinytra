@@ -11,8 +11,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 import org.mozilla.geckoview.ContentBlocking;
 
-// JVM locks for the cookie facade policy table and honest-degradation
-// guards. The jar round-trip itself needs a live Gecko (GeckoResult class
+// JVM locks for the cookie facade policy table, honest-degradation
+// guards, and the pre-runtime background-read gate (pure monitor logic).
+// The jar round-trip itself needs a live Gecko (GeckoResult class
 // init dies on the JVM — same constraint as the deny-value path) and is
 // locked by the device harness cookieJar probe instead.
 public class GeckoCookieManagerTest {
@@ -204,5 +205,89 @@ public class GeckoCookieManagerTest {
         pending.add("https://example.com/", "a=1");
         assertEquals(1, pending.drain().size());
         assertEquals(0, pending.drain().size());
+    }
+
+    // --- ControllerGate: first-controller monitor for pre-runtime
+    // background reads (pure logic, no Gecko/Looper). ---
+
+    @Test
+    public void controllerGate_timeoutReturnsFalse() {
+        GeckoCookieManager.ControllerGate gate =
+                new GeckoCookieManager.ControllerGate();
+        long start = System.currentTimeMillis();
+        assertFalse(gate.await(120));
+        long elapsed = System.currentTimeMillis() - start;
+        assertTrue("gate must wake on timeout, elapsed=" + elapsed,
+                elapsed < 5000);
+        assertFalse(gate.isSignalled());
+    }
+
+    @Test
+    public void controllerGate_preSignalledReturnsImmediately() {
+        GeckoCookieManager.ControllerGate gate =
+                new GeckoCookieManager.ControllerGate();
+        gate.signal();
+        long start = System.currentTimeMillis();
+        assertTrue(gate.await(5000));
+        long elapsed = System.currentTimeMillis() - start;
+        assertTrue("pre-signalled await must not park, elapsed=" + elapsed,
+                elapsed < 1000);
+    }
+
+    @Test
+    public void controllerGate_signalWakesWaiter() throws Exception {
+        final GeckoCookieManager.ControllerGate gate =
+                new GeckoCookieManager.ControllerGate();
+        final AtomicReference<Boolean> result = new AtomicReference<>();
+        Thread waiter = new Thread(() -> result.set(gate.await(10000)));
+        waiter.start();
+        Thread.sleep(100);
+        gate.signal();
+        waiter.join(8000);
+        assertEquals(Boolean.TRUE, result.get());
+    }
+
+    // --- Pre-runtime background reads: bounded gate wait, then honest
+    // empty when no controller lands (JVM has no runtime/Looper, so the
+    // re-resolve always short-circuits; the jar round-trip itself stays
+    // device-harness covered). On the JVM isMainThread() is false, which
+    // is exactly the background-caller path. ---
+
+    @Test
+    public void getCookie_preRuntimeBackgroundHonestEmptyAfterWait() {
+        GeckoCookieManager manager = new GeckoCookieManager(null);
+        manager.setPreRuntimeWaitForTest(150);
+        long start = System.currentTimeMillis();
+        assertEquals("", manager.getCookie("https://example.com/"));
+        long elapsed = System.currentTimeMillis() - start;
+        assertTrue("bounded wait, elapsed=" + elapsed, elapsed < 5000);
+    }
+
+    @Test
+    public void getCookie_preRuntimeSignalWakesEarly() throws Exception {
+        final GeckoCookieManager manager = new GeckoCookieManager(null);
+        manager.setPreRuntimeWaitForTest(12000);
+        final AtomicReference<String> result = new AtomicReference<>();
+        Thread reader = new Thread(
+                () -> result.set(manager.getCookie("https://example.com/")));
+        long start = System.currentTimeMillis();
+        reader.start();
+        Thread.sleep(200);
+        // Signal without a controller: wakes the waiter, which still
+        // degrades honestly (nothing to serve yet).
+        manager.gateForTest().signal();
+        reader.join(10000);
+        long elapsed = System.currentTimeMillis() - start;
+        assertEquals("", result.get());
+        assertFalse(reader.isAlive());
+        assertTrue("woken by signal, not by timeout, elapsed=" + elapsed,
+                elapsed < 10000);
+    }
+
+    @Test
+    public void hasCookies_preRuntimeBackgroundHonestFalse() {
+        GeckoCookieManager manager = new GeckoCookieManager(null);
+        manager.setPreRuntimeWaitForTest(150);
+        assertFalse(manager.hasCookies());
     }
 }
