@@ -1233,8 +1233,23 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   无关，另记）；Canary 同页 ~60s 全绘；Fennec github 主页 ~50s 绘出。
   结论：重页面在烂网下酷安进程黑、其余路径可绘——差值仍在酷安进程
   组合内（②投递死亡致登录态丢 + 稀疏 getCookie 5s park 未清 +
-  commit-guard 慢-commit 误撕 10:21 轮实锤），待健康网络窗口终裁。
+  commit-guard 慢-commit 误撕 10:21 轮实锤 exhaust），待健康网络窗口终裁。
   今晚烧设备轮次到此为止，不再开"只能证明还是挂的"轮次。
+- **0025（已落地，`a910904`）**：ged stub 投毒 hardening（加载失败保留
+  stub + `callback.onError` 速败；成功路径与旧代码一致）。子 agent 并行
+  溯源（EventDispatcher.java/NativeQueue/GeckoThread/Messaging/stub 全链，
+  行号级）：ready/attached/hasListener 全真 + 永不回答 + stock 消息同挂
+  + session 路径正常，最小解释即 stub 首触消费后模块未接替（native 表
+  不清，Y 恒真）。上游无此形状 bug（已检索）。JS 改动经 stage-package
+  进 omni（三级解包验 marker：dist→AAR→APK 全有）才 publish+重编。
+  真机 fresh 酷安轮（12:55）：**零超时**（此前轮次连发 5s 定时超时），
+  extension 2s installed，filters pushed×3，coolapk-link PageStart，
+  github redirect→HIT→pass-through→LocationChange，79 子资源同秒咨询
+  全裁决——管线全绿。但 release 页 4 分钟仍黑（a11y 零节点，网速
+  0.10–1.14KB/s）：parser 饿死，首绘被大 HTML/阻塞脚本饿住。
+  0025 的 retry 路径本轮未触发（首试即赢，race 赢了）——验证的是"不再
+  毒化"，自愈重发待输掉 race 的轮次实证。黑屏余量 = 纯网络饥饿 + ②。
+  终裁条件：健康网络下 fresh 酷安轮一次绘出即全案关闭。
 - **渲染面现状**：M1 后标题到、子资源 burst、spinner 转，但 release 页
   10 分钟仍黑（a11y 零文本节点 = parser 饿死）。同机同网对照：
   Canary 直连同 URL ~60s 完整渲染；Fennec github 主页 ~50s 绘出——
