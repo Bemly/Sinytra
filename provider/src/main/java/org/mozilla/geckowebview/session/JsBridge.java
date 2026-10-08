@@ -486,7 +486,7 @@ public final class JsBridge {
     static final int MAX_INSTALL_ATTEMPTS = 5;
 
     static long installRetryDelayMs(int attempt) {
-        return Math.min(4000L << (attempt - 1), 8000L);
+        return Math.min(4000L << (attempt - 1), 16000L);
     }
 
     private static void issueInstall(@NonNull GeckoRuntime runtime,

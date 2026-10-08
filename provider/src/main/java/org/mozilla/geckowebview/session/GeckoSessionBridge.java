@@ -99,6 +99,34 @@ public final class GeckoSessionBridge
     // Reopen budget: one rescue reopen per proof-of-life (PageStart refills).
     // A reopen that still finds no commit gives up loudly instead of looping.
     private boolean mReopenUsed;
+    // Transport liveness for exhaustion triage (wired by the provider to the
+    // JS transport readiness; null = unknown, assume ready = legacy path).
+    // Cold extensions: bounded re-arms while the pipeline itself is still
+    // coming up (PageStart refills like the reopen budget). Public: the
+    // provider (different package) implements it.
+    public interface Readiness {
+        boolean isReady();
+    }
+
+    @Nullable
+    private Readiness mTransportReady;
+    static final int MAX_COLD_EXTENSIONS = 4;
+    private int mColdExtensions;
+
+    public void setTransportReady(@Nullable Readiness readiness) {
+        mTransportReady = readiness;
+    }
+
+    /**
+     * Pure (JVM-locked): exhaustion triage. A pipeline that is still
+     * bringing itself up gets waited out (re-arm, cold budget); only a
+     * ready-but-silent pipeline earns close+reopen. Reopening into an
+     * unready pipeline restarts the download against nothing and burns
+     * the one reopen on cold start instead of on a real stall.
+     */
+    static boolean shouldWaitForTransport(boolean ready, int coldUsed) {
+        return !ready && coldUsed < MAX_COLD_EXTENSIONS;
+    }
     // Set on close(): a dead bridge must never reopen its session.
     private boolean mClosed;
 
@@ -306,8 +334,10 @@ public final class GeckoSessionBridge
         // Commit signal: the LoadUri dispatch landed (disarms the guard).
         mCommitGuard.disarm();
         // Proof of life: the pipeline serves this session — refill the
-        // one-shot reopen budget for future stalls.
+        // one-shot reopen budget (and the cold-extension budget) for
+        // future stalls.
         mReopenUsed = false;
+        mColdExtensions = 0;
         // Chromium order: finished-before-next-start. A held success-finish
         // belongs to the previous navigation and must fire before this one
         // begins (CTS issues the next load right after the assert, so holds
@@ -740,6 +770,40 @@ public final class GeckoSessionBridge
     // fires on the main handler; open/close hop direct-run there).
     private void reopenSessionOnce() {
         if (mClosed) {
+            return;
+        }
+        // Transport triage (2026-10-08 coolapk fresh-process round):
+        // exhaustion fired while the JS transport itself was still
+        // installing (first ack landed ~32s in, past both 14s chains).
+        // Reopening into an unready pipeline restarts the download
+        // against nothing and burns the one reopen on cold start.
+        // Wait it out instead (bounded); only a ready-but-silent
+        // pipeline earns close+reopen.
+        boolean ready = true;
+        try {
+            Readiness readiness = mTransportReady;
+            if (readiness != null) {
+                ready = readiness.isReady();
+            }
+        } catch (Throwable t) {
+            android.util.Log.w(TAG, "transport readiness threw", t);
+        }
+        if (shouldWaitForTransport(ready, mColdExtensions)) {
+            mColdExtensions++;
+            android.util.Log.i(TAG,
+                    "commit guard exhausted but transport not ready; waiting"
+                            + " (cold extension " + mColdExtensions + "/"
+                            + MAX_COLD_EXTENSIONS + ") url=" + mLastUrl);
+            Runnable last = mLastDispatch;
+            if (last != null) {
+                mCommitGuard.arm(last, this::reopenSessionOnce);
+                try {
+                    last.run();
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG,
+                            "redispatch after cold extension threw", t);
+                }
+            }
             return;
         }
         if (mReopenUsed) {

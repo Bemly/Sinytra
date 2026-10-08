@@ -232,6 +232,10 @@ public final class GeckoWebViewProvider
         // into a not-yet-listening dispatcher. isReady() is field reads
         // only, safe to wire before bind().
         mInterception.setTransportReady(mJsBridge::isReady);
+        // Same signal for guard-exhaustion triage: a quiet-but-unready
+        // pipeline waits instead of reopening into nothing (cold-start
+        // bring-up can outlast both 14s chains; device-verified).
+        mBridge.setTransportReady(mJsBridge::isReady);
         // Initial filter dispatch goes through Interception so the
         // gated retries cover the onInit race from the very first
         // push (a bare setResponseDelegate here would be fire-and-forget
