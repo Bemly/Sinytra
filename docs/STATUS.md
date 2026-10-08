@@ -1178,6 +1178,49 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   attach 六处）同轮加齐、同轮 `git checkout` 清掉，干净构建重装，Current 不变。
   教训：日常号上对照矩阵少切 provider（每次切换换一个 jar，登录态即丢）。
 
+## 1aa. 酷安 WebView 慢载诊断（2026-10-08，真机 verdict：setup 卡死已修，渲染待健康网络复验）
+
+- **报障**：WEBVIEW TEST 点 WebView 标签即崩（已修，见下）；
+  酷安帖内外部链接（github release 页）有 UI 无内容、长时间黑/白屏。
+- **崩溃根因（已修，`490ec28`）**：`AbstractMethodError:
+  setAcceptFileSchemeCookiesImpl`——公开 android.jar 只有 static 壳，
+  真身是 hidden abstract（device framework.jar dexdump 实锤
+  `setAcceptFileSchemeCookiesImpl(Z)V` + `allowFileSchemeCookiesImpl()Z`）。
+  同 §1o 的 WebMessagePort-ctor 同家族坑。修法：`GeckoCookieManagerImpl`
+  补两 hidden 方法（故意无 `@Override`）+ `mAcceptFileSchemeCookies`
+  位（默认 true）+ file: 读写门。JVM +6 锁（198 全绿），真机复点
+  标签页存活（同 PID 三轮，零 FATAL），example.com 秒渲染对照通过。
+- **慢载根因①（已修，`328a7b8`）**：酷安在 fragment setup 期主线程串行
+  调 5 次 void `setCookie`（CookieHelper），我方旧实现每调 park 主线程
+  5s（storage 答案在酷安进程永不到，见下）= 25s + ANR
+  （FeedDetailActivityV8 Input-dispatch timeout 实锤）+ 登录 cookie
+  全丢（token/ddid/DID/AppSupported/darkMode 五连 refused）。修法：
+  主线程 void-set 改 fire-and-forget（Chromium 的 void 语义本就 async；
+  后台调用者保持阻塞路径，CTS set→get 照旧）。修后子资源 OnSuccess
+  同秒连爆（咨询链全速），setup 零 park。
+- **慢载根因②（未闭，Gecko 侧）**：酷安进程内 storage 答案 100% 不归——
+  `EventDispatcher` 反射探针：`nativeReady=true attached=true
+  GetCookie=Y SetCookie=Y`，query 已发出（query 线程活），永无回答；
+  **stock 对照 `GetAllPermissions` 同挂**——0007 patch 无辜，是上游
+  global-dispatcher Java→Gecko 投递死亡（session/actor 路径正常：
+  onLoadRequest 照到）。harness 同机构造全绿（cookieJar 真 jar 往返）。
+  需 Gecko 侧（MOZ_LOG/主线程响应性）专项嚼，不在 provider 侧追。
+- **修 M1 途中自己挖的坑（已填）**：跨 op completion chain
+  （void-set 后 get 保序）——serial query 线程上 await 已完成
+  GeckoResult 会自死锁到 budget（replay post 只能跑在被 park 的
+  同一 looper），拖过调用方 deadline 致 harness cookieJar hasCookies
+  2/2 FAIL。已删 chain（Chromium 的 void-set 本就无 landing 保证，
+  教训记在 `GeckoCookieManager` 注释）。
+- **渲染面现状**：M1 后标题到、子资源 burst、spinner 转，但 release 页
+  10 分钟仍黑（a11y 零文本节点 = parser 饿死）。同机同网对照：
+  Canary 直连同 URL ~60s 完整渲染；Fennec github 主页 ~50s 绘出——
+  引擎与网络可交付，酷安进程组合（② + 烂网 0.03–2.6KB/s 实测 +
+  commit-guard 在慢 commit 下误撕——10:21 轮实锤 exhaust，属下轮候选修点）
+  仍需健康网络窗口复验。
+  commit-guard 的"2s 无 PageStart = 丢 dispatch"假设在 trickle 网络下
+  不成立（TLS+首字节可超 14s 预算），是下轮候选修点（只停手不拆 session
+  的方向），但今晚未动——先拿健康网络定责任再说。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~**切换路线主线化**~~（2026-09-26 完成，§1s）：metadata + versionCode
