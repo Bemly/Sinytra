@@ -67,6 +67,20 @@ $S shell "su -c 'cat /sys/class/net/wlan0/statistics/rx_bytes'"
 | `ANR in ... coolapk` | 主线程被 park（M1 前是 storage latch，现应无） |
 | a11y dump 零页面文本节点 | parser 饿死（DOM 空），不是合成器问题 |
 
+酷安侧自带日志（免费的行为契约监视器，不用反编译）：
+
+| 行 | 用法 |
+|---|---|
+| `NewWebViewFragment: Loading url: <url>, at ...shouldOverrideUrlLoading(kt:26)` | 逐调用 tracing：每次派发必有一行，可与我方 `shouldOverride` 行对数（guard 重发/宿主重入的第三方佐证） |
+| `onCreate urlArg=<url>` | fragment 入参，确认点中的 URL 进没进 WebViewActivity |
+| 我方 `Sinytra/session: <回调> threw` + 全栈 | 它的每次回调崩溃都带 `NewWebViewFragment.kt:<行>` ——下次再崩直接读行号，不用猜（66ee067 就是这么定位的 kt:14） |
+| `dumpsys activity top \| grep -iE 'CoolWebView\|GeckoViewHost'` | 挂载真相（a11y 会漏 WebView 节点，dumpsys 为准） |
+
+反编译此路不通（2026-10-08 实测）：酷安 360 加固（`.jiagu.lock`），base.apk 的
+classes.dex 里只有 30 个垃圾类，真代码全在内存动态 dex（栈里 7 个
+`InMemoryDexFile` 作证；jadx 只吐 31 类）。以后别烧时间在这条路上——行为级
+证据（上表 + `threw` 栈）已够用。
+
 ## 3. 判定矩阵（别再从头推一遍）
 
 - 点标签/帖子即崩 + `AbstractMethodError` → hidden Impl 缺失家族
