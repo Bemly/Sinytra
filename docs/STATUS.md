@@ -1282,9 +1282,18 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   引擎与网络可交付，酷安进程组合（② + 烂网 0.03–2.6KB/s 实测 +
   commit-guard 在慢 commit 下误撕——10:21 轮实锤 exhaust，属下轮候选修点）
   仍需健康网络窗口复验。
-  commit-guard 的"2s 无 PageStart = 丢 dispatch"假设在 trickle 网络下
-  不成立（TLS+首字节可超 14s 预算），是下轮候选修点（只停手不拆 session
-  的方向），但今晚未动——先拿健康网络定责任再说。
+   commit-guard 的"2s 无 PageStart = 丢 dispatch"假设在 trickle 网络下
+   不成立（TLS+首字节可超 14s 预算），是下轮候选修点（只停手不拆 session
+   的方向），但今晚未动——先拿健康网络定责任再说。
+- **filter 冷预算（已修，`ddfc6b9`，无设备轮次）**：纸面推演钉死确定性缺口——
+  filter 重试 5 attempts（~15.5s）与 install 看门狗 ~60s 窗口（首 ack 曾 32s
+  才到）错位：16–60s 落地的 install 发现 filter 重试早已耗尽，transport
+  就绪但 filter 永不下发（necko 查空表）。修法沿 `b8673b6` 冷扩展同构：
+  未就绪等待改耗独立冷预算（`MAX_COLD_WAITS=10` ≈ 63.5s ≥ install 窗口），
+  5-attempt 只计入活管线推送。JVM 207 锁全绿（+2），lint 绿；健康路径
+  （首试即赢）零行为变化。完全死进程（60s 亦无 ack）另案，仍待 MOZ_LOG/
+  健康网络裁决。reload 无 guard 另案未动（`GeckoSessionBridge` 已超行数，
+  不碰）。
 
 ## 2. 下一步（按顺序，一次做一件）
 

@@ -84,7 +84,7 @@ $S shell "su -c 'cat /sys/class/net/wlan0/statistics/rx_bytes'"
 - 切 WebView 对照（bromite）前先 `dumpsys webviewupdate` 复核 Current，
   跑完必须切回（2026-10-08 实锤忘切，被用户当场抓获）。
 
-## 4. 已修（新会话不要重修，harness 46 PASS / JVM 205 绿守着）
+## 4. 已修（新会话不要重修，harness 46 PASS / JVM 207 绿守着）
 
 1. `490ec28` file-scheme gate（崩溃）。
 2. `328a7b8` 主线程 void-set fire-and-forget（25s ANR）。
@@ -93,6 +93,7 @@ $S shell "su -c 'cat /sys/class/net/wlan0/statistics/rx_bytes'"
 5. `a910904` 0025 ged stub 不投毒（omni 三级解包验证）。
 6. `cee3e7e` guard 咨询即延长（慢网不重下）。
 7. `b8673b6` 熄火分诊（cold 4/4 等待，不烧 reopen）。
+8. `ddfc6b9` filter 冷预算（15.5s→63.5s，对齐 install 60s 窗口；harness 待健康网络复验，JVM 207 绿）。
 
 ## 5. 未闭（新会话从这里开工，按序）
 
