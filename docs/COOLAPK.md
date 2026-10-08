@@ -81,6 +81,17 @@ classes.dex 里只有 30 个垃圾类，真代码全在内存动态 dex（栈里
 `InMemoryDexFile` 作证；jadx 只吐 31 类）。以后别烧时间在这条路上——行为级
 证据（上表 + `threw` 栈）已够用。
 
+酷安侧全量审计（2026-10-08，三轮 log 共 ~30k 行逐类过，`WebViewFragTrace` 非我方
+tag 系机上某模块的 fragment 追踪）：
+- fragment 生命周期三轮完全一致：`onCreate(urlArg=coolapk-link)` → `onCreateView`
+  `bindingInitialized=true`（~200ms），单实例、无重建循环——fragment 侧每次都健康。
+- `shouldOverride` 逐调用与我方派发 1:1（含 guard 重发；R2 双载死即双方互证）。
+- 反篡改异常（`检测到您存在修改酷安程序数据的行为`）三轮全有：只掐它家原生 API，
+  不碰 WebView 页面加载（github 照流）——orthogonal，不追。
+- Surface 首帧 plumbing 三轮全有（frame-1 acquire），之后无错误。
+- EventBus/推送/广告/HMS/图片/GC 全是噪音，零 webview 内容；无 fragment 重建、
+  无多 WebView、无可观测的 JS interface 注入。
+
 ## 3. 判定矩阵（别再从头推一遍）
 
 - 点标签/帖子即崩 + `AbstractMethodError` → hidden Impl 缺失家族
