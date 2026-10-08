@@ -149,14 +149,60 @@ public class GeckoCookieManagerTest {
     }
 
     // --- runtime-less void setCookie must return silently (no controller
-    // on the JVM, never touches a Looper). The main-thread fire-and-forget
-    // branch and the cross-op completion chain need a live GeckoResult +
-    // main looper, so they are device-harness covered (cookieJar probe +
-    // third-party host runs), same as the jar round-trip itself. ---
+    // on the JVM, never touches a Looper; the write lands in the pending
+    // queue instead of dropping). The main-thread fire-and-forget branch
+    // needs a live main looper, so it stays device-harness covered
+    // (cookieJar probe + third-party host runs), same as the jar
+    // round-trip itself. ---
     @Test
     public void setCookie_validArgsNoController_returnsSilently() {
         GeckoCookieManager manager = new GeckoCookieManager(null);
         manager.setCookie("https://example.com/", "a=1");
         manager.setCookie("file:///x.html", "a=1");
+        // Pre-runtime void writes queue instead of dropping (coolapk
+        // startup: background sync pre-runtime must survive to flush).
+        assertEquals(2, manager.pendingCountForTest());
+    }
+
+    // --- PendingWrites: pre-runtime void-write queue (pure logic). ---
+
+    @Test
+    public void pendingWrites_fifoOrder() {
+        GeckoCookieManager.PendingWrites pending =
+                new GeckoCookieManager.PendingWrites();
+        pending.add("https://a.example/", "a=1");
+        pending.add("https://b.example/", "b=2");
+        java.util.List<GeckoCookieManager.PendingWrites.Entry> drained =
+                pending.drain();
+        assertEquals(2, drained.size());
+        assertEquals("https://a.example/", drained.get(0).url);
+        assertEquals("b=2", drained.get(1).value);
+        assertEquals(0, pending.size());
+    }
+
+    @Test
+    public void pendingWrites_overflowDropsOldest() {
+        GeckoCookieManager.PendingWrites pending =
+                new GeckoCookieManager.PendingWrites();
+        for (int i = 0; i < GeckoCookieManager.PendingWrites.MAX + 5; i++) {
+            pending.add("https://example.com/", "n=" + i);
+        }
+        assertEquals(GeckoCookieManager.PendingWrites.MAX, pending.size());
+        assertEquals(5, pending.dropped());
+        java.util.List<GeckoCookieManager.PendingWrites.Entry> drained =
+                pending.drain();
+        // Oldest five evicted; newest retained, order preserved.
+        assertEquals("n=5", drained.get(0).value);
+        assertEquals("n=" + (GeckoCookieManager.PendingWrites.MAX + 4),
+                drained.get(drained.size() - 1).value);
+    }
+
+    @Test
+    public void pendingWrites_drainClears() {
+        GeckoCookieManager.PendingWrites pending =
+                new GeckoCookieManager.PendingWrites();
+        pending.add("https://example.com/", "a=1");
+        assertEquals(1, pending.drain().size());
+        assertEquals(0, pending.drain().size());
     }
 }

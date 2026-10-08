@@ -8,6 +8,7 @@ import android.util.Log;
 import android.webkit.ValueCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -56,6 +57,13 @@ public final class GeckoCookieManager {
     private volatile int mLastAppliedBehavior = Integer.MIN_VALUE;
     @Nullable
     private volatile StorageController mController;
+    // Pre-runtime void writes, drained FIFO on first controller (B, above).
+    private final PendingWrites mPending = new PendingWrites();
+
+    @VisibleForTesting
+    int pendingCountForTest() {
+        return mPending.size();
+    }
     // Stored as-is; the app context is only resolved when the UI-thread
     // cold-start path actually creates the runtime (JVM locks pass null).
     @Nullable
@@ -213,7 +221,19 @@ public final class GeckoCookieManager {
         StorageController controller = controllerOrNull();
         if (controller == null) {
             if (callback != null) {
+                // Explicit delivery promise unfulfillable pre-runtime:
+                // fail fast (today's contract). Only the void variant
+                // (no promise) is deferred below.
                 callback.onReceiveValue(Boolean.FALSE);
+            } else {
+                // Pre-runtime void write: QUEUE, don't drop (2026-10-08
+                // coolapk: 42 background writes dropped at startup =
+                // login cookies silently lost; Chromium accepts writes
+                // any time, jar or not). Drained FIFO on first controller.
+                if (!mPending.add(url, value)) {
+                    Log.w(TAG, "setCookie dropped (pending overflow) url="
+                            + url);
+                }
             }
             return;
         }
@@ -434,10 +454,41 @@ public final class GeckoCookieManager {
             }
         }
         StorageController controller = ref.get();
-        if (controller != null) {
+        if (controller != null && mController == null) {
             mController = controller;
+            drainPending(controller);
         }
         return controller;
+    }
+
+    // Flushes pre-runtime queued writes FIFO on the query thread (issuance
+    // order preserved; completions stay async like any fire-and-forget).
+    // Safe even if answers never arrive: issuance never parks.
+    private void drainPending(@NonNull StorageController controller) {
+        java.util.List<PendingWrites.Entry> entries = mPending.drain();
+        if (entries.isEmpty()) {
+            return;
+        }
+        Log.i(TAG, "flushing " + entries.size() + " pending cookie writes");
+        queryHandler().post(() -> {
+            for (PendingWrites.Entry entry : entries) {
+                try {
+                    final String url = entry.url;
+                    final String value = entry.value;
+                    controller.setCookie(url, value).accept(
+                            accepted -> {
+                                if (!Boolean.TRUE.equals(accepted)) {
+                                    Log.w(TAG, "pending setCookie refused url="
+                                            + url);
+                                }
+                            },
+                            e -> Log.w(TAG,
+                                    "pending setCookie failed url=" + url, e));
+                } catch (Throwable t) {
+                    Log.w(TAG, "pending setCookie could not be issued", t);
+                }
+            }
+        });
     }
 
     @Nullable
@@ -514,5 +565,57 @@ public final class GeckoCookieManager {
     /** Minimal supplier shape so this file needs no extra API level. */
     private interface Supplier<T> {
         T get();
+    }
+
+    /**
+     * Bounded FIFO of pre-runtime void cookie writes. Pure (no Gecko, no
+     * Looper): JVM-locked. The manager drains it onto the query thread on
+     * first controller; overflow drops oldest + counts (loud at the call
+     * site, never silent).
+     */
+    static final class PendingWrites {
+        static final int MAX = 200;
+
+        static final class Entry {
+            final String url;
+            final String value;
+
+            Entry(String url, String value) {
+                this.url = url;
+                this.value = value;
+            }
+        }
+
+        private final java.util.ArrayDeque<Entry> mQueue =
+                new java.util.ArrayDeque<>();
+        private int mDropped;
+
+        /** Adds a write; false when it overflowed (oldest dropped). */
+        synchronized boolean add(@NonNull String url, @NonNull String value) {
+            boolean kept = true;
+            if (mQueue.size() >= MAX) {
+                mQueue.removeFirst();
+                mDropped++;
+                kept = false;
+            }
+            mQueue.addLast(new Entry(url, value));
+            return kept;
+        }
+
+        /** Removes and returns all queued writes, oldest first. */
+        synchronized java.util.List<Entry> drain() {
+            java.util.List<Entry> out =
+                    new java.util.ArrayList<>(mQueue);
+            mQueue.clear();
+            return out;
+        }
+
+        synchronized int size() {
+            return mQueue.size();
+        }
+
+        synchronized int dropped() {
+            return mDropped;
+        }
     }
 }
