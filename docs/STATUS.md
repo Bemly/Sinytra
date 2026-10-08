@@ -1260,6 +1260,21 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   JVM +3 锁（202 全绿），harness 46 PASS / GLUE PASS（健康路径零变化
   已验）。慢网终裁仍待，但此后慢网行为 = 等（与 Chromium 同构），
   不再是杀。
+- **熄火分诊（已修已验，`b8673b6`）**：exhaustion 按 transport 就绪分诊——
+  未就绪则 cold-extension 等待 ×4（约 56s，不烧 reopen 预算；PageStart
+  回填），就绪仍静默才 close+reopen。真机 fresh 轮：cold 1/4→4/4 逐级
+  等待日志齐出，无提前 reopen（旧代码 28s 即烧掉唯一 rescue）。
+  install 重试窗同步放宽到 60s（首 ack 曾 32s 才到）。JVM +6 锁
+  （triage 谓词 3 + delay 阶梯更新，205 全绿），harness 46 PASS。
+  附带债务：`GeckoSessionBridge.java` 1126→1190 行（动前已超 1000 铁律，
+  拆分单独立项，不在本轮）。
+- **仍未闭（诚实口径）**：部分 fresh 酷安进程 Java→Gecko-JS 全死
+  （extension/filter/storage 零回答，0025 亦救不回；session 回声正常；
+  同构建他轮全绿）。晚间 bisect 显示 reload 亦静默（reload 无恢复机制，
+  另案）。字节级 race 已排除网络单因（bromite 1.5MB 绘出 vs 我方
+  1.7MB 纯白，同分钟）。怀疑方向收敛到冷进程 early-window 派发丢失
+  + 某常驻态污染（重启/双 runtime/stale peer 待查），需 MOZ_LOG 或
+  健康网络长轮裁决，不再盲烧轮次。
 - **渲染面现状**：M1 后标题到、子资源 burst、spinner 转，但 release 页
   10 分钟仍黑（a11y 零文本节点 = parser 饿死）。同机同网对照：
   Canary 直连同 URL ~60s 完整渲染；Fennec github 主页 ~50s 绘出——
