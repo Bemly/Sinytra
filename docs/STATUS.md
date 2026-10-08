@@ -1492,7 +1492,23 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   后连死 5 轮 + 本轮）交错，A/B/A 已证同构建可绿可死。S2（transport 不建）是
   当前唯一 blocker。下一个判别：Gecko 主线程 `comm` 定位 + wchan/stack 归因
   （binder 等 bind vs futex 空闲）——Java 主线程 epoll-idle 已无信息量，要的是
-  名为 Gecko 的 native 线程。
+   名为 Gecko 的 native 线程。
+- **R2 COMMIT-SUPPRESSED 轮（2026-10-08 夜，pid 794，`/tmp/cool_r2.log`）**：
+  bring-up 全绿（filter 下发→consult 1:1→gpu/tab24/tab29/tab28 秒级出生→
+  零 cookie 超时→零 threw，挂载 dumpsys 确认 `CoolWebView` 内含全尺寸
+  `GeckoViewHost`）但 release 页零 commit：200 到→每 attempt
+  `RedirectToRealChannel BC=2`（reopen 后 BC=5）→content 永不消费→
+  `OnSuspendTimeout`→guard churn×13→reopen→×3→give-up，a11y 21 节点零文本
+  黑屏。rx +1MB 零 commit——纯网络单因再死一次。`aDestinationProcess=-1`
+  经源码核为正常 Nothing 路径（open-promise 交 content，非"进程未知"；
+  误读已纠）。`d26f514` 未 arm 符合设计（全程零前序 commit，非 S3 形）。
+  S3-观察轮关闭：refire 后咨询发生已证实（HIT×6 一一配对）。
+  主线程 70% 是 RenderThread/mali 自旋画 spinner（task comm 实锤），非
+  guard/necko 空转；四 child 存活 idle、logcat 零行（门只照亮 parent）。
+  取证门仍 ON（nsHttp 满屏）——下轮 verdict 前关回 OFF。
+  候选修点 B（provider 小改）：consult-complete（本 URL 见过 ShouldPrepare
+  HIT）后 guard 只 extend 不 refire——本轮 13 次重发零 commit 已证 churn
+  无用且堆通道；listener-gap 丢 dispatch 另由首跳无 HIT 覆盖。
 
 ## 2. 下一步（按顺序，一次做一件）
 
