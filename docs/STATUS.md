@@ -1394,6 +1394,22 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   接触早晚本身。验证法：下轮无论死绿必采线程数 + GC 风暴行做对照；另做 idle-vs-
   browse 对照（静置 60s 直开链接 vs 重刷后开）。Fennec/干净进程常绿与此一致
   （宿主干净，非接触早）。
+- **P-NOLOAD（压力对照轮）**：idle 306 线程死 vs 加压 319 线程死（+4%，GC 同量级
+  且方向反了）——负载假说死。~300 线程是酷安宿主基线，不是 feed 产物。
+- **A/B/A 反转（18:25/18:28）**：5 连死后，同机只换构建（`66ee067` worktree →
+  1.4s install ack；再装回 `20b7f96` 内容 → 1.8s 全绿）——此前"构建致因"结论
+  **作废**；16:42–18:19 是环境窗口问题（与构建无关；`Sinytra-bisect*` worktree
+  保留，用完删）。机上现为 `20b7f96` 内容（取证日志在，无 MOZ_LOG）。
+- **S3 新形态（29341 轮，bring-up 2s 绿）**：link 提交 + install ack + github LR
+  （`isRedirect=true`，取证日志首功）→ 20 分钟后标题到 → body 咨询零完成
+  （`OnSuccess` 计数 0）、零目标 PageStart、零错误、a11y 空、挂载正常。返回键
+  有效（UI 线程活——UI 楔死理论死）。逐流 `ss`：动的都是广告/推送，github 流
+  早已消失（没建起来，不是建了卡住）。教训：18:28 命运线被 buffer 转掉（20
+  分钟后才首 pull）——关键轮 2 分钟一 pull。
+- **咨询线程模型（纸面）**：C++ 经 session EventDispatcher 把每次咨询发到 UI
+  线程同步问 App（`Dispatch+callback`，necko 异步等；0001 patch:644）。单线程
+  串行下一次 block 即全堵——但 UI 活着，故 S3 不是咨询卡 UI，而是咨询根本没
+  发起（necko 不建 body 通道）。`kill -QUIT` 在 user 包无输出（§1x 记录不变）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
