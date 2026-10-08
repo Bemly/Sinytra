@@ -1211,6 +1211,30 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   同一 looper），拖过调用方 deadline 致 harness cookieJar hasCookies
   2/2 FAIL。已删 chain（Chromium 的 void-set 本就无 landing 保证，
   教训记在 `GeckoCookieManager` 注释）。
+- **B（已修已验，`8d0f537`）**：pre-runtime void 写排队——`PendingWrites`
+  有界 FIFO（200，溢出丢最老 + loud），首个 controller 落定时在 query
+  线程 FIFO flush；callback 变体维持 fail-fast（显式投递承诺）；get/
+  remove/has 预运行时保持诚实空值。JVM +4 锁（FIFO/溢出/drain/排队断言，
+  199 全绿）；真机 `flushing 12 pending cookie writes`，42 丢弃归零。
+  酷安/B 站类"启动期后台同步登录 cookie"不再静默丢失（§1z 候选缺口
+  同愈）；post-runtime 投递死亡（②）另案，未动。
+- **C（已修，`dca400c`）**：`ensureBuiltIn` 装不上时 bounded 重试至 ack
+  （首试 4s 覆盖冷启动，8s 封顶 ×5 ≈ 36s 窗口；成功/5 次耗尽停手，
+  耗尽 reset 重装位待下次 bind 重启）。旧代码"sInstallStarted 常 true、
+  pending 越积、进程终身 transport 死"。JVM +3 锁（delay 阶梯）。
+  真机 fresh 酷安轮：bind→2s installed→delegate bound→filters pushed×3
+  → coolapk-link PageStart，同轮咨询链进入。
+- **渲染面现状（截至 12:18，未闭）**：C 轮管线全绿（extension/filter/
+  PageStart/LocationChange 到 github，子资源 OnSuccess burst）但 release
+  页仍黑；a11y 零文本 = parser 饿死；同窗网速 0.10–2.66KB/s。平行对照：
+  FrameworkEntry（framework 真路径）同 URL ~90s **完整渲染**
+  （header/tabs/notes/截图/changelog/assets 全像素，pageFinished 到，
+  138 OnSuccess；唯一 FAIL 是 eval transport 未起——transport 与渲染
+  无关，另记）；Canary 同页 ~60s 全绘；Fennec github 主页 ~50s 绘出。
+  结论：重页面在烂网下酷安进程黑、其余路径可绘——差值仍在酷安进程
+  组合内（②投递死亡致登录态丢 + 稀疏 getCookie 5s park 未清 +
+  commit-guard 慢-commit 误撕 10:21 轮实锤），待健康网络窗口终裁。
+  今晚烧设备轮次到此为止，不再开"只能证明还是挂的"轮次。
 - **渲染面现状**：M1 后标题到、子资源 burst、spinner 转，但 release 页
   10 分钟仍黑（a11y 零文本节点 = parser 饿死）。同机同网对照：
   Canary 直连同 URL ~60s 完整渲染；Fennec github 主页 ~50s 绘出——
