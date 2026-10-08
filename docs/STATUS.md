@@ -1410,6 +1410,25 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   线程同步问 App（`Dispatch+callback`，necko 异步等；0001 patch:644）。单线程
   串行下一次 block 即全堵——但 UI 活着，故 S3 不是咨询卡 UI，而是咨询根本没
   发起（necko 不建 body 通道）。`kill -QUIT` 在 user 包无输出（§1x 记录不变）。
+- **直载 DRAWN（Canary 同 URL，`PageStop success=true`）**：同页直载 2 分钟完整
+  渲染（header/tabs/正文/截图全像素）。引擎能画此页；S3 只发生在 link→github
+  redirect 链之后。机制定稿：link 提交（我方咨询暂停通道促成 early commit）→
+  跨站切进程 → 新文档 listener 迁移失败（1673953 形状：前序窗口没见到
+  STATE_STOP——link 无 PageStop——后续通知被压住）→ 字节走完但 session 全聋。
+  修法：redirect leg 提交后无 commit 则有界 resume（fresh top 导航，直载已证
+  可提交），见下条。
+- **redirect resume 落地（`d26f514`，未验证）**：`SessionRescue` 新增 armed 跟踪
+  + commit 记忆 + `watchRedirectLeg`（谓词 JVM 锁 6 则）；`NavigationBridge`
+  加 `onRedirectLeg` 回调（主帧 LR 全量信息）；静默 redirect 用 raw dispatch
+  重发（REPLACE_HISTORY 留后续；终局静默维持现状）。三文件行数 993/486/103
+  全合规；JVM 224 绿；lint 绿；harness 47 行 0 FAIL + GLUE PASS。但首个 verdict
+  轮 P-DEAD 死在首导航（leg 未 armed，符合设计）——resume 路径仍待一个
+  post-commit 轮验证。
+- **连死率 ~50% 且与构建无关**：绿（66ee067×1、20b7f96×2、master×N）死（de44369
+  后连死 5 轮 + 本轮）交错，A/B/A 已证同构建可绿可死。S2（transport 不建）是
+  当前唯一 blocker。下一个判别：Gecko 主线程 `comm` 定位 + wchan/stack 归因
+  （binder 等 bind vs futex 空闲）——Java 主线程 epoll-idle 已无信息量，要的是
+  名为 Gecko 的 native 线程。
 
 ## 2. 下一步（按顺序，一次做一件）
 
