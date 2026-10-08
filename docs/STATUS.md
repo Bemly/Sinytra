@@ -1290,10 +1290,31 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   才到）错位：16–60s 落地的 install 发现 filter 重试早已耗尽，transport
   就绪但 filter 永不下发（necko 查空表）。修法沿 `b8673b6` 冷扩展同构：
   未就绪等待改耗独立冷预算（`MAX_COLD_WAITS=10` ≈ 63.5s ≥ install 窗口），
-  5-attempt 只计入活管线推送。JVM 207 锁全绿（+2），lint 绿；健康路径
-  （首试即赢）零行为变化。完全死进程（60s 亦无 ack）另案，仍待 MOZ_LOG/
-  健康网络裁决。reload 无 guard 另案未动（`GeckoSessionBridge` 已超行数，
-  不碰）。
+   5-attempt 只计入活管线推送。JVM 207 锁全绿（+2），lint 绿；健康路径
+   （首试即赢）零行为变化。完全死进程（60s 亦无 ack）另案，仍待 MOZ_LOG/
+   健康网络裁决。reload 无 guard 另案未动（`GeckoSessionBridge` 已超行数，
+   不碰）。
+- **黑屏根因（已定位已修，`66ee067`，A/B/A 三轮实锤）**：我方 `session.open()`
+  即提交 about:blank 并向 App 派发 `onPageStarted(about:blank)`——Chromium
+  永不派发。酷安在该回调里 `Uri.getQueryParameter`（非层级 URI 直接抛
+  `UnsupportedOperationException`，`NewWebViewFragment.kt:14`）→ fragment
+  初始化中断 → **WebView 永不 attach**（a11y dump 无 WebView 节点；修后
+  dumpsys 见 `CoolWebView` 全尺寸 VISIBLE 内含 `GeckoViewHost`）→ session
+  在 headless 下照常加载（字节/标题/回调全通）→ 永久黑屏。此解释覆盖此前
+  全部"管线绿但黑"轮次（含 12:55 的 79 咨询 + 4 分钟黑：画进了没挂载的树）。
+  修法：隐式初始 blank Start 对 App 静默（finish 侧早有对称吞吃；
+  显式 `loadUrl("about:blank")` 照常派发，Chromium 对齐）+ 纯谓词 JVM 锁。
+  验证：JVM 210 锁（+3），lint 绿；harness **47 PASS 行 0 FAIL + GLUE PASS**；
+  真机 verdict 轮零 `onPageStarted threw`（修前每轮必抛），视图树挂载确认。
+- **A/B/A 带宽对照（同机背靠背，整机 rx 计数）**：我方窗 22KB/45s（0.5KB/s）
+  黑 → bromite 窗 2.6MB/60s（43KB/s）90s 完整绘出 → 我方窗 3MB/80s
+  （38KB/s）标题到仍黑（彼时 view 未挂载，属上条）。时变带宽实锤（86 倍摆动），
+  此前"同分钟"对照未做窗口会计是漏洞；以后对照必带 rx delta + 交替顺序。
+- **仍未闭（诚实口径）**：① 修后轮视图已挂载但撞上 trickle 窗（0.7KB/s，
+  目标头 5 分钟不到），像素 verdict 需一个"修复+带宽"双齐窗口（本轮保持加载，
+  带宽回来即见分晓）；② 15:48 轮目标 `onLoadRequest` 700ms 内 8 连发（次次咨询
+  裁决，2s 后才 PageStart）——通道 churn，单轮目击，待复现定位（necko 重试 vs
+  我方 0001 包装抖动）；③ reload 无 guard、`:web` 读侧诚实空、bridge 拆分债务依旧。
 
 ## 2. 下一步（按顺序，一次做一件）
 

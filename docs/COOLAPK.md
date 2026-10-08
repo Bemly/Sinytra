@@ -84,7 +84,7 @@ $S shell "su -c 'cat /sys/class/net/wlan0/statistics/rx_bytes'"
 - 切 WebView 对照（bromite）前先 `dumpsys webviewupdate` 复核 Current，
   跑完必须切回（2026-10-08 实锤忘切，被用户当场抓获）。
 
-## 4. 已修（新会话不要重修，harness 46 PASS / JVM 207 绿守着）
+## 4. 已修（新会话不要重修，harness 47 PASS 行 0 FAIL / JVM 210 绿守着）
 
 1. `490ec28` file-scheme gate（崩溃）。
 2. `328a7b8` 主线程 void-set fire-and-forget（25s ANR）。
@@ -93,9 +93,12 @@ $S shell "su -c 'cat /sys/class/net/wlan0/statistics/rx_bytes'"
 5. `a910904` 0025 ged stub 不投毒（omni 三级解包验证）。
 6. `cee3e7e` guard 咨询即延长（慢网不重下）。
 7. `b8673b6` 熄火分诊（cold 4/4 等待，不烧 reopen）。
-8. `ddfc6b9` filter 冷预算（15.5s→63.5s，对齐 install 60s 窗口；harness 待健康网络复验，JVM 207 绿）。
+8. `ddfc6b9` filter 冷预算（15.5s→63.5s，对齐 install 60s 窗口；31s bring-up 轮实证救活）。
+9. `66ee067` 隐式初始 about:blank 不派发 onPageStarted（酷安 getQueryParameter 崩→WebView 永不挂载→永久黑；修后 dumpsys 挂载确认，零 threw）。
 
 ## 5. 未闭（新会话从这里开工，按序）
+
+0. **像素 verdict（首位）**：修后轮视图已挂载但撞 trickle 窗（0.7KB/s），等一个"修复+带宽"双齐窗口（本轮保持加载中）。对照纪律：以后每次对照必带整机 rx delta + 交替顺序（此前"同分钟"对照无窗口会计是漏洞；时变带宽实锤 86 倍摆动）。
 
 1. **部分 fresh 酷安进程 Java→Gecko-JS 全死**（extension/filter/storage
    零回答，0025 亦救不回；session 回声正常；同构建他轮全绿）。
