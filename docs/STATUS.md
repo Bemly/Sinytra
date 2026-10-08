@@ -1416,6 +1416,14 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **S3 观察轮（待跑）**：当前构建不动，密集 pull 看 refire 后的咨询是否发生
   （dispatch 着陆否），+ rx + 提交三件套。问题清单：refire 咨询零发生=派发死；
   咨询发生无提交=压制；两者时间线即答案。
+- **extends-forever 形态（29220 轮，cap 设计补丁）**：progress 持续流动时 guard
+  只 extend 不 fire（本轮仅 2 次 fire），耐心正确——cap 只收敛 burst-gap churn，
+  不碰流动管线（extends 不计入 `mTotalFires`，by design）。同轮 fission=1 正常
+  推进：fission 压制说被削弱（压制若存在也不是 S3 主因；主因仍是 commit 慢 +
+  refire 重启的叠加）。churn-#8 曾经提交的反例亦佐证压制非必然。
+- **marker 已清（`058afab`）**：预载 marker 临时日志删除，干净构建已上机
+  （APK raw 字节验无残留）。教训：含空格字串的 dex 检查必须 raw 匹配，token
+  化必漏（此前两次 verification artifact 皆出于此）。
 - **直载 DRAWN（Canary 同 URL，`PageStop success=true`）**：同页直载 2 分钟完整
   渲染（header/tabs/正文/截图全像素）。引擎能画此页；S3 只发生在 link→github
   redirect 链之后。机制定稿：link 提交（我方咨询暂停通道促成 early commit）→
