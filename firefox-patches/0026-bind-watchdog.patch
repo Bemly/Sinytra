@@ -1,0 +1,131 @@
+From cb5d19c0d8ffbc5614f86b5573302dfa183f251c Mon Sep 17 00:00:00 2001
+From: Bemly <bemly_@petalmail.com>
+Date: Thu, 8 Oct 2026 20:46:21 +0800
+Subject: [PATCH] Sinytra patch 0026: bound ChildConnection.bind with a 10s
+ watchdog
+
+---
+ .../gecko/process/GeckoProcessManager.java    | 84 ++++++++++++++++---
+ 1 file changed, 73 insertions(+), 11 deletions(-)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
+index 7ff9d2fe1f..8404d7854b 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
+@@ -248,19 +248,78 @@ public final class GeckoProcessManager {
+       return mChild;
+     }
+ 
+-    private GeckoResult<IChildProcess> completeFailedBind(
+-        @NonNull final ServiceAllocator.BindException e) {
+-      XPCOMEventTarget.assertOnLauncherThread();
+-      Log.e(LOGTAG, "Failed bind", e);
++  private GeckoResult<IChildProcess> completeFailedBind(
++      @NonNull final ServiceAllocator.BindException e) {
++    XPCOMEventTarget.assertOnLauncherThread();
++    Log.e(LOGTAG, "Failed bind", e);
+ 
+-      if (mPendingBind == null) {
+-        throw new IllegalStateException("Bind failed with null mPendingBind");
+-      }
++    if (mPendingBind == null) {
++      throw new IllegalStateException("Bind failed with null mPendingBind");
++    }
+ 
+-      final GeckoResult<IChildProcess> bindResult = mPendingBind;
+-      mPendingBind = null;
+-      unbind().accept(v -> bindResult.completeExceptionally(e));
+-      return bindResult;
++    final GeckoResult<IChildProcess> bindResult = mPendingBind;
++    mPendingBind = null;
++    cancelBindTimeout();
++    unbind().accept(v -> bindResult.completeExceptionally(e));
++    return bindResult;
++  }
++
++    // Sinytra 0026: bounded bind. bindService() returning true only means AM
++    // accepted the request; onServiceConnected may never arrive (device-
++    // verified black hole: no callback, no error, no retry — the pending
++    // promise leaks forever and every later bind() returns the same dead
++    // promise via the "Bind in progress" path above). Arm a one-shot timer
++    // per fresh attempt; on expiry fail the attempt so the existing
++    // start→handleBindError→retry chain (MAX_RETRIES) and ultimately the C++
++    // launch-attempt fallback can run. Mirrors the 1880503 bounded-failure
++    // philosophy: time out, unbind, rebuild — never assume the remote did it.
++    // Matches the C++ per-attempt WaitUntilConnected budget (10s), so the
++    // worst-case envelope stays inside the proven slow-start window.
++    private static final long BIND_TIMEOUT_MS = 10_000;
++
++    // Pending watchdog for the current bind attempt (null when none armed).
++    // Cancelled on every normal settle; a stale fire is a no-op (it only
++    // fails the exact promise instance it armed for).
++    private Runnable mBindTimeout;
++
++    private void armBindTimeout(final GeckoResult<IChildProcess> attempt) {
++      cancelBindTimeout();
++      final Runnable timeout =
++          () ->
++              XPCOMEventTarget.runOnLauncherThread(
++                  () -> {
++                    // Lost race with a normal settle: the UI→launcher hop is
++                    // async, so re-check. Only fail our own attempt.
++                    if (mPendingBind != attempt || mChild != null) {
++                      return;
++                    }
++                    Log.w(
++                        LOGTAG,
++                        "Bind timed out after "
++                            + BIND_TIMEOUT_MS
++                            + "ms; failing the attempt so retry can rebuild");
++                    final GeckoResult<IChildProcess> bindResult = mPendingBind;
++                    mPendingBind = null;
++                    mBindTimeout = null;
++                    // Release the AM-side request first (unbind-then-fail
++                    // order matters: retry must not hit "Bind in progress").
++                    // Safe when already gone: unbindService() tolerates
++                    // defunct/dead bindings internally.
++                    unbindService();
++                    bindResult.completeExceptionally(
++                        new ServiceAllocator.BindException(
++                            "Cannot connect to process (bind timed out)"));
++                  });
++      mBindTimeout = timeout;
++      ThreadUtils.postToUiThreadDelayed(timeout, BIND_TIMEOUT_MS);
++    }
++
++    private void cancelBindTimeout() {
++      final Runnable timeout = mBindTimeout;
++      mBindTimeout = null;
++      if (timeout != null) {
++        ThreadUtils.getUiHandler().removeCallbacks(timeout);
++      }
+     }
+ 
+     public GeckoResult<IChildProcess> bind() {
+@@ -285,6 +344,7 @@ public final class GeckoProcessManager {
+         return completeFailedBind(e);
+       }
+ 
++      armBindTimeout(mPendingBind);
+       return mPendingBind;
+     }
+ 
+@@ -321,6 +381,7 @@ public final class GeckoProcessManager {
+           mPendingBind.completeExceptionally(e);
+           mPendingBind = null;
+         }
++        cancelBindTimeout();
+ 
+         return;
+       } catch (final RemoteException e) {
+@@ -335,6 +396,7 @@ public final class GeckoProcessManager {
+         mPendingBind.complete(mChild);
+         mPendingBind = null;
+       }
++      cancelBindTimeout();
+     }
+ 
+     @Override
+-- 
+2.55.0
+
