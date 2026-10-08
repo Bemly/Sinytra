@@ -40,4 +40,26 @@ public final class InterceptionRepushTest {
         assertEquals(8000L, Interception.retryDelayMs(6));
         assertEquals(5, Interception.MAX_RETRY_ATTEMPTS);
     }
+
+    @Test
+    public void coldBudget_bounds() {
+        assertEquals(10, Interception.MAX_COLD_WAITS);
+        assertTrue(Interception.shouldKeepWaiting(0));
+        assertTrue(Interception.shouldKeepWaiting(9));
+        assertFalse(Interception.shouldKeepWaiting(10));
+        assertFalse(Interception.shouldKeepWaiting(11));
+    }
+
+    @Test
+    public void coldWaits_coverInstallWindow() {
+        // Pre-ready waits must outlive the install watchdog's ~60s window
+        // (first ack device-verified at ~32s): sum of the cold ladder
+        // (attempt stays 1 while cold) plus the final 8s tail before
+        // give-up ≈ 63.5s. Locks the 15.5s-vs-60s mismatch shut.
+        long total = 0;
+        for (int cold = 0; cold < Interception.MAX_COLD_WAITS; cold++) {
+            total += Interception.retryDelayMs(Math.max(1, cold + 1));
+        }
+        assertEquals(55500L, total);
+    }
 }

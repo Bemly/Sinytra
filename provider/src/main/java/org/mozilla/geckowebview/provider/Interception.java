@@ -181,7 +181,21 @@ final class Interception {
     // retries via the generation guard (repeats stay idempotent C++-side).
     // Best-effort: without a Looper (JVM unit tests) no retries run and
     // only the synchronous push executes.
+    //
+    // Cold-wait budget (2026-10-08 coolapk fresh-process round): the
+    // pre-ready waits below used to consume the same 5-attempt budget as
+    // the post-ready pushes (~15.5s total), while the install watchdog
+    // (JsBridge, first ack device-verified at ~32s) runs a ~60s window.
+    // An install landing at 16–60s therefore found the filter retries
+    // already exhausted — transport ready, filters never pushed, necko
+    // consulting an empty table forever. Pre-ready waits now consume a
+    // separate cold budget (MAX_COLD_WAITS ≈ 63.5s ≥ install window;
+    // same pattern as NavigationCommitGuard's cold extensions); the
+    // 5-attempt budget only counts pushes into a live pipeline.
     static final int MAX_RETRY_ATTEMPTS = 5;
+    // Pre-ready cold waits: 10 × retryDelayMs ladder (≈63.5s) so the
+    // filter push outlives the install watchdog's ~60s window.
+    static final int MAX_COLD_WAITS = 10;
 
     private int mPushGeneration;
     @Nullable
@@ -204,6 +218,16 @@ final class Interception {
     static boolean isRepushLive(int scheduledGeneration,
             int currentGeneration) {
         return scheduledGeneration == currentGeneration;
+    }
+
+    /**
+     * Pure (JVM-locked): pre-ready cold waits are budgeted separately
+     * from post-ready push attempts — a pipeline still bringing itself
+     * up waits instead of spending the push budget (mirrors
+     * NavigationCommitGuard.shouldWaitForTransport).
+     */
+    static boolean shouldKeepWaiting(int coldUsed) {
+        return coldUsed < MAX_COLD_WAITS;
     }
 
     void setTransportReady(@Nullable Readiness readiness) {
@@ -239,10 +263,11 @@ final class Interception {
             return;
         }
         final int generation = ++mPushGeneration;
-        scheduleRetry(generation, 1);
+        scheduleRetry(generation, 1, 0);
     }
 
-    private void scheduleRetry(final int generation, final int attempt) {
+    private void scheduleRetry(final int generation, final int attempt,
+            final int coldUsed) {
         if (attempt > MAX_RETRY_ATTEMPTS) {
             return;
         }
@@ -273,7 +298,17 @@ final class Interception {
                     if (!alive) {
                         // Pipeline not up yet: back off, do not push into
                         // the void (the dispatch would be lost silently).
-                        scheduleRetry(generation, attempt + 1);
+                        // Cold waits spend the cold budget, not the push
+                        // budget, so a slow bring-up (install ack verified
+                        // up to ~32s; watchdog window ~60s) still gets a
+                        // push the moment it completes.
+                        if (!shouldKeepWaiting(coldUsed)) {
+                            android.util.Log.w(TAG,
+                                    "filter retry waiting for transport"
+                                            + " timed out; giving up");
+                            return;
+                        }
+                        scheduleRetry(generation, attempt, coldUsed + 1);
                         return;
                     }
                 }
@@ -283,7 +318,7 @@ final class Interception {
                 } catch (Throwable t) {
                     android.util.Log.w(TAG, "filter retry threw", t);
                 }
-            }, retryDelayMs(attempt));
+            }, retryDelayMs(Math.max(attempt, coldUsed + 1)));
         } catch (Throwable t) {
             android.util.Log.w(TAG, "scheduleRetry threw", t);
         }
