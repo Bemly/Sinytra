@@ -13,7 +13,31 @@ java {
 // AND this module's own source output (sibling stub types in android.webkit).
 // Plain `-classpath` compilerArgs replace the whole classpath and hide our
 // own stubs from each other — that is why sibling types went missing.
-def androidJar = System.getenv("ANDROID_HOME") + "/platforms/android-34/android.jar"
+// The platform is auto-detected (highest android-X under ANDROID_HOME):
+// hardcoding one level breaks on SDKs that only ship what Gecko needs
+// (2026-10-07 Intel clean-room: only android-37.2 present). Public API is
+// cumulative, so compiling stubs against a newer android.jar is safe.
+def androidJar = findHighestAndroidJar()
+
+def findHighestAndroidJar() {
+    def platformsDir = new File(System.getenv("ANDROID_HOME"), "platforms")
+    def jars = ((platformsDir.listFiles() ?: []) as List).findAll { f ->
+        f.isDirectory() && new File(f, "android.jar").isFile()
+    }
+    if (jars.isEmpty()) {
+        throw new GradleException(
+            "No android.jar under ${platformsDir} — install a platform via sdkmanager")
+    }
+    def best = jars.max { a, b -> apiLevelOf(a.name) <=> apiLevelOf(b.name) }
+    def jar = new File(best, "android.jar").absolutePath
+    logger.lifecycle("framework-stubs: compiling against ${jar}")
+    return jar
+}
+
+def apiLevelOf(String dirName) {
+    def m = (dirName =~ /android-(\d+)(?:\.(\d+))?/)
+    return m.matches() ? (m.group(1) as int) * 1000 + ((m.group(2) ?: "0") as int) : -1
+}
 
 tasks.withType(JavaCompile).configureEach { task ->
     // Prepend android.jar to the javac classpath WITHOUT replacing the rest
