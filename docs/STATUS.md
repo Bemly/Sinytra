@@ -1430,12 +1430,15 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   自持死锁；绿轮是竞态撞上正确顺序。下一步：C++ 发起链纸面（LaunchGPUProcess/
   EnsureGPUReady 调用者 + 前置条件 + 静默跳过路径），定位"首个 bindService 永不
   被调" 的门后，再定是 provider 可驱（early demand 注入）还是 Gecko patch。
-- **发起链问题（当前主犯）**：死轮 C++ 从未请求任何 child launch（GPU 首发都没有，
-  更谈不上 tab）。LoadUri 派发（需 attach 窗口的 listener）与 GPU 需求（需 content
-  launch）互为前提——首跳丢失（§1z listener-gap）+ attach 又依赖 GPU 门时即成
-  自持死锁；绿轮是竞态撞上正确顺序。下一步：C++ 发起链纸面（LaunchGPUProcess/
-  EnsureGPUReady 调用者 + 前置条件 + 静默跳过路径），定位"首个 bindService 永不
-  被调" 的门后，再定是 provider 可驱（early demand 注入）还是 Gecko patch。
+- **early demand 注入落地（`2ef0d14`，公开 API 零 patch）**：
+  `GeckoProcessManager.getInstance().preload(GPU, CONTENT)`（`warmUp()` 只暖
+  CONTENT 不够；E0/首 Ensure 是环外唯二破环动作，preload 等价手动 E0），首个
+  provider 构造时 one-shot（单例复用 + 预载队列使重复无害；只暖启动窗），
+  runtime 就绪后、`open()` 之前，失败 loud 日志继续走（永不打断构造）。
+  JVM 224 绿（纯接线，device-covered），lint 绿，harness 47 行 0 FAIL +
+  GLUE PASS。债务：`GeckoWebViewProvider.java` 1138→1167（动前已超 1000 铁律，
+  拆分单独立项；本次只压了自有注释）。验证法：死亡率统计（连打 8 轮 fresh，
+  90 秒定死绿；≤1/8 死即破环成立，≥3/8 死则转 G4 frameloader 方向）。
 - **GPU-bind 挂起（S2 新主犯，日志对照实锤）**：绿轮 `ServiceAllocator $gpu
   updateBindings` 后必跟 tab bind（慢绿轮：GPU 3 次失败→SW-WR fallback→
   compositor 初始化→blank PageStart→install ack，31s 之谜即 3×~10s）；
