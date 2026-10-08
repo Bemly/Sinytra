@@ -1334,6 +1334,22 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   `mSession.reload()` 重发 + `reopenSessionOnce` 熄火；`stop/goBack/goForward`
   不动）。JVM 210 绿，lint 绿，harness **47 PASS 行 0 FAIL + GLUE PASS**。
   上条 ③ 的 reload 项关闭；`:web` 读侧与 bridge 拆分仍 open。
+- **完全死进程首捕（子 agent verdict 轮，pid 30970）**：fresh 轮 guard 走完
+  cold 1/4→4/4 → reopen → 仍静默 → `giving up`（16:43:37），**全程零 PageStart、
+  transport 永未就绪**（无 install ack、无 filter、无 storage、无 title）。
+  onLoadRequest 照发（session 回声正常）——② 号"Java→Gecko-JS 全死"类的完整形态，
+  且本轮 60s+ 熄火窗后亦未自愈。下一步：MOZ_LOG（necko/Gecko 主线程响应性）
+  是唯一剩余手段，待专用轮次（需配 pref，不重编）。
+- **churn 取证日志上机（`428518d`，dex 已验）**：LR 四字段
+  `isRedirect/hasUserGesture/triggerUri` + `shouldOverride override=` +
+  宿主入口 `loadUrl` 行；harness 47 行 0 FAIL + GLUE PASS 不退。下轮绿管线
+  直接判 R1/R2。
+- **`:web` 读侧关闭（子 agent 实现，`20b7f96`）**：`ControllerGate` 纯 monitor
+  （signal/await + deadline + 中断恢复；唤醒链=发布者或超时，无 GeckoResult/
+  Looper，M1 自死锁不可复现），后台读有界等首 controller（5s 对齐 storage
+  定时），主线程保持诚实空值（ANR 同构已避），写侧 queue/fail-fast 不动。
+  JVM 216 绿（+6），lint 绿，同批 harness 绿。`GeckoCookieManager` 621→740 行
+  （<1000，合规）。§1z/§5-3 的读侧项关闭；bridge 拆分债务仍 open。
 
 ## 2. 下一步（按顺序，一次做一件）
 

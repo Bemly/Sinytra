@@ -84,7 +84,7 @@ $S shell "su -c 'cat /sys/class/net/wlan0/statistics/rx_bytes'"
 - 切 WebView 对照（bromite）前先 `dumpsys webviewupdate` 复核 Current，
   跑完必须切回（2026-10-08 实锤忘切，被用户当场抓获）。
 
-## 4. 已修（新会话不要重修，harness 47 PASS 行 0 FAIL / JVM 210 绿守着）
+## 4. 已修（新会话不要重修，harness 47 PASS 行 0 FAIL / JVM 216 绿守着）
 
 1. `490ec28` file-scheme gate（崩溃）。
 2. `328a7b8` 主线程 void-set fire-and-forget（25s ANR）。
@@ -96,6 +96,8 @@ $S shell "su -c 'cat /sys/class/net/wlan0/statistics/rx_bytes'"
 8. `ddfc6b9` filter 冷预算（15.5s→63.5s，对齐 install 60s 窗口；31s bring-up 轮实证救活）。
 9. `66ee067` 隐式初始 about:blank 不派发 onPageStarted（酷安 getQueryParameter 崩→WebView 永不挂载→永久黑；修后 dumpsys 挂载确认，零 threw）。
 10. `de44369` reload 加 commit-guard（harness 47 行 0 FAIL 验证；单测 210 绿）。
+11. `428518d` churn 取证日志上机（LR 四字段 + override/loadUrl 配对；下轮绿管线直接判 R1/R2）。
+12. `20b7f96` 预运行时后台读有界等首 controller（主线程保持诚实空；单测 216 绿）。
 
 ## 5. 未闭（新会话从这里开工，按序）
 
