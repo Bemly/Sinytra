@@ -1509,6 +1509,30 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   候选修点 B（provider 小改）：consult-complete（本 URL 见过 ShouldPrepare
   HIT）后 guard 只 extend 不 refire——本轮 13 次重发零 commit 已证 churn
   无用且堆通道；listener-gap 丢 dispatch 另由首跳无 HIT 覆盖。
+- **R3 闩验证轮（2026-10-09，pid 7262，`8d82ff4` 闩构建，`/tmp/cool_r3b.log`）**：
+  firing 13→0（`consult-latched; refires suspended`×2 即时闩锁），LR 严格
+  2 发（link+github redirect，无 churn），link commit（PageStart 到），
+  binds/cookie/flush/filter×3/install 全绿，rx +1MB。github 仍零 commit：
+  200 到→`RedirectToRealChannel BC=2`→content 永不消费→guard extend×48
+  至今（设计行为：只等不杀）。churn 凶手闭案——闩是纯收益（R2 的烧毁 stopped）。
+- **R4 fission-off 诊断轮（2026-10-09，pid 14274，`/tmp/cool_r4b.log`）**：
+  `fission=0` 生效（Connecting 全零，R3 对照 fission=1），但同签名复现：
+  link commit→github headers 2s 即到→`TriggerRedirect BC=2 dest=-1`（无切换）
+  →无 Finished→无 PageStart。Fission 无辜——stall 与跨站切换无关。
+  纠正 R2 笔误：child 日志并非零行（是 pid 过滤漏了子进程行）；tab1 消费 link
+  全程有日志，tab27/tab6/tab16 secondary 进程 `ready-for-script` 后永寂
+  （无 SettingsUpdate/BC/channel——无人寻址它们，是果）。
+- **  收敛（R3+R4）：content 侧第二文档永不链接**。link（首文档，PPDC 认领路径
+  `DocumentChannelParent Init` 有）commit；github（parent-side 推测性路径孤儿
+  listener c760：无 PPDC、无 DocumentChannelParent、无 content
+  DocumentChannelChild）necko 全通但 handoff 永不完成。R2-reopen
+  （fresh session 直接 github，BC=5）同死佐证非 redirect 专属、拦截器无辜
+  （phase-2 零咨询裸 load 同死）。待决：在 tab1 活 docshell 上第二文档链接
+  失败的确切一步（open-promise resolve 去向 / AsyncOnChannelRedirect content
+  核准 / SH 状态），或 coolapk 进程全局的 content 失聪。
+  下一步：实验 E——MiniWV-2 最小第三方宿主直载 github（foreign+direct 格），
+  判定 redirect-chain 专属 vs 进程全局；fission pref 已回退（诊断性，无收益
+  不留）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
