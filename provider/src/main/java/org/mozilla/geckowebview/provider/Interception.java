@@ -82,8 +82,7 @@ final class Interception {
             @Override
             @Nullable
             public ResponseBridge.WebResourceResponseHolder shouldIntercept(
-                    @NonNull WebRequestInfo info) {
-                // loadData one-shot first (internal, never consults the app).
+                    @NonNull WebRequestInfo info) {                // loadData one-shot first (internal, never consults the app).
                 LoadDataHandler.OneShotBody oneShot = info.uri != null
                         ? mLoadData.consume(info.uri) : null;
                 if (oneShot != null) {
@@ -120,6 +119,15 @@ final class Interception {
                 return new ResponseBridge.WebResourceResponseHolder(
                         app.getMimeType(), app.getEncoding(),
                         app.getStatusCode(), app.getData());
+            }
+
+            @Override
+            public void onConsulted(@NonNull String uri) {
+                try {
+                    mHost.bridge().noteConsultActivity();
+                } catch (Throwable t) {
+                    android.util.Log.w(TAG, "consult poke threw", t);
+                }
             }
         });
     }

@@ -283,6 +283,16 @@ public final class GeckoSessionBridge
         mCommitGuard.disarm();
     }
 
+    /**
+     * NeckO consult reached Java for any URL: the pipeline is alive, so a
+     * quiet guard check extends instead of re-issuing (trickle networks
+     * commit slower than the whole retry budget — re-issuing restarts the
+     * download from zero and guarantees it never finishes).
+     */
+    public void noteConsultActivity() {
+        mCommitGuard.poke();
+    }
+
     @Override
     public void onLoadError(int errorCode, int sslPrimaryError,
             @NonNull String description, @Nullable String failingUrl) {

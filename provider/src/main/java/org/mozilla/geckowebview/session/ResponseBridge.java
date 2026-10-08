@@ -28,6 +28,15 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
         @Nullable
         WebResourceResponseHolder shouldIntercept(
                 @NonNull WebRequestInfo info);
+
+        /**
+         * NeckO consult observed (this entry runs per channel: pass-through
+         * and synthesize alike). The commit guard treats it as proof of
+         * life — a chattering pipeline is slow, not lost. Defaults to
+         * no-op so existing Hosts are unaffected.
+         */
+        default void onConsulted(@NonNull String uri) {
+        }
     }
 
     /** App answer carrier (mirrors android.webkit.WebResourceResponse). */
@@ -68,6 +77,17 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
     public GeckoResult<WebResponse> onRequestResponse(
             @NonNull GeckoSession session,
             @NonNull WebRequestInfo info) {
+        // Proof of necko life for the commit guard (resets its attempt
+        // ladder instead of re-issuing). A throwing Host must never break
+        // the consult itself.
+        try {
+            if (info.uri != null) {
+                mHost.onConsulted(info.uri);
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("Sinytra/response",
+                    "Host.onConsulted threw", t);
+        }
         final WebResourceResponseHolder app =
                 mHost.shouldIntercept(info);
         if (app == null || app.body == null) {

@@ -24,6 +24,17 @@ import androidx.annotation.Nullable;
 // supersedes pending retries via the generation guard (same pattern as the
 // Interception filter retries).
 //
+// NeckO-progress awareness (2026-10-08 coolapk trickle round): a commit
+// (PageStart) can legitimately exceed the whole ~14s budget on a starved
+// network while bytes ARE flowing — every necko consult (ShouldPrepare,
+// via ResponseBridge.onConsulted) pokes the guard, and a poke resets the
+// attempt ladder instead of re-issuing. Re-issuing (let alone close+reopen)
+// a progressing load restarts its download from zero, which on a trickle
+// guarantees it NEVER finishes — strictly worse than waiting (Chromium and
+// Fennec both just wait). Attempts therefore count CONSECUTIVE QUIET
+// checks: a chattering pipeline never exhausts; a truly silent one (zero
+// consults — the §1z lost-dispatch class) exhausts exactly as before.
+//
 // When even the bounded retries find no commit (session window never attached
 // natively — device-verified class: zero PageStarts including blank), the
 // guard fires the exhaustion action ONCE per arm: the bridge uses it to
@@ -54,6 +65,20 @@ final class NavigationCommitGuard {
         return scheduledGeneration == currentGeneration;
     }
 
+    // Pure (JVM-locked): the check's decision. Progress (a necko consult
+    // since the last check) resets the ladder to attempt 1 instead of
+    // re-issuing — the load is alive, only slow. Returns -1 when the
+    // bounded quiet retries are spent (fire exhaustion).
+    static int nextAttempt(boolean progressSeen, int attempt) {
+        if (progressSeen) {
+            return 1;
+        }
+        if (attempt >= MAX_ATTEMPTS) {
+            return -1;
+        }
+        return attempt + 1;
+    }
+
     private static final String TAG = "Sinytra/session";
 
     private int mGeneration;
@@ -62,6 +87,9 @@ final class NavigationCommitGuard {
     @Nullable
     private Runnable mExhausted;
     private boolean mExhaustedFired;
+    // Set by poke() (necko consult observed); consumed by the next check.
+    // Attempts count consecutive QUIET checks (see class header).
+    private boolean mProgress;
 
     // Arms the guard for one navigation. The redispatch runnable must re-issue
     // the same navigation WITHOUT re-arming (it runs inside this generation's
@@ -89,6 +117,15 @@ final class NavigationCommitGuard {
     // Pending checks from this generation go inert via the liveness guard.
     synchronized void disarm() {
         mGeneration++;
+        mProgress = false;
+    }
+
+    // NeckO-progress poke: a consult reached Java for any URL, so the
+    // pipeline is alive — the next check extends instead of re-issuing.
+    // Never poked by Java-side dispatch echoes (those would mask a real
+    // stall); only the necko consult path calls this.
+    synchronized void poke() {
+        mProgress = true;
     }
 
     private void schedule(final int generation, final int attempt) {
@@ -106,29 +143,41 @@ final class NavigationCommitGuard {
         }
         try {
             handler.postDelayed(() -> {
-                Runnable fire;
+                int next;
+                Runnable fire = null;
                 synchronized (NavigationCommitGuard.this) {
                     if (!isLive(generation, mGeneration)) {
                         return;
                     }
-                    fire = mRedispatch;
-                }
-                android.util.Log.d(TAG, "commit guard firing attempt="
-                        + attempt);
-                try {
-                    fire.run();
-                } catch (Throwable t) {
-                    android.util.Log.w(TAG, "commit guard redispatch threw", t);
-                }
-                synchronized (NavigationCommitGuard.this) {
-                    if (!isLive(generation, mGeneration)) {
-                        return;
-                    }
-                    if (attempt >= MAX_ATTEMPTS) {
+                    boolean extend = mProgress;
+                    mProgress = false;
+                    next = nextAttempt(extend, attempt);
+                    if (next < 0) {
                         fireExhaustedLocked();
                         return;
                     }
-                    schedule(generation, attempt + 1);
+                    if (!extend) {
+                        fire = mRedispatch;
+                    } else {
+                        android.util.Log.d(TAG, "commit guard extending"
+                                + " (necko progress seen)");
+                    }
+                }
+                if (fire != null) {
+                    android.util.Log.d(TAG, "commit guard firing attempt="
+                            + attempt);
+                    try {
+                        fire.run();
+                    } catch (Throwable t) {
+                        android.util.Log.w(TAG,
+                                "commit guard redispatch threw", t);
+                    }
+                }
+                synchronized (NavigationCommitGuard.this) {
+                    if (!isLive(generation, mGeneration)) {
+                        return;
+                    }
+                    schedule(generation, next);
                 }
             }, delayForAttempt(attempt));
         } catch (Throwable t) {

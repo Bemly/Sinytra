@@ -55,4 +55,34 @@ public final class NavigationCommitGuardTest {
         guard.disarm();
         assertFalse(exhausted[0]);
     }
+
+    // --- progress-aware checks (2026-10-08 trickle round): attempts count
+    // consecutive QUIET checks. Any necko consult resets the ladder
+    // instead of re-issuing a progressing load; only sustained quiet
+    // exhausts. poke() itself is Looper-free (flag only). ---
+
+    @Test
+    public void nextAttempt_quietClimbsToExhaustion() {
+        assertEquals(2, NavigationCommitGuard.nextAttempt(false, 1));
+        assertEquals(3, NavigationCommitGuard.nextAttempt(false, 2));
+        assertEquals(-1, NavigationCommitGuard.nextAttempt(false, 3));
+    }
+
+    @Test
+    public void nextAttempt_progressResetsLadder() {
+        assertEquals(1, NavigationCommitGuard.nextAttempt(true, 1));
+        assertEquals(1, NavigationCommitGuard.nextAttempt(true, 2));
+        assertEquals(1, NavigationCommitGuard.nextAttempt(true, 3));
+    }
+
+    @Test
+    public void poke_isLooperFreeAndHarmless() {
+        NavigationCommitGuard guard = new NavigationCommitGuard();
+        guard.arm(() -> {
+            throw new AssertionError("must stay inert without Looper");
+        });
+        guard.poke();
+        guard.poke();
+        guard.disarm();
+    }
 }
