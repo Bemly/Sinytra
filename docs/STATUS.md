@@ -1377,10 +1377,23 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   for` 零行，`onPageStarted threw` 零行（无回归），挂载正常。结论：目标导航从未
   到达 Gecko 层；Gecko 本体健康（Canary 同机构造绿），死亡点在宿主进程内
   transport/扩展通道建立之前。另证伪"无 MOZ_LOG 即无信息"：M1-M4 的静默本身
-  就是反证（necko 下全活则查上，necko 上全死则查 dispatch/actor 层——本轮属后者）。
+  就是反证（necko 下全死 → 查 dispatch/actor 层——本轮属后者）。
   下一步候选：首触投毒假说（首个早窗口 dispatch 永久毒化 install 状态机，
   0025 同族——验证法：延迟首次接触 N 秒，看死亡率是否变化；需小补丁/开关），
   或 MiniWV 最小宿主复现（区分酷安特有 vs 通用竞态）。
+- **P-CLEAN（addon-DB 验证轮，pid 18066，`/tmp/moz-dead3.log` 7246 行）**：
+  死后 addonStartup.json.lz4/extensions.json/prefs.js 与点中前快照**字节一致**，
+  本地解析全 OK（extensions.json 含 sinytra-js active+visible；lz4 解出 enabled），
+  非空壳——腐蚀假说死，礁堡转 first-touch 方向。附带：`.startup-incomplete`
+  自 16:42 起残留（之后无一轮干净完成 startup，与连死一致，非独立证据）。
+- **反转信号（接触时机，零代码即可验证）**：immediate-contact 进程（harness/
+  Canary/FrameworkEntry/MiniWV，activity 起即建 WebView）**从不死**；delayed-
+  contact（酷安，刷 40s feed 后才进 WebView）**间歇死**——与早窗口理论预测反向。
+  死轮实测 304 线程 + ART "blocking GC / suspend fail" 风暴；绿轮线程数/GC 未量
+  化。首怀疑：宿主进程负载（线程数/GC 压力）下的 Gecko 初始化/首触竞争，而非
+  接触早晚本身。验证法：下轮无论死绿必采线程数 + GC 风暴行做对照；另做 idle-vs-
+  browse 对照（静置 60s 直开链接 vs 重刷后开）。Fennec/干净进程常绿与此一致
+  （宿主干净，非接触早）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
