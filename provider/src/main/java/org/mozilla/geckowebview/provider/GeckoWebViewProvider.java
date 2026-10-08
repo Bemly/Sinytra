@@ -355,6 +355,9 @@ public final class GeckoWebViewProvider
         if (!sPreloaded.compareAndSet(false, true)) {
             return;
         }
+        // Marker for dead-round forensics: proves this ran (vs the launcher
+        // runnable never executing downstream). Remove with the experiment.
+        android.util.Log.i(TAG, "child preload dispatched");
         try {
             org.mozilla.gecko.process.GeckoProcessManager.getInstance()
                     .preload(
