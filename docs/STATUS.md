@@ -1416,7 +1416,26 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   跨站切进程 → 新文档 listener 迁移失败（1673953 形状：前序窗口没见到
   STATE_STOP——link 无 PageStop——后续通知被压住）→ 字节走完但 session 全聋。
   修法：redirect leg 提交后无 commit 则有界 resume（fresh top 导航，直载已证
-  可提交），见下条。
+  可提交），见下条（`d26f514`，待 post-commit 轮验证）。
+- **P-WATCHDOG_SILENT 修正（非计时器 bug）**：死轮 sole `updateBindings` 是前台
+  bookkeeping，bind 请求本身从没发起——0026 的计时器守"请求后无应答"，死轮死在
+  "请求前"，故零开火符合设计（计时器只在 `bind()` 新建承诺时 arm）。0026 未证伪，
+  价值待定（post-request hang 仍可能在他处出现）；同时 JS 事件 inventory 修正：
+  全局事件（SetCookie/GetCookie/SetLocale/EnsureBuiltIn）**到达** parent JS，
+  死的是 session dispatcher 事件（ResponseFilters/LoadUri，需已 attach 的窗口）
+  与一切需应答/续跑的路径——session 窗口从未 attach 是一切 session 侧死亡之母。
+- **发起链问题（当前主犯）**：死轮 C++ 从未请求任何 child launch（GPU 首发都没有，
+  更谈不上 tab）。LoadUri 派发（需 attach 窗口的 listener）与 GPU 需求（需 content
+  launch）互为前提——首跳丢失（§1z listener-gap）+ attach 又依赖 GPU 门时即成
+  自持死锁；绿轮是竞态撞上正确顺序。下一步：C++ 发起链纸面（LaunchGPUProcess/
+  EnsureGPUReady 调用者 + 前置条件 + 静默跳过路径），定位"首个 bindService 永不
+  被调" 的门后，再定是 provider 可驱（early demand 注入）还是 Gecko patch。
+- **发起链问题（当前主犯）**：死轮 C++ 从未请求任何 child launch（GPU 首发都没有，
+  更谈不上 tab）。LoadUri 派发（需 attach 窗口的 listener）与 GPU 需求（需 content
+  launch）互为前提——首跳丢失（§1z listener-gap）+ attach 又依赖 GPU 门时即成
+  自持死锁；绿轮是竞态撞上正确顺序。下一步：C++ 发起链纸面（LaunchGPUProcess/
+  EnsureGPUReady 调用者 + 前置条件 + 静默跳过路径），定位"首个 bindService 永不
+  被调" 的门后，再定是 provider 可驱（early demand 注入）还是 Gecko patch。
 - **GPU-bind 挂起（S2 新主犯，日志对照实锤）**：绿轮 `ServiceAllocator $gpu
   updateBindings` 后必跟 tab bind（慢绿轮：GPU 3 次失败→SW-WR fallback→
   compositor 初始化→blank PageStart→install ack，31s 之谜即 3×~10s）；
