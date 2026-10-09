@@ -76,6 +76,32 @@ public final class GeckoWebViewFactoryProvider
 
     public GeckoWebViewFactoryProvider() {}
 
+    // Log-gate init follows the PROVIDER's own debuggable flag, never the
+    // host's: third-party hosts (coolapk, MiniWV) are never debuggable, and
+    // gating our diagnostics on them would blind every foreign-process round
+    // (device-verified 2026-10-09: fresh MiniWV showed zero D lines with a
+    // host-derived gate). The provider's installed flags come from
+    // getCurrentWebViewPackage (our own package info); any failure falls
+    // back to the host flags rather than breaking creation.
+    static void initLogGate(@Nullable Context hostContext) {
+        boolean debuggable = false;
+        try {
+            android.content.pm.PackageInfo pi =
+                    WebView.getCurrentWebViewPackage();
+            if (pi != null && pi.applicationInfo != null) {
+                debuggable = MainWatchdog.flagsDebuggable(
+                        pi.applicationInfo.flags);
+            } else if (hostContext != null) {
+                debuggable = MainWatchdog.flagsDebuggable(
+                        hostContext.getApplicationInfo().flags);
+            }
+        } catch (Throwable t) {
+            // Gate init must never break provider creation; release-default
+            // (INFO+) applies when we cannot tell.
+        }
+        SinytraLog.init(debuggable);
+    }
+
     public static android.webkit.WebViewFactoryProvider create(Object delegate) {
         SinytraLog.i(TAG, "create() via trampoline/delegate=" + delegate);
         GeckoWebViewFactoryProvider factory = new GeckoWebViewFactoryProvider();
@@ -85,8 +111,7 @@ public final class GeckoWebViewFactoryProvider
                         ((android.webkit.WebViewDelegate) delegate).getApplication();
                 if (app != null) {
                     factory.mAppContext = app.getApplicationContext();
-                    SinytraLog.init(MainWatchdog.flagsDebuggable(
-                            app.getApplicationInfo().flags));
+                    initLogGate(factory.mAppContext);
                 }
             } catch (Throwable t) {
                 SinytraLog.w(TAG, "WebViewDelegate.getApplication threw", t);
@@ -100,8 +125,7 @@ public final class GeckoWebViewFactoryProvider
         if (mAppContext == null) {
             mAppContext = webView.getContext().getApplicationContext();
         }
-        SinytraLog.init(MainWatchdog.flagsDebuggable(
-                mAppContext.getApplicationInfo().flags));
+        initLogGate(mAppContext);
         // Publish the host APK path to the process environment (0020): the
         // provider runs inside the host process, so this is the APK whose
         // assets back file:///android_asset/ (Chromium mapping). Tab
