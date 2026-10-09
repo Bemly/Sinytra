@@ -1,0 +1,54 @@
+From 801bd2a2d4f03c1bdd2f7e88f25ae5be1dc6ecd2 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Fri, 9 Oct 2026 14:17:31 +0800
+Subject: [PATCH] Sinytra patch 0029: shrink GPU-bind stall envelope (watchdog
+ 10s->3s, launch attempts 2->1)
+
+---
+ .../org/mozilla/gecko/process/GeckoProcessManager.java   | 9 ++++++++-
+ modules/libpref/init/StaticPrefList.yaml                 | 7 ++++++-
+ 2 files changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
+index 8404d7854b..76d86c7e18 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoProcessManager.java
+@@ -275,7 +275,14 @@ public final class GeckoProcessManager {
+     // philosophy: time out, unbind, rebuild — never assume the remote did it.
+     // Matches the C++ per-attempt WaitUntilConnected budget (10s), so the
+     // worst-case envelope stays inside the proven slow-start window.
+-    private static final long BIND_TIMEOUT_MS = 10_000;
++    // Sinytra 0029: 3s. The cross-package GPU bind black hole (foreign
++    // hosts: request out, zero AMS record, never settles — device-verified
++    // 2026-10-09, 3x10s=30s stall before SW fallback) never connects, so any
++    // budget only prices healthy binds: same-package binds settle in ~1s,
++    // foreign good binds inside ~3s (device-verified). A false positive only
++    // forces an earlier SW-WR fallback, which renders correctly. Deliberately
++    // shorter than the C++ 10s budget — Java now always preempts it.
++    private static final long BIND_TIMEOUT_MS = 3_000;
+ 
+     // Pending watchdog for the current bind attempt (null when none armed).
+     // Cancelled on every normal settle; a stale fire is a no-op (it only
+diff --git a/modules/libpref/init/StaticPrefList.yaml b/modules/libpref/init/StaticPrefList.yaml
+index 964f67c020..7f9343ee83 100644
+--- a/modules/libpref/init/StaticPrefList.yaml
++++ b/modules/libpref/init/StaticPrefList.yaml
+@@ -10533,9 +10533,14 @@
+ 
+ # How many additional attempts to launch the GPU process we try if we fail
+ # during process launch, before any configuration is attempted.
++# Sinytra 0029: 1 (was 2). With the cross-package GPU bind black hole each
++# dead attempt costs a full watchdog budget before SW-WR fallback
++# (device-verified 2026-10-09: 3x10s=30s stall on foreign hosts); one retry
++# keeps transient-failure resilience while the envelope stays small.
++# Combined with the 3s watchdog the worst case is 2x3s=6s.
+ - name: layers.gpu-process.max_launch_attempts
+   type: RelaxedAtomicInt32
+-  value: 2
++  value: 1
+   mirror: always
+ 
+ # How many unstable GPU process restarts we allow for a given configuration.
+-- 
+2.55.0
+
