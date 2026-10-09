@@ -1,0 +1,90 @@
+From 224b36cd723a9dd1c4df9d25c7b03e5a223d7144 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Fri, 9 Oct 2026 10:56:30 +0800
+Subject: [PATCH] Sinytra patch 0028: resume-state trace (diagnostic)
+
+---
+ widget/android/nsWindow.cpp | 34 +++++++++++++++++++++++++++++++++-
+ 1 file changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/widget/android/nsWindow.cpp b/widget/android/nsWindow.cpp
+index 255884c279..343f5093ba 100644
+--- a/widget/android/nsWindow.cpp
++++ b/widget/android/nsWindow.cpp
+@@ -46,7 +46,27 @@
+ #include "mozilla/MouseEvents.h"
+ #include "mozilla/Preferences.h"
+ #include "mozilla/PresShell.h"
+-#include "mozilla/ProfilerLabels.h"
++
++// Sinytra firefox-patches/0028 (DIAGNOSTIC, remove before 定稿):
++// resume-state trace. Both resume sites have silent skips
++// (paused-skip in NotifyCompositorCreated, null-child skip in
++// SyncResumeResizeCompositor) that present exactly as "session live +
++// surface attached + zero frames" (device-verified 2026-10-09 MiniWV:
++// full callbacks, title adopted, dumpsys surface attached, black
++// pixels). Gated on the 0005 sinytra.log.enabled runtime pref.
++static bool SinytraResumeLogEnabled() {
++  static const bool sEnabled =
++      mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++
++#define SINYTRA_RESUME_LOG(...)                                        \
++  do {                                                                 \
++    if (SinytraResumeLogEnabled()) {                                   \
++      __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/surface",       \
++                          __VA_ARGS__);                                \
++    }                                                                  \
++  } while (0)#include "mozilla/ProfilerLabels.h"
+ #include "mozilla/ScopeExit.h"
+ #include "mozilla/StaticPrefs_android.h"
+ #include "mozilla/StaticPrefs_ui.h"
+@@ -1231,11 +1251,16 @@ class LayerViewSupport final
+ 
+       bool resumed = mUiCompositorControllerChild->ResumeAndResize(
+           mX, mY, mWidth, mHeight);
++      SINYTRA_RESUME_LOG("NotifyCompositorCreated resumed=%d %dx%d",
++                         resumed, mWidth, mHeight);
+       if (!resumed) {
+         gfxCriticalNote
+             << "Failed to resume compositor from NotifyCompositorCreated";
+         RequestNewSurface();
+       }
++    } else {
++      SINYTRA_RESUME_LOG(
++          "NotifyCompositorCreated skipResume mCompositorPaused=1");
+     }
+   }
+ 
+@@ -1441,6 +1466,9 @@ class LayerViewSupport final
+       jni::Object::Param aSurfaceControl) {
+     MOZ_ASSERT(AndroidBridge::IsJavaUiThread());
+ 
++    SINYTRA_RESUME_LOG("SyncResumeResize %dx%d childNull=%d", aWidth,
++                       aHeight, mUiCompositorControllerChild == nullptr);
++
+     // Set this false prior to attempting to resume the compositor, so that if
+     // resumption fails the subsequent recovery knows to initialize the
+     // compositor in a resumed state.
+@@ -1478,6 +1506,8 @@ class LayerViewSupport final
+ 
+       bool resumed = mUiCompositorControllerChild->ResumeAndResize(
+           aX, aY, aWidth, aHeight);
++      SINYTRA_RESUME_LOG("SyncResumeResize resumed=%d %dx%d", resumed,
++                         aWidth, aHeight);
+       if (!resumed) {
+         gfxCriticalNote
+             << "Failed to resume compositor from SyncResumeResizeCompositor";
+@@ -1489,6 +1519,8 @@ class LayerViewSupport final
+         }
+         return;
+       }
++    } else {
++      SINYTRA_RESUME_LOG("SyncResumeResize skipResume childNull=1");
+     }
+ 
+     mRequestedNewSurface = false;
+-- 
+2.55.0
+
