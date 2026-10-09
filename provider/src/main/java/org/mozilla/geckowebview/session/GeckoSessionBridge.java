@@ -308,7 +308,7 @@ public final class GeckoSessionBridge
      * download from zero and guarantees it never finishes).
      */
     public void noteConsultActivity() {
-        mRescue.poke();
+        mRescue.poke(mUrl);
     }
 
     @Override
@@ -499,7 +499,8 @@ public final class GeckoSessionBridge
                 if (hold.fired) {
                     return;
                 }
-                Log.d(TAG, "finish hold timeout url=" + mUrl);
+                Log.d(TAG, "finish hold timeout url=" + mUrl
+                        + " titleEmpty=" + (mTitle == null || mTitle.isEmpty()));
                 firePendingHold();
             }, TITLE_HOLD_TIMEOUT_MS);
         } catch (Throwable t) {

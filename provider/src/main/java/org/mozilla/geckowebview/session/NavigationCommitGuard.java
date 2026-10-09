@@ -181,13 +181,14 @@ final class NavigationCommitGuard {
     // stall); only the necko consult path calls this. The first poke also
     // sets the consult latch (see class header): from then on this arm only
     // extends, because its dispatch provably landed and re-issuing can only
-    // restart a load whose commit is suppressed downstream.
-    synchronized void poke() {
+    // restart a load whose commit is suppressed downstream. The URL is
+    // log-only (the guard itself stays URL-blind).
+    synchronized void poke(@Nullable String url) {
         mProgress = true;
         if (!mConsultLatched) {
             mConsultLatched = true;
-            android.util.Log.d(TAG, "commit guard consult-latched;"
-                    + " refires suspended for this navigation");
+            android.util.Log.d(TAG, "commit guard consult-latched url=" + url
+                    + "; refires suspended for this navigation");
         }
     }
 

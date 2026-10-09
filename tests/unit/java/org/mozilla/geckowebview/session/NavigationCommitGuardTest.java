@@ -81,8 +81,8 @@ public final class NavigationCommitGuardTest {
         guard.arm(() -> {
             throw new AssertionError("must stay inert without Looper");
         });
-        guard.poke();
-        guard.poke();
+        guard.poke("https://example.com/");
+        guard.poke("https://example.com/");
         guard.disarm();
     }
 
@@ -119,9 +119,9 @@ public final class NavigationCommitGuardTest {
             throw new AssertionError("must stay inert without Looper");
         });
         assertFalse(guard.isConsultLatched());
-        guard.poke();
+        guard.poke("https://example.com/");
         assertTrue(guard.isConsultLatched());
-        guard.poke();
+        guard.poke("https://example.com/");
         assertTrue(guard.isConsultLatched());
         guard.disarm();
     }
@@ -130,7 +130,7 @@ public final class NavigationCommitGuardTest {
     public void latch_clearedByDisarm() {
         NavigationCommitGuard guard = new NavigationCommitGuard();
         guard.arm(() -> {});
-        guard.poke();
+        guard.poke("https://example.com/");
         assertTrue(guard.isConsultLatched());
         guard.disarm();
         assertFalse(guard.isConsultLatched());
@@ -140,10 +140,19 @@ public final class NavigationCommitGuardTest {
     public void latch_clearedByRearm() {
         NavigationCommitGuard guard = new NavigationCommitGuard();
         guard.arm(() -> {});
-        guard.poke();
+        guard.poke("https://example.com/");
         assertTrue(guard.isConsultLatched());
         guard.arm(() -> {});
         assertFalse(guard.isConsultLatched());
+        guard.disarm();
+    }
+
+    @Test
+    public void latch_nullUrlStillLatches() {
+        NavigationCommitGuard guard = new NavigationCommitGuard();
+        guard.arm(() -> {});
+        guard.poke(null);
+        assertTrue(guard.isConsultLatched());
         guard.disarm();
     }
 }

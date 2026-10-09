@@ -202,8 +202,8 @@ public final class SessionRescue {
      * commit slower than the whole retry budget — re-issuing restarts the
      * download from zero and guarantees it never finishes).
      */
-    void poke() {
-        mGuard.poke();
+    void poke(@Nullable String url) {
+        mGuard.poke(url);
     }
 
     // Proof of life: the pipeline serves this session — refill the
