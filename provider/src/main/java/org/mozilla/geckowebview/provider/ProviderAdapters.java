@@ -9,6 +9,7 @@ import android.webkit.WebMessage;
 import android.webkit.WebMessagePort;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoSession;
 
 // Framework token objects handed to app callbacks: PermissionRequest,
@@ -88,7 +89,7 @@ final class ProviderAdapters {
                     mCallback.reject();
                 }
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/permission", "media grant routing threw", t);
+                SinytraLog.w("Sinytra/permission", "media grant routing threw", t);
             }
         }
 
@@ -97,7 +98,7 @@ final class ProviderAdapters {
             try {
                 mCallback.reject();
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/permission", "media deny routing threw", t);
+                SinytraLog.w("Sinytra/permission", "media deny routing threw", t);
             }
         }
     }

@@ -12,6 +12,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckowebview.session.PermissionBridge;
@@ -80,7 +81,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
     public void onGeolocationPrompt(@NonNull String origin,
             @NonNull PermissionBridge.Decision decision) {
         if (!isSecureOriginForGeolocation(origin)) {
-            android.util.Log.w(TAG,
+            SinytraLog.w(TAG,
                     "geolocation denied without prompt: insecure origin "
                             + origin);
             decision.deny();
@@ -103,7 +104,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
                         // retain (remember this origin) has no Gecko
                         // persistence primitive in P1 — accepted, logged.
                         if (retain) {
-                            android.util.Log.d(TAG,
+                            SinytraLog.d(TAG,
                                     "geolocation retain=true not persisted");
                         }
                     }
@@ -111,7 +112,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
         try {
             chrome.onGeolocationPermissionsShowPrompt(origin, callback);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "onGeolocationPermissionsShowPrompt threw", t);
+            SinytraLog.w(TAG, "onGeolocationPermissionsShowPrompt threw", t);
             decision.deny();
         }
     }
@@ -124,7 +125,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
         // onPermissionRequest (that API is for device capture, which the
         // media path below owns). Deny loudly rather than fabricate a
         // prompt the app cannot answer truthfully.
-        android.util.Log.w(TAG, "no WebView surface for content permission "
+        SinytraLog.w(TAG, "no WebView surface for content permission "
                 + geckoPermission + " on " + origin + " — denying");
         decision.deny();
     }
@@ -135,7 +136,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
         try {
             callback.reject();
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "permission callback reject threw", t);
+            SinytraLog.w(TAG, "permission callback reject threw", t);
         }
     }
 
@@ -149,7 +150,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             try {
                 callback.reject();
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "media callback reject threw", t);
+                SinytraLog.w(TAG, "media callback reject threw", t);
             }
             return;
         }
@@ -158,7 +159,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
                     new ProviderAdapters.SinytraMediaPermissionRequest(uri,
                             video, audio, callback));
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onPermissionRequest threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onPermissionRequest threw", t);
             try {
                 callback.reject();
             } catch (Throwable ignored) {
@@ -188,7 +189,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
                         prompt.dismiss();
                     }
                 } catch (Throwable t) {
-                    android.util.Log.w(TAG, "file prompt confirm threw", t);
+                    SinytraLog.w(TAG, "file prompt confirm threw", t);
                 } finally {
                     mOwner.setFileChooserCallback(null);
                 }
@@ -206,7 +207,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
                 callback.onReceiveValue(null);
             }
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onShowFileChooser threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onShowFileChooser threw", t);
             callback.onReceiveValue(null);
         }
     }
@@ -241,7 +242,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
                                     .getContext()).setHttpAuthUsernamePassword(
                                             host, realm, username, password);
                         } catch (Throwable t) {
-                            android.util.Log.w(TAG,
+                            SinytraLog.w(TAG,
                                     "webViewDatabase set threw", t);
                         }
                         mainPostAuth(pending, prompt, username, password,
@@ -258,7 +259,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             stored = mOwner.factory().webViewDatabase(mOwner.webView().getContext())
                     .getHttpAuthUsernamePassword(host, realm);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "webViewDatabase get threw", t);
+            SinytraLog.w(TAG, "webViewDatabase get threw", t);
         }
         HttpAuthHandler handler =
                 FrameworkTokens.newAuthHandler(decision, stored != null
@@ -282,7 +283,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
                 try {
                     pending.complete(prompt.confirm(user, pass));
                 } catch (Throwable t) {
-                    android.util.Log.w(TAG, "auth confirm stored threw", t);
+                    SinytraLog.w(TAG, "auth confirm stored threw", t);
                     try {
                         pending.complete(prompt.dismiss());
                     } catch (Throwable ignored) {
@@ -293,7 +294,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             try {
                 pending.complete(prompt.dismiss());
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "auth prompt dismiss threw", t);
+                SinytraLog.w(TAG, "auth prompt dismiss threw", t);
             }
             return;
         }
@@ -303,7 +304,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             client.onReceivedHttpAuthRequest(mOwner.webView(), handler, host,
                     realm);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.onReceivedHttpAuthRequest threw", t);
+            SinytraLog.w(TAG, "WebViewClient.onReceivedHttpAuthRequest threw", t);
             try {
                 pending.complete(prompt.dismiss());
             } catch (Throwable ignored) {
@@ -324,7 +325,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
                     pending.complete(prompt.confirm(username, password));
                 }
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "auth pending complete threw", t);
+                SinytraLog.w(TAG, "auth pending complete threw", t);
             }
         });
     }
@@ -385,7 +386,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             chrome.onJsAlert(mOwner.webView(), mOwner.ownerBridge().getUrl(), message,
                     result);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onJsAlert threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onJsAlert threw", t);
         }
     }
 
@@ -409,7 +410,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             // WebChromeClientTest timeout family).
             return FrameworkTokens.jsResultValue(result);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onJsConfirm threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onJsConfirm threw", t);
             return false;
         }
     }
@@ -434,7 +435,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             // always received empty input).
             return FrameworkTokens.jsPromptString(result);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onJsPrompt threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onJsPrompt threw", t);
             return null;
         }
     }
@@ -458,7 +459,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             chrome.onJsBeforeUnload(mOwner.webView(), url, message, result);
             return FrameworkTokens.jsResultValue(result);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onJsBeforeUnload threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onJsBeforeUnload threw", t);
             return true;
         }
     }

@@ -11,6 +11,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckowebview.storage.GeckoWebIconDatabase;
 
 // Page favicon fetching (CTS WebChromeClientTest.testOnReceivedIcon +
@@ -102,7 +103,7 @@ final class IconFetcher {
                 }
             });
         } catch (Throwable t) {
-            android.util.Log.d(TAG, "icon query not issued", t);
+            SinytraLog.d(TAG, "icon query not issued", t);
             if (settled.compareAndSet(false, true) && defaultTarget != null) {
                 fetch(defaultTarget, page);
             }
@@ -118,7 +119,7 @@ final class IconFetcher {
             try {
                 mHost.iconDatabase().putIcon(pageUrl, bitmap);
             } catch (Throwable t) {
-                android.util.Log.d(TAG, "icon store threw", t);
+                SinytraLog.d(TAG, "icon store threw", t);
             }
             try {
                 WebChromeClient chrome = mHost.chromeClient();
@@ -126,7 +127,7 @@ final class IconFetcher {
                     chrome.onReceivedIcon(mHost.webView(), bitmap);
                 }
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "onReceivedIcon threw", t);
+                SinytraLog.w(TAG, "onReceivedIcon threw", t);
             }
         });
     }

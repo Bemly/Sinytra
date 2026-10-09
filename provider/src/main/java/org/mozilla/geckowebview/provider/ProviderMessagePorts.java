@@ -6,6 +6,7 @@ import android.webkit.WebMessagePort;
 import android.webkit.SinytraWebMessagePort;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckowebview.session.MessageBridge;
 
 // Framework WebMessage channel plumbing, split out of
@@ -104,7 +105,7 @@ final class ProviderMessagePorts {
                     targetOrigin != null ? targetOrigin.toString() : null,
                     transferred);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "postMessageToMainFrame threw", t);
+            SinytraLog.w(TAG, "postMessageToMainFrame threw", t);
         }
     }
 }

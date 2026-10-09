@@ -1,6 +1,6 @@
 package org.mozilla.geckowebview.provider;
 
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -110,7 +110,7 @@ final class FrameworkPrivateAccess {
             }
             return (Boolean) m.invoke(access, args);
         } catch (Throwable t) {
-            Log.w(TAG, "PrivateAccess." + name + " failed", t);
+            SinytraLog.w(TAG, "PrivateAccess." + name + " failed", t);
             return false;
         }
     }

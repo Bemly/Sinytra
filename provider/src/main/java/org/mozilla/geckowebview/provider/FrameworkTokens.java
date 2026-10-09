@@ -1,6 +1,6 @@
 package org.mozilla.geckowebview.provider;
 
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.webkit.HttpAuthHandler;
 import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
@@ -38,7 +38,7 @@ final class FrameworkTokens {
             return new android.webkit.SinytraHttpAuthHandler(decision,
                     usedStoredCredentials);
         } catch (Throwable t) {
-            Log.w(TAG, "HttpAuthHandler construction failed", t);
+            SinytraLog.w(TAG, "HttpAuthHandler construction failed", t);
             return null;
         }
     }
@@ -63,7 +63,7 @@ final class FrameworkTokens {
             ctor.setAccessible(true);
             return ctor.newInstance(receiver);
         } catch (Throwable t) {
-            Log.w(TAG, "JsResult reflection failed", t);
+            SinytraLog.w(TAG, "JsResult reflection failed", t);
             return null;
         }
     }
@@ -82,7 +82,7 @@ final class FrameworkTokens {
             ctor.setAccessible(true);
             return ctor.newInstance(receiver);
         } catch (Throwable t) {
-            Log.w(TAG, "JsPromptResult reflection failed", t);
+            SinytraLog.w(TAG, "JsPromptResult reflection failed", t);
             return null;
         }
     }

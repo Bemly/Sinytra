@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.provider;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckowebview.session.JsEvaluator;
 
 // In-place image restore for image-policy loosening (CTS WebSettingsTest
@@ -61,11 +62,11 @@ final class ProviderImageRestore {
         try {
             js.evaluate(RESTORE_SCRIPT, ProviderImageRestore::logResult);
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/session", "restore eval threw", t);
+            SinytraLog.w("Sinytra/session", "restore eval threw", t);
         }
     }
 
     private static void logResult(@Nullable String value) {
-        android.util.Log.d("Sinytra/session", "restore eval count=" + value);
+        SinytraLog.d("Sinytra/session", "restore eval count=" + value);
     }
 }

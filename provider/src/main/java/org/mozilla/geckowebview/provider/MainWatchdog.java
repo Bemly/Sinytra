@@ -1,4 +1,5 @@
 package org.mozilla.geckowebview.provider;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import android.content.pm.ApplicationInfo;
 import android.os.Handler;
@@ -75,7 +76,7 @@ final class MainWatchdog {
         try {
             watcher.start();
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "watchdog start threw", t);
+            SinytraLog.w(TAG, "watchdog start threw", t);
         }
     }
 
@@ -113,13 +114,13 @@ final class MainWatchdog {
     }
 
     private static void dumpStacks(long stuckMs, int episode) {
-        android.util.Log.w(TAG, "main looper stuck for " + stuckMs
+        SinytraLog.w(TAG, "main looper stuck for " + stuckMs
                 + "ms; dumping stacks episode=" + episode);
         java.util.Map<Thread, StackTraceElement[]> all;
         try {
             all = Thread.getAllStackTraces();
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "getAllStackTraces threw", t);
+            SinytraLog.w(TAG, "getAllStackTraces threw", t);
             return;
         }
         Thread mainThread = Looper.getMainLooper().getThread();
@@ -133,7 +134,7 @@ final class MainWatchdog {
             // full dumps of 100+ threads would flood logcat.
             logThread(entry.getKey(), entry.getValue(), 20);
         }
-        android.util.Log.w(TAG, "stack dump done");
+        SinytraLog.w(TAG, "stack dump done");
     }
 
     private static void logThread(Thread thread,
@@ -142,16 +143,16 @@ final class MainWatchdog {
         sb.append("thread ").append(thread.getName())
                 .append(" id=").append(thread.getId())
                 .append(" state=").append(thread.getState());
-        android.util.Log.w(TAG, sb.toString());
+        SinytraLog.w(TAG, sb.toString());
         if (stack == null) {
             return;
         }
         int frames = Math.min(stack.length, maxFrames);
         for (int i = 0; i < frames; i++) {
-            android.util.Log.w(TAG, "    at " + stack[i]);
+            SinytraLog.w(TAG, "    at " + stack[i]);
         }
         if (stack.length > frames) {
-            android.util.Log.w(TAG, "    ... (" + (stack.length - frames)
+            SinytraLog.w(TAG, "    ... (" + (stack.length - frames)
                     + " more)");
         }
     }

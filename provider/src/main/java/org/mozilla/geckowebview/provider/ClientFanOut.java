@@ -10,6 +10,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckowebview.session.ContentBridge;
 import org.mozilla.geckowebview.session.InterceptBridge;
 import org.mozilla.geckowebview.session.MessageBridge;
@@ -120,7 +121,7 @@ final class ClientFanOut
         try {
             return client.shouldOverrideUrlLoading(mOwner.webView(), url);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.shouldOverrideUrlLoading threw", t);
+            SinytraLog.w(TAG, "WebViewClient.shouldOverrideUrlLoading threw", t);
             return false;
         }
     }
@@ -137,7 +138,7 @@ final class ClientFanOut
             try {
                 mOwner.repushResponseFilters();
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "repushResponseFilters threw", t);
+                SinytraLog.w(TAG, "repushResponseFilters threw", t);
             }
         }
         WebViewClient client = mOwner.webViewClient();
@@ -147,7 +148,7 @@ final class ClientFanOut
         try {
             client.onPageStarted(mOwner.webView(), url, null);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.onPageStarted threw", t);
+            SinytraLog.w(TAG, "WebViewClient.onPageStarted threw", t);
         }
     }
 
@@ -167,7 +168,7 @@ final class ClientFanOut
                 try {
                     chrome.onProgressChanged(mOwner.webView(), 100);
                 } catch (Throwable t) {
-                    android.util.Log.w(TAG,
+                    SinytraLog.w(TAG,
                             "WebChromeClient.onProgressChanged threw", t);
                 }
             }
@@ -191,18 +192,18 @@ final class ClientFanOut
                 client.onPageFinished(mOwner.webView(), url);
             }
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.onPageFinished threw", t);
+            SinytraLog.w(TAG, "WebViewClient.onPageFinished threw", t);
         } finally {
             try {
                 mOwner.fireVisualState();
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "fireVisualState threw", t);
+                SinytraLog.w(TAG, "fireVisualState threw", t);
             }
             if (success) {
                 try {
                     mOwner.fetchFavicon();
                 } catch (Throwable t) {
-                    android.util.Log.d(TAG, "fetchFavicon threw", t);
+                    SinytraLog.d(TAG, "fetchFavicon threw", t);
                 }
             }
         }
@@ -218,7 +219,7 @@ final class ClientFanOut
         try {
             chrome.onProgressChanged(mOwner.webView(), progress);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onProgressChanged threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onProgressChanged threw", t);
         }
     }
 
@@ -240,7 +241,7 @@ final class ClientFanOut
         try {
             chrome.onReceivedTitle(mOwner.webView(), title);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onReceivedTitle threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onReceivedTitle threw", t);
         }
     }
 
@@ -271,7 +272,7 @@ final class ClientFanOut
                                     failingUrl));
                 return;
             } catch (Throwable t) {
-                android.util.Log.w(TAG,
+                SinytraLog.w(TAG,
                         "WebViewClient.onReceivedSslError threw", t);
             }
         }
@@ -279,7 +280,7 @@ final class ClientFanOut
             client.onReceivedError(mOwner.webView(), errorCode, description,
                     failingUrl);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.onReceivedError threw", t);
+            SinytraLog.w(TAG, "WebViewClient.onReceivedError threw", t);
         }
     }
 
@@ -295,7 +296,7 @@ final class ClientFanOut
         }
         org.mozilla.geckoview.CertOverrideController.allowError(url)
                 .accept(ok -> {
-                    android.util.Log.d(TAG, "ssl proceed override=" + ok
+                    SinytraLog.d(TAG, "ssl proceed override=" + ok
                             + " url=" + url);
                     if (Boolean.TRUE.equals(ok)) {
                         // Reload through OUR provider bridge after the failed
@@ -308,13 +309,13 @@ final class ClientFanOut
                         // into the attach-time RunQueue where it never runs.
                         new android.os.Handler(android.os.Looper
                                 .getMainLooper()).postDelayed(() -> {
-                            android.util.Log.d(TAG,
+                            SinytraLog.d(TAG,
                                     "ssl proceed reloading " + url);
                             mOwner.ownerBridge().loadUrl(url);
                         }, 500);
                     }
                 },
-                e -> android.util.Log.w(TAG, "ssl proceed failed", e));
+                e -> SinytraLog.w(TAG, "ssl proceed failed", e));
     }
 
     // Pure (JVM-testable): terminal-100 fires only for successful loads
@@ -331,7 +332,7 @@ final class ClientFanOut
             @Nullable String contentDisposition, @NonNull String mimeType,
             long contentLength) {
         DownloadListener listener = mOwner.downloadListener();
-        android.util.Log.d(TAG, "onDownloadStart url=" + url
+        SinytraLog.d(TAG, "onDownloadStart url=" + url
                 + " listener=" + (listener != null)
                 + " owner=" + Integer.toHexString(mOwner.hashCode()));
         if (listener == null) {
@@ -341,7 +342,7 @@ final class ClientFanOut
             listener.onDownloadStart(url, userAgent, contentDisposition, mimeType,
                     contentLength);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "DownloadListener.onDownloadStart threw", t);
+            SinytraLog.w(TAG, "DownloadListener.onDownloadStart threw", t);
         }
     }
 
@@ -358,7 +359,7 @@ final class ClientFanOut
                 chrome.onHideCustomView();
             }
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient fullscreen threw", t);
+            SinytraLog.w(TAG, "WebChromeClient fullscreen threw", t);
         }
     }
 
@@ -371,7 +372,7 @@ final class ClientFanOut
         try {
             chrome.onCloseWindow(mOwner.webView());
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onCloseWindow threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onCloseWindow threw", t);
         }
     }
 
@@ -384,7 +385,7 @@ final class ClientFanOut
         try {
             chrome.onRequestFocus(mOwner.webView());
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onRequestFocus threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onRequestFocus threw", t);
         }
     }
 
@@ -400,7 +401,7 @@ final class ClientFanOut
             client.onReceivedError(mOwner.webView(), WebViewClient.ERROR_UNKNOWN,
                     "renderer crashed", url != null ? url : "about:blank");
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient crash report threw", t);
+            SinytraLog.w(TAG, "WebViewClient crash report threw", t);
         }
     }
 
@@ -425,7 +426,7 @@ final class ClientFanOut
             chrome.onConsoleMessage(new android.webkit.ConsoleMessage(message,
                     url != null ? url : "", line, mapped));
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebChromeClient.onConsoleMessage threw", t);
+            SinytraLog.w(TAG, "WebChromeClient.onConsoleMessage threw", t);
         }
     }
 
@@ -451,12 +452,12 @@ final class ClientFanOut
                 // Consultation only: the caller decides (deny via
                 // onInterceptDeny, or body substitution via 0001
                 // ResponseBridge) — never assume deny here.
-                android.util.Log.d(TAG, "intercept: app returned response for "
+                SinytraLog.d(TAG, "intercept: app returned response for "
                         + request.getUrl());
             }
             return response;
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "WebViewClient.shouldInterceptRequest threw", t);
+            SinytraLog.w(TAG, "WebViewClient.shouldInterceptRequest threw", t);
             return null;
         }
     }
@@ -464,7 +465,7 @@ final class ClientFanOut
     @Override
     public void onInterceptDeny(@NonNull String uri, boolean isRedirect,
             boolean hasUserGesture) {
-        android.util.Log.i(TAG, "intercept: DENY " + uri + " redirect=" + isRedirect
+        SinytraLog.i(TAG, "intercept: DENY " + uri + " redirect=" + isRedirect
                 + " gesture=" + hasUserGesture);
     }
 
@@ -484,7 +485,7 @@ final class ClientFanOut
             return LoadPolicy.blockNavigation(uri, isMainFrame, page,
                     mOwner.webSettingsState());
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "policyBlocksNavigation threw", t);
+            SinytraLog.w(TAG, "policyBlocksNavigation threw", t);
             return false;
         }
     }

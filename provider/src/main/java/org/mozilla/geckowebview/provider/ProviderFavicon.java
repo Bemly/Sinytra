@@ -5,6 +5,7 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckowebview.session.JsEvaluator;
 import org.mozilla.geckowebview.storage.GeckoWebIconDatabase;
 
@@ -91,7 +92,7 @@ final class ProviderFavicon {
             }
             return lookup().lookup(url);
         } catch (Throwable t) {
-            android.util.Log.d("Sinytra/icon", "getFavicon lookup threw", t);
+            SinytraLog.d("Sinytra/icon", "getFavicon lookup threw", t);
             return null;
         }
     }

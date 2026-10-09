@@ -4,7 +4,7 @@ import android.content.Intent;
 import android.graphics.Canvas;
 import android.net.Uri;
 import android.os.Bundle;
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.ValueCallback;
@@ -126,7 +126,7 @@ final class ProviderViewDelegates {
                                 resultCode, data);
                         callback.onReceiveValue(results);
                     } catch (Throwable t) {
-                        Log.w(TAG, "file chooser parse threw", t);
+                        SinytraLog.w(TAG, "file chooser parse threw", t);
                         try {
                             callback.onReceiveValue(null);
                         } catch (Throwable ignored) {

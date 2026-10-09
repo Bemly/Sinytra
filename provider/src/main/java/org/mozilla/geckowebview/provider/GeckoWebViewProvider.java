@@ -10,7 +10,7 @@ import android.net.http.SslCertificate;
 import android.os.Bundle;
 import android.os.Message;
 import android.print.PrintDocumentAdapter;
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.ClientCertRequest;
@@ -135,7 +135,7 @@ public final class GeckoWebViewProvider
             MainWatchdog.installIfDebuggable(
                     webView.getContext().getApplicationContext());
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "watchdog install threw", t);
+            SinytraLog.w(TAG, "watchdog install threw", t);
         }
         mPrivateAccess = new FrameworkPrivateAccess(privateAccess);
         mFactory = factory;
@@ -256,7 +256,7 @@ public final class GeckoWebViewProvider
                 return null;
             });
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "filter repush threw", t);
+            SinytraLog.w(TAG, "filter repush threw", t);
         }
         // Bind the JS extension transport (built-in WebExtension, public API;
         // install is async — eval answers honest-null until ready).
@@ -266,7 +266,7 @@ public final class GeckoWebViewProvider
                             webView.getContext().getApplicationContext()),
                     mBridge.session());
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "JsBridge.bind threw", t);
+            SinytraLog.w(TAG, "JsBridge.bind threw", t);
         }
         // Visual surface: attach a GeckoViewHost as a child of the WebView
         // (the framework WebView is an AbsoluteLayout, so the child params
@@ -296,13 +296,13 @@ public final class GeckoWebViewProvider
                     host.bind(webView.getContext(), mBridge);
                     hostBox[0] = host;
                 } catch (Throwable t) {
-                    android.util.Log.w(TAG,
+                    SinytraLog.w(TAG,
                             "GeckoViewHost bind threw (headless fallback)", t);
                 }
                 return null;
             });
         } catch (Throwable t) {
-            android.util.Log.w(TAG,
+            SinytraLog.w(TAG,
                     "GeckoViewHost main-hop threw (headless fallback)", t);
         }
         mViewHost = hostBox[0];
@@ -339,7 +339,7 @@ public final class GeckoWebViewProvider
                     ProviderImageRestore.fire(mJs);
                 }
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "images policy push threw", t);
+                SinytraLog.w(TAG, "images policy push threw", t);
             }
         });
     }
@@ -361,7 +361,7 @@ public final class GeckoWebViewProvider
                             org.mozilla.gecko.process.GeckoProcessType.GPU,
                             org.mozilla.gecko.process.GeckoProcessType.CONTENT);
         } catch (Throwable t) {
-            android.util.Log.w(TAG,
+            SinytraLog.w(TAG,
                     "child preload threw; continuing without", t);
         }
     }
@@ -382,7 +382,7 @@ public final class GeckoWebViewProvider
                 return null;
             });
         } catch (Throwable t) {
-            android.util.Log.w(TAG,
+            SinytraLog.w(TAG,
                     "GeckoViewHost addView failed; deferred to onAttachedToWindow", t);
         }
     }
@@ -397,7 +397,7 @@ public final class GeckoWebViewProvider
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT, 0, 0));
         } catch (Throwable t) {
-            android.util.Log.w(TAG,
+            SinytraLog.w(TAG,
                     "GeckoViewHost addView failed; deferred to onAttachedToWindow", t);
         }
     }
@@ -488,7 +488,7 @@ public final class GeckoWebViewProvider
             try {
                 listener.onNewPicture(mWebView, capturePicture());
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "PictureListener.onNewPicture threw", t);
+                SinytraLog.w(TAG, "PictureListener.onNewPicture threw", t);
             }
         });
     }
@@ -553,9 +553,9 @@ public final class GeckoWebViewProvider
                 mBridge.close();
             }
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "bridge.close threw", t);
+            SinytraLog.w(TAG, "bridge.close threw", t);
         } finally {
-            android.util.Log.d(TAG, "destroy took "
+            SinytraLog.d(TAG, "destroy took "
                     + (android.os.SystemClock.uptimeMillis() - startMs)
                     + "ms");
         }
@@ -581,7 +581,7 @@ public final class GeckoWebViewProvider
                     state.getAllowFileAccessFromFileURLs()
                             || state.getAllowUniversalAccessFromFileURLs());
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "pushSettings threw", t);
+            SinytraLog.w(TAG, "pushSettings threw", t);
         }
     }
 
@@ -633,7 +633,7 @@ public final class GeckoWebViewProvider
                     data, FileBridge.mimeForPath(FileBridge.filePathOf(url)));
             return true;
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "serveLocalFile threw", t);
+            SinytraLog.w(TAG, "serveLocalFile threw", t);
             return false;
         }
     }
@@ -752,7 +752,7 @@ public final class GeckoWebViewProvider
 
     @Override
     public void setDownloadListener(DownloadListener listener) {
-        Log.d(TAG, "setDownloadListener " + (listener != null)
+        SinytraLog.d(TAG, "setDownloadListener " + (listener != null)
                 + " this=" + Integer.toHexString(hashCode()));
         mDownloadListener = listener;
     }
@@ -801,7 +801,7 @@ public final class GeckoWebViewProvider
             mFactory.webViewDatabase(mWebView.getContext())
                     .setHttpAuthUsernamePassword(host, realm, username, password);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "setHttpAuthUsernamePassword threw", t);
+            SinytraLog.w(TAG, "setHttpAuthUsernamePassword threw", t);
         }
     }
     @Override public String[] getHttpAuthUsernamePassword(String host, String realm) {
@@ -809,7 +809,7 @@ public final class GeckoWebViewProvider
             return mFactory.webViewDatabase(mWebView.getContext())
                     .getHttpAuthUsernamePassword(host, realm);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "getHttpAuthUsernamePassword threw", t);
+            SinytraLog.w(TAG, "getHttpAuthUsernamePassword threw", t);
             return null;
         }
     }
@@ -823,7 +823,7 @@ public final class GeckoWebViewProvider
             StateBridge.saveInto(outState, mBridge.sessionState(),
                     mBridge.historySnapshot());
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "saveState threw", t);
+            SinytraLog.w(TAG, "saveState threw", t);
         }
         return new GeckoBackForwardList(mBridge.historySnapshot(),
                 !mBridge.hasExplicitAboutLoad(), mFavicon.lookup());
@@ -851,7 +851,7 @@ public final class GeckoWebViewProvider
                 }
             }
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "restoreState threw", t);
+            SinytraLog.w(TAG, "restoreState threw", t);
         }
         return new GeckoBackForwardList(mBridge.historySnapshot(),
                 !mBridge.hasExplicitAboutLoad(), mFavicon.lookup());
@@ -863,10 +863,10 @@ public final class GeckoWebViewProvider
         // until then degrade to no-op: a wrong-method GET risks side effects,
         // and throwing kills the host process (see section comment).
         if (url == null || url.isEmpty()) {
-            android.util.Log.w(TAG, "postUrl: null/empty url, dropped");
+            SinytraLog.w(TAG, "postUrl: null/empty url, dropped");
             return;
         }
-        android.util.Log.w(TAG, "postUrl: POST body upload not implemented, "
+        SinytraLog.w(TAG, "postUrl: POST body upload not implemented, "
                 + "navigation dropped url=" + url + " bytes="
                 + (postData != null ? postData.length : -1));
     }
@@ -900,7 +900,7 @@ public final class GeckoWebViewProvider
             mInterception.loadDataWithBaseURL(baseUrl, data, mimeType,
                     encoding, historyUrl);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "loadDataWithBaseURL threw", t);
+            SinytraLog.w(TAG, "loadDataWithBaseURL threw", t);
         }
     }
 
@@ -916,18 +916,18 @@ public final class GeckoWebViewProvider
     @Override public void saveWebArchive(String filename) {
         // No Gecko .mht serialization primitive — honest no-op (AGENTS §4:
         // nothing to reuse, nothing to build on yet).
-        android.util.Log.w(TAG, "saveWebArchive: webarchive serialization not "
+        SinytraLog.w(TAG, "saveWebArchive: webarchive serialization not "
                 + "implemented, dropped file=" + filename);
     }
     @Override public void saveWebArchive(String basename, boolean autoname,
             ValueCallback<String> callback) {
-        android.util.Log.w(TAG, "saveWebArchive: webarchive serialization not "
+        SinytraLog.w(TAG, "saveWebArchive: webarchive serialization not "
                 + "implemented, dropped base=" + basename);
         if (callback != null) {
             try {
                 callback.onReceiveValue(null);
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "saveWebArchive callback threw", t);
+                SinytraLog.w(TAG, "saveWebArchive callback threw", t);
             }
         }
     }
@@ -958,7 +958,7 @@ public final class GeckoWebViewProvider
             try {
                 entry.getValue().onComplete(entry.getKey());
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "VisualStateCallback threw", t);
+                SinytraLog.w(TAG, "VisualStateCallback threw", t);
             }
         }
     }
@@ -984,7 +984,7 @@ public final class GeckoWebViewProvider
                 Object value = getData.invoke(messageHandler);
                 data = value != null ? value.toString() : null;
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "compat message getData threw", t);
+                SinytraLog.w(TAG, "compat message getData threw", t);
             }
         }
         if (data == null) {
@@ -994,7 +994,7 @@ public final class GeckoWebViewProvider
         try {
             mMessages.postToMainFrame(data, origin);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "postCompatMessage threw", t);
+            SinytraLog.w(TAG, "postCompatMessage threw", t);
         }
     }
 
@@ -1009,7 +1009,7 @@ public final class GeckoWebViewProvider
         // framework renderer client to forward to, so the boundary client
         // is honestly dropped.
         if (android.os.Build.VERSION.SDK_INT < 29) {
-            android.util.Log.w(TAG,
+            SinytraLog.w(TAG,
                     "setCompatRendererClient: renderer client is API 29+, "
                             + "not available on this device");
             return;
@@ -1027,7 +1027,7 @@ public final class GeckoWebViewProvider
         try {
             return mPrint.createAdapter(mWebView.getContext(), documentName);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "createPrintDocumentAdapter: print backend "
+            SinytraLog.w(TAG, "createPrintDocumentAdapter: print backend "
                     + "unavailable, returning failing adapter", t);
             return ProviderFallbacks.failingPrintAdapter(documentName);
         }
@@ -1055,7 +1055,7 @@ public final class GeckoWebViewProvider
                 mBridge.session().setActive(false);
             }
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "onPause setActive threw", t);
+            SinytraLog.w(TAG, "onPause setActive threw", t);
         }
     }
 
@@ -1066,7 +1066,7 @@ public final class GeckoWebViewProvider
                 mBridge.session().setActive(true);
             }
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "onResume setActive threw", t);
+            SinytraLog.w(TAG, "onResume setActive threw", t);
         }
     }
 
@@ -1083,14 +1083,14 @@ public final class GeckoWebViewProvider
             controller.clearData(
                     org.mozilla.geckoview.StorageController.ClearFlags.ALL_CACHES);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "clearCache threw", t);
+            SinytraLog.w(TAG, "clearCache threw", t);
         }
     }
     @Override public void clearFormData() {
         try {
             mFactory.webViewDatabase(mWebView.getContext()).clearFormData();
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "clearFormData threw", t);
+            SinytraLog.w(TAG, "clearFormData threw", t);
         }
     }
     @Override public void clearHistory() {
@@ -1132,7 +1132,7 @@ public final class GeckoWebViewProvider
         try {
             mJsInterfaces.addInterface(obj, interfaceName);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "addJavascriptInterface threw", t);
+            SinytraLog.w(TAG, "addJavascriptInterface threw", t);
             throw new IllegalArgumentException(interfaceName, t);
         }
     }
@@ -1140,7 +1140,7 @@ public final class GeckoWebViewProvider
         try {
             mJsInterfaces.removeInterface(interfaceName);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "removeJavascriptInterface threw", t);
+            SinytraLog.w(TAG, "removeJavascriptInterface threw", t);
         }
     }
     @Override public WebMessagePort[] createWebMessageChannel() {

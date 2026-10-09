@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.provider;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.WebRequestInfo;
 import org.mozilla.geckowebview.session.GeckoSessionBridge;
@@ -58,7 +59,7 @@ final class Interception {
 
             @Override
             public void logWarning(@NonNull String message) {
-                android.util.Log.w(TAG, message);
+                SinytraLog.w(TAG, message);
             }
 
             @Override
@@ -66,7 +67,7 @@ final class Interception {
                 try {
                     return mHost.settings().getLoadsImagesAutomatically();
                 } catch (Throwable t) {
-                    android.util.Log.w(TAG, "imagesAllowed threw", t);
+                    SinytraLog.w(TAG, "imagesAllowed threw", t);
                     return true;
                 }
             }
@@ -100,7 +101,7 @@ final class Interception {
                                     : mHost.bridge().getUrl();
                     if (LoadPolicy.blockSubresource(info.contentPolicyType,
                             info.uri, page, mHost.settings())) {
-                        android.util.Log.d(TAG, "policy-block " + info.uri
+                        SinytraLog.d(TAG, "policy-block " + info.uri
                                 + " type=" + info.contentPolicyType);
                         return new ResponseBridge.WebResourceResponseHolder(
                                 "text/plain", "utf-8", 200,
@@ -126,7 +127,7 @@ final class Interception {
                 try {
                     mHost.bridge().noteConsultActivity();
                 } catch (Throwable t) {
-                    android.util.Log.w(TAG, "consult poke threw", t);
+                    SinytraLog.w(TAG, "consult poke threw", t);
                 }
             }
         });
@@ -259,7 +260,7 @@ final class Interception {
                 return null;
             });
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "pushEffectiveFilters threw", t);
+            SinytraLog.w(TAG, "pushEffectiveFilters threw", t);
             return;
         }
         final int generation = ++mPushGeneration;
@@ -292,7 +293,7 @@ final class Interception {
                     try {
                         alive = readiness.isReady();
                     } catch (Throwable t) {
-                        android.util.Log.w(TAG, "readiness threw", t);
+                        SinytraLog.w(TAG, "readiness threw", t);
                         return;
                     }
                     if (!alive) {
@@ -303,7 +304,7 @@ final class Interception {
                         // up to ~32s; watchdog window ~60s) still gets a
                         // push the moment it completes.
                         if (!shouldKeepWaiting(coldUsed)) {
-                            android.util.Log.w(TAG,
+                            SinytraLog.w(TAG,
                                     "filter retry waiting for transport"
                                             + " timed out; giving up");
                             return;
@@ -316,11 +317,11 @@ final class Interception {
                     mHost.bridge().session()
                             .setResponseDelegate(mResponses);
                 } catch (Throwable t) {
-                    android.util.Log.w(TAG, "filter retry threw", t);
+                    SinytraLog.w(TAG, "filter retry threw", t);
                 }
             }, retryDelayMs(Math.max(attempt, coldUsed + 1)));
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "scheduleRetry threw", t);
+            SinytraLog.w(TAG, "scheduleRetry threw", t);
         }
     }
 }
