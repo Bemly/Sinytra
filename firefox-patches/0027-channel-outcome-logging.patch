@@ -1,4 +1,4 @@
-From bba4426cd3e7ac9e43ae9bb8b09d9496fa48cbbd Mon Sep 17 00:00:00 2001
+From 555b2e855f217e61aad7cf250f55081fec4d6009 Mon Sep 17 00:00:00 2001
 From: Sinytra <sinytra@local>
 Date: Fri, 9 Oct 2026 08:35:09 +0800
 Subject: [PATCH] Sinytra patch 0027: per-channel outcome log (response status
@@ -17,7 +17,7 @@ release cost). Validation: shows on next local publish + debug round.
  2 files changed, 68 insertions(+)
 
 diff --git a/netwerk/protocol/http/ParentChannelListener.cpp b/netwerk/protocol/http/ParentChannelListener.cpp
-index 02e27b8102..3be8ace155 100644
+index 02e27b8102..0612af2f02 100644
 --- a/netwerk/protocol/http/ParentChannelListener.cpp
 +++ b/netwerk/protocol/http/ParentChannelListener.cpp
 @@ -32,6 +32,36 @@
@@ -41,7 +41,7 @@ index 02e27b8102..3be8ace155 100644
 +// zero release cost.
 +static bool SinytraOutcomeLogEnabled() {
 +  static const bool sEnabled =
-+      Preferences::GetBool("sinytra.log.enabled", false);
++      mozilla::Preferences::GetBool("sinytra.log.enabled", false);
 +  return sEnabled;
 +}
 +
