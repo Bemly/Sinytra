@@ -1551,6 +1551,18 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   后 ProgressChanged/PageStop 投递或子资源挂起，另案；commit 闩无辜——它在
   PageStart 即解除）。Current 已切回我方并复核（Current/Preferred 均为
   debug 包）。以后网络归因照此模板：bromite 先行。
+- **空标题根因：http 缓存投毒（2026-10-09 08:24 二分定锤）**：二分构建
+  （88ab6ad：无闩+门开 = 好的那周等价）裸 example 照样黑——闩与门双双无辜。
+  门开着的这轮抓到实锤：`OnStopRequest requestFromCache: 1,
+  aIsFromNet=0`（necko 根本没联网）+ `ResponseHeadersComplete: 0`；
+  3 分钟后换 `?bisect1`（同构建同网，绕缓存键）即 `title=Example Domain`
+  渲染。结论：裸 URL 的缓存条目是空体（trickle 中断轮写入），之后每轮命中
+  毒条目、瞬间“成功”、标题永不到；data:  bypass 缓存故一直正常；bromite
+  独立缓存故正常。闩/门/fission 与此无关（同轮同机对照已排除）。
+  教训（方法纠正）：以后每个改动配 MiniWV-example **cache-buster 渲染
+  verdict**（title+eval），只看回调等于没验；pm clear 不能当常规手段
+  （08:27 清后 refetch 仍可能在烂网下写新毒——写毒路径另案：中断/空体缘何
+  被当 good 存）。当前设备装的是 HEAD 构建（闩在），worktree 已删，仓净。
 
 ## 2. 下一步（按顺序，一次做一件）
 
