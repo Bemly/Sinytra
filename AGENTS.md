@@ -204,7 +204,10 @@ P-1（bootstrap spike，最高优先级）→ P0（~20% API 跑起来）→ P1�
   JVM 单测在 `tests/unit`，设备集成在 `provider/src/debug`，CTS 见 `docs/CTS.md`；
   P0 验收脚本提交后可重跑，100% 才合入 P1/P2。凡动加载/渲染的改动必须附
   MiniWV cache-buster（唯一查询串）渲染 verdict（title 为准；2026-10-09
-  空标题教训：只看回调不算验过，裸 URL 命中毒缓存时回调全绿）。
+  空标题教训：只看回调不算验过，裸 URL 命中毒缓存时回调全绿；同日
+  bromite 教训：title 绿不等于像素绿——百度调端错误页 97KB 白页、标题
+  照绿，verdict 必须 agent 用读图亲眼看像素，文件大小/亮度/直方图启发式
+  一律不算数，uiautomator 无节点时更要看）。
 
 ## 8. 目标与调试（细则见 `docs/DEVICE.md`）
 
