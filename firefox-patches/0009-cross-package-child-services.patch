@@ -225,3 +225,66 @@ index 2027f90489ed..2dabc7990f22 100644
      } catch (final PackageManager.NameNotFoundException e) {
        throw new AssertionError("Should not happen: Can't get package info of own package");
      }
+From 188c9bb3c78241ed2a7779eb575771474ad33dff Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Fri, 9 Oct 2026 08:51:45 +0800
+Subject: [PATCH] Sinytra patch 0009: log component-package derivation result
+
+A wrong package here SEGVs child spawn with no other signal; log which
+derivation won (fast-path / webview-package / catch-fallback) once per
+process. Always-on WARN like the 0008/0013 path logs.
+---
+ .../java/org/mozilla/gecko/process/ServiceUtils.java   | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java
+index 2dabc7990f..34aaae9ee2 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java
+@@ -9,6 +9,7 @@ import android.content.Context;
+ import android.content.pm.PackageInfo;
+ import android.content.pm.PackageManager;
+ import android.content.pm.ServiceInfo;
++import android.util.Log;
+ import androidx.annotation.NonNull;
+ 
+ /* package */ final class ServiceUtils {
+@@ -114,6 +115,10 @@ import androidx.annotation.NonNull;
+       return sComponentPackage;
+     }
+     String resolved = context.getPackageName();
++    // 0009 outcome log (fires once per process): which derivation won. A
++    // wrong package here means child spawn SEGVs with no other signal, so
++    // this stays an always-on WARN like the 0008/0013 path logs.
++    String via = "context-fallback";
+     try {
+       final String mozglue =
+           ((dalvik.system.BaseDexClassLoader) ServiceUtils.class.getClassLoader())
+@@ -128,6 +133,7 @@ import androidx.annotation.NonNull;
+       if (providerApk.equals(contextApk)) {
+         // Fast path: classes and services live in the context APK.
+         resolved = context.getPackageName();
++        via = "fast-path";
+       } else {
+         final PackageInfo pi = android.webkit.WebView.getCurrentWebViewPackage();
+         if (pi != null
+@@ -135,12 +141,16 @@ import androidx.annotation.NonNull;
+             && (providerApk.equals(pi.applicationInfo.sourceDir)
+                 || providerApk.equals(pi.applicationInfo.publicSourceDir))) {
+           resolved = pi.packageName;
++          via = "webview-package";
+         }
+       }
+     } catch (final Throwable t) {
+       resolved = context.getPackageName();
++      via = "catch-fallback";
+     }
+     sComponentPackage = resolved;
++    Log.w("ServiceUtils",
++        "getComponentPackage via=" + via + " pkg=" + resolved);
+     return sComponentPackage;
+   }
+ 
+-- 
+2.55.0
+
