@@ -1,4 +1,4 @@
-From 555b2e855f217e61aad7cf250f55081fec4d6009 Mon Sep 17 00:00:00 2001
+From 449880f69554ff85404000ef68fb3aba151abde9 Mon Sep 17 00:00:00 2001
 From: Sinytra <sinytra@local>
 Date: Fri, 9 Oct 2026 08:35:09 +0800
 Subject: [PATCH] Sinytra patch 0027: per-channel outcome log (response status
@@ -12,12 +12,12 @@ under MOZ_LOG nsHttp). Log status at OnStartRequest and status+total bytes
 at OnStopRequest under the 0005 sinytra.log.enabled runtime pref (zero
 release cost). Validation: shows on next local publish + debug round.
 ---
- .../protocol/http/ParentChannelListener.cpp   | 62 +++++++++++++++++++
+ .../protocol/http/ParentChannelListener.cpp   | 67 +++++++++++++++++++
  netwerk/protocol/http/ParentChannelListener.h |  6 ++
- 2 files changed, 68 insertions(+)
+ 2 files changed, 73 insertions(+)
 
 diff --git a/netwerk/protocol/http/ParentChannelListener.cpp b/netwerk/protocol/http/ParentChannelListener.cpp
-index 02e27b8102..0612af2f02 100644
+index 02e27b8102..d56e6096e0 100644
 --- a/netwerk/protocol/http/ParentChannelListener.cpp
 +++ b/netwerk/protocol/http/ParentChannelListener.cpp
 @@ -32,6 +32,36 @@
@@ -84,14 +84,19 @@ index 02e27b8102..0612af2f02 100644
    nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
    return nextListener->OnStartRequest(aRequest);
  }
-@@ -105,6 +155,14 @@ ParentChannelListener::OnStopRequest(nsIRequest* aRequest,
+@@ -105,6 +155,19 @@ ParentChannelListener::OnStopRequest(nsIRequest* aRequest,
  
    LOG(("ParentChannelListener::OnStopRequest: [this=%p status=%" PRIu32 "]\n",
         this, static_cast<uint32_t>(aStatusCode)));
 +#ifdef MOZ_WIDGET_ANDROID
 +  // 0027 outcome log: terminal verdict for this channel (mBodyBytes
-+  // accumulated in OnDataAvailable). status=200 + bytes=0 is the poisoned/
-+  // truncated-body signature (device-verified 2026-10-09).
++  // accumulated in OnDataAvailable). NOTE the count is transfer
++  // (post-content-encoding) bytes at this layer: example.com reads
++  // bodyBytes=334 while the brotli-decoded document is 577
++  // (device-verified 2026-10-09 v6: decompress 334 -> out=577). So
++  // "small bodyBytes" alone is NOT truncation evidence; compare
++  // against the encoded size (or check the decoder), and use
++  // status + title/PageStop fate for the verdict.
 +  SINYTRA_OUTCOME_LOG("OnStopResponse status=0x%x bodyBytes=%llu",
 +                      (unsigned)aStatusCode,
 +                      (unsigned long long)mBodyBytes);
@@ -99,7 +104,7 @@ index 02e27b8102..0612af2f02 100644
    nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
    nsresult rv = nextListener->OnStopRequest(aRequest, aStatusCode);
  
-@@ -125,6 +183,10 @@ ParentChannelListener::OnDataAvailable(nsIRequest* aRequest,
+@@ -125,6 +188,10 @@ ParentChannelListener::OnDataAvailable(nsIRequest* aRequest,
    if (!mNextListener) return NS_ERROR_UNEXPECTED;
  
    LOG(("ParentChannelListener::OnDataAvailable [this=%p]\n", this));
