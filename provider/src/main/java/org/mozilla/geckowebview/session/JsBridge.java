@@ -404,6 +404,7 @@ public final class JsBridge {
             try {
                 held.result.complete(noopPayloadString());
             } catch (Throwable ignored) {
+                SinytraLog.d(TAG, "poll noop-complete threw", ignored);
             }
             return;
         }
@@ -606,6 +607,7 @@ public final class JsBridge {
                             try {
                                 port.disconnect();
                             } catch (Throwable ignored) {
+                                SinytraLog.d(TAG, "port disconnect threw", ignored);
                             }
                         }
                     }, NATIVE_APP);
@@ -700,6 +702,7 @@ public final class JsBridge {
             try {
                 previous.result.complete(noopPayloadString());
             } catch (Throwable ignored) {
+                SinytraLog.d(TAG, "poll noop-complete threw", ignored);
             }
         }
         GeckoResult<Object> result = new GeckoResult<>();
@@ -712,6 +715,7 @@ public final class JsBridge {
                 try {
                     result.complete(noopPayloadString());
                 } catch (Throwable ignored) {
+                    SinytraLog.d(TAG, "poll noop-complete threw", ignored);
                 }
             }
         }, POLL_HOLD_MS, TimeUnit.MILLISECONDS);

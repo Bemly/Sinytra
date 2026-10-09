@@ -184,6 +184,8 @@ public final class CompatSmallBoundaries {
                         try {
                             mBridge.setCallback(mPort, null);
                         } catch (Throwable ignored) {
+                            SinytraLog.d("Sinytra/compat", "clear-callback fallback threw",
+                                    ignored);
                         }
                         return null;
                     }

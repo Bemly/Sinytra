@@ -163,6 +163,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             try {
                 callback.reject();
             } catch (Throwable ignored) {
+                SinytraLog.d(TAG, "permission reject fallback threw", ignored);
             }
         }
     }
@@ -268,6 +269,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             try {
                 pending.complete(prompt.dismiss());
             } catch (Throwable ignored) {
+                SinytraLog.d(TAG, "auth dismiss fallback threw", ignored);
             }
             return;
         }
@@ -287,6 +289,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
                     try {
                         pending.complete(prompt.dismiss());
                     } catch (Throwable ignored) {
+                        SinytraLog.d(TAG, "auth dismiss fallback threw", ignored);
                     }
                 }
                 return;
@@ -308,6 +311,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             try {
                 pending.complete(prompt.dismiss());
             } catch (Throwable ignored) {
+                SinytraLog.d(TAG, "auth dismiss fallback threw", ignored);
             }
         }
     }
@@ -379,6 +383,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             try {
                 result.confirm();
             } catch (Throwable ignored) {
+                SinytraLog.d(TAG, "alert confirm fallback threw", ignored);
             }
             return;
         }
@@ -452,6 +457,7 @@ final class ClientPrompts implements PermissionBridge.Host, PromptBridge.Host {
             try {
                 result.confirm();
             } catch (Throwable ignored) {
+                SinytraLog.d(TAG, "confirm fallback threw", ignored);
             }
             return true;
         }

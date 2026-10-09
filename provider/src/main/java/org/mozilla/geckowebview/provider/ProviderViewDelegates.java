@@ -130,6 +130,7 @@ final class ProviderViewDelegates {
                         try {
                             callback.onReceiveValue(null);
                         } catch (Throwable ignored) {
+                            SinytraLog.d(TAG, "file chooser null-deliver threw", ignored);
                         }
                     }
                 }

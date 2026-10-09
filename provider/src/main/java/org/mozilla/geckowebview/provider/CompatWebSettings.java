@@ -3,6 +3,7 @@ package org.mozilla.geckowebview.provider;
 import android.webkit.WebSettings;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckowebview.settings.GeckoWebSettings;
 
 // android.webkit.WebSettings facade over GeckoWebSettings state (P0).
@@ -38,6 +39,7 @@ final class CompatWebSettings extends WebSettings {
             try {
                 listener.onImagesPolicyChanged();
             } catch (Throwable ignored) {
+                SinytraLog.d("Sinytra/settings", "images-policy notify threw", ignored);
             }
         }
     }

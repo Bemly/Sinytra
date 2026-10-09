@@ -86,6 +86,7 @@ public final class BurstProbeActivity extends Activity {
                 try {
                     webView.destroy();
                 } catch (Throwable ignored) {
+                    SinytraLog.d(TAG, "teardown destroy threw", ignored);
                 }
             }
         }

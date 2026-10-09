@@ -301,6 +301,7 @@ final class SystemCapabilityProbes {
                 try {
                     request.deny();
                 } catch (Throwable ignored) {
+                    SinytraLog.d("Sinytra/syscaps", "probe deny threw", ignored);
                 }
                 permPrompt.countDown();
             }
@@ -354,6 +355,7 @@ final class SystemCapabilityProbes {
                 try {
                     callback.invoke(origin, false, false);
                 } catch (Throwable ignored) {
+                    SinytraLog.d("Sinytra/syscaps", "probe invoke threw", ignored);
                 }
                 geoPrompt.countDown();
             }

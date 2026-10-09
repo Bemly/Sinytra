@@ -85,6 +85,8 @@ public class PermissionBridge implements GeckoSession.PermissionDelegate {
             try {
                 callback.reject();
             } catch (Throwable ignored) {
+                SinytraLog.d("Sinytra/permission", "android-permission reject fallback",
+                        ignored);
             }
         }
     }
@@ -152,6 +154,7 @@ public class PermissionBridge implements GeckoSession.PermissionDelegate {
             try {
                 callback.reject();
             } catch (Throwable ignored) {
+                SinytraLog.d("Sinytra/permission", "media reject fallback threw", ignored);
             }
         }
     }

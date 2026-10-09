@@ -54,6 +54,7 @@ public final class SinytraPacProcessor implements PacProcessor {
             Uri uri = Uri.parse(url);
             host = uri.getHost() != null ? uri.getHost() : "";
         } catch (Throwable ignored) {
+            SinytraLog.d("Sinytra/pac", "uri parse threw, host defaults empty", ignored);
         }
         String escapedUrl = url.replace("\\", "\\\\").replace("'", "\\'");
         String escapedHost = host.replace("\\", "\\\\").replace("'", "\\'");

@@ -7,6 +7,7 @@ import androidx.annotation.RequiresApi;
 import java.io.OutputStream;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 // android.webkit.TracingController implementation. No GeckoView equivalent;
 // honest no-op that reports not-tracing (API_MAPPING.md §7).
@@ -67,6 +68,7 @@ public final class GeckoTracingController extends TracingController {
                 outputStream.flush();
                 outputStream.close();
             } catch (Throwable ignored) {
+                SinytraLog.d("Sinytra/tracing", "trace honest-{} deliver threw", ignored);
             }
         });
         return wasTracing;
