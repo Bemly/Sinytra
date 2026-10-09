@@ -6,18 +6,17 @@ env:
   # Forensics gate (STAYS OFF for verdict rounds; enable only for death
   # capture rounds, COOLAPK.md §5-0b):
   # Full flood (v6 used): DocumentChannel:5,nsDocShell:5,BrowsingContext:5,Process:5,nsHttp:5,timestamp
-  # Reduced (v22 used): DocumentChannel:5,BrowsingContext:5,timestamp
-  # MOZ_LOG: DocumentChannel:5,BrowsingContext:5,timestamp
+  # Reduced (v22 proved safe for 90s): DocumentChannel + BrowsingContext.
+  MOZ_LOG: DocumentChannel:5,BrowsingContext:5,timestamp
 prefs:
   network.connectivity-service.enabled: false
   network.captive-portal-service.enabled: false
   services.settings.server: http://127.0.0.1:1
   sinytra.log.enabled: true
-  # v23 experiment parked (fission-migration invalidation-loss hypothesis):
-  # wheels confounded by GPU outage window (v24/v25 died pre-commit);
-  # revisit after 0029 envelope lands. fission off drops site isolation —
-  # never ship without a decision.
-  # fission.autostart: false
+  # v23 experiment reopened (v21-blank attribution): fission-migration
+  # invalidation-loss hypothesis. Diagnostic only — fission off drops
+  # site isolation, never ship without a decision.
+  fission.autostart: false
   # JS-dispatch layer logging (same forensics round as MOZ_LOG above):
   # GeckoViewNavigation/Settings/StorageController debug chain. The
   # dispatch-death prime suspect lives here, not in MOZ_LOG.
