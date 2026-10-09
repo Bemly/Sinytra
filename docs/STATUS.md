@@ -1696,6 +1696,16 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   不沾锅。安装/重启治好=杀占坑者清记录。定罪待下次黑轮当场 ps+dumpsys；
   若实锤，修法=超时先杀占坑再重试（1880503 同构），另 Stahl tab 泄漏
   与 onDestroy 挂起（M5-A teardown 家族嫌疑）并案。
+- **占坑根因定了大半（2026-10-09 23:1x，bromite 包实锤，用户方向）**：
+  为何杀不掉——我方 `:gpu` 是普通常驻进程服务，销毁走其主线程
+  onDestroy；主线程疑卡在已知 compositor 拆卸挂起（M5-A 那摊，0022/
+  0023 只修了 pause 路），系统干等（destroying 2 分钟→现堆到 6 条），
+  进程以前台+缓存身份活着（454MB）。bromite 包实测：其孩子全是
+  `isolatedProcess=true + externalService=true`——一次性进程，用完系统
+  直接埋，不存在半死占坑。我方学不了（Gecko 要读写 profile/共享内存，
+  隔离 uid 无权限），修法只能三件套：超时先杀占坑再重试（1880503 同构，
+  firefox 侧）+ onDestroy 挂起本身（M5-A destroy 路）+ 前轮 tab 僵尸
+  回收（现 4 个 ~200MB/个，force-stop 不连坐是根）。定罪仍待黑轮当场抓。
 
 
 ## 2. 下一步（按顺序，一次做一件）
