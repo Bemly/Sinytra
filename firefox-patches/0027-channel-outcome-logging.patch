@@ -1,0 +1,132 @@
+From bba4426cd3e7ac9e43ae9bb8b09d9496fa48cbbd Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Fri, 9 Oct 2026 08:35:09 +0800
+Subject: [PATCH] Sinytra patch 0027: per-channel outcome log (response status
+ + delivered bytes)
+
+Java bridge logs decisions and lifecycle but never the outcome: a channel
+can complete 'successfully' with an empty body (poisoned cache entry,
+truncated stream) and nothing says so (device-verified 2026-10-09: full
+PageStart/PageStop, empty title, black pixels; cache source visible only
+under MOZ_LOG nsHttp). Log status at OnStartRequest and status+total bytes
+at OnStopRequest under the 0005 sinytra.log.enabled runtime pref (zero
+release cost). Validation: shows on next local publish + debug round.
+---
+ .../protocol/http/ParentChannelListener.cpp   | 62 +++++++++++++++++++
+ netwerk/protocol/http/ParentChannelListener.h |  6 ++
+ 2 files changed, 68 insertions(+)
+
+diff --git a/netwerk/protocol/http/ParentChannelListener.cpp b/netwerk/protocol/http/ParentChannelListener.cpp
+index 02e27b8102..3be8ace155 100644
+--- a/netwerk/protocol/http/ParentChannelListener.cpp
++++ b/netwerk/protocol/http/ParentChannelListener.cpp
+@@ -32,6 +32,36 @@
+ #include "nsIWindowWatcher.h"
+ #include "nsQueryObject.h"
+ 
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#  include "mozilla/Preferences.h"
++#  include "nsIChannel.h"
++#  include "nsIHttpChannel.h"
++#  include "nsIURI.h"
++
++// Sinytra firefox-patches/0027: per-channel outcome log (response status +
++// delivered bytes). The Java bridge only sees consult decisions and lifecycle
++// callbacks — a channel can complete "successfully" with an empty body
++// (poisoned cache entry, truncated stream) and nothing on the Java side says
++// so (device-verified 2026-10-09: full PageStart/PageStop, empty title, black
++// pixels, requestFromCache=1 visible only under MOZ_LOG nsHttp). This line
++// makes that class a one-line verdict. Runtime-pref gated (0005 mechanism),
++// zero release cost.
++static bool SinytraOutcomeLogEnabled() {
++  static const bool sEnabled =
++      Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++
++#  define SINYTRA_OUTCOME_LOG(...)                                   \
++    do {                                                             \
++      if (SinytraOutcomeLogEnabled()) {                              \
++        __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",   \
++                            __VA_ARGS__);                            \
++      }                                                              \
++    } while (0)
++#endif
++
+ using mozilla::dom::ServiceWorkerInterceptController;
+ 
+ namespace mozilla {
+@@ -94,6 +124,26 @@ ParentChannelListener::OnStartRequest(nsIRequest* aRequest) {
+   }
+ 
+   LOG(("ParentChannelListener::OnStartRequest [this=%p]\n", this));
++#ifdef MOZ_WIDGET_ANDROID
++  {
++    // 0027 outcome log: response status for this channel (0 when the
++    // response head is not an HTTP one). Best-effort: any QI failure
++    // leaves the logged values at their unknown defaults.
++    uint32_t status = 0;
++    if (nsCOMPtr<nsIHttpChannel> httpChan = do_QueryInterface(aRequest)) {
++      (void)httpChan->GetResponseStatus(&status);
++    }
++    nsAutoCString spec;
++    if (nsCOMPtr<nsIChannel> chan = do_QueryInterface(aRequest)) {
++      nsCOMPtr<nsIURI> uri;
++      if (NS_SUCCEEDED(chan->GetURI(getter_AddRefs(uri))) && uri) {
++        uri->GetSpec(spec);
++      }
++    }
++    SINYTRA_OUTCOME_LOG("OnStartResponse uri=%s status=%u", spec.get(),
++                        (unsigned)status);
++  }
++#endif
+   nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
+   return nextListener->OnStartRequest(aRequest);
+ }
+@@ -105,6 +155,14 @@ ParentChannelListener::OnStopRequest(nsIRequest* aRequest,
+ 
+   LOG(("ParentChannelListener::OnStopRequest: [this=%p status=%" PRIu32 "]\n",
+        this, static_cast<uint32_t>(aStatusCode)));
++#ifdef MOZ_WIDGET_ANDROID
++  // 0027 outcome log: terminal verdict for this channel (mBodyBytes
++  // accumulated in OnDataAvailable). status=200 + bytes=0 is the poisoned/
++  // truncated-body signature (device-verified 2026-10-09).
++  SINYTRA_OUTCOME_LOG("OnStopResponse status=0x%x bodyBytes=%llu",
++                      (unsigned)aStatusCode,
++                      (unsigned long long)mBodyBytes);
++#endif
+   nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
+   nsresult rv = nextListener->OnStopRequest(aRequest, aStatusCode);
+ 
+@@ -125,6 +183,10 @@ ParentChannelListener::OnDataAvailable(nsIRequest* aRequest,
+   if (!mNextListener) return NS_ERROR_UNEXPECTED;
+ 
+   LOG(("ParentChannelListener::OnDataAvailable [this=%p]\n", this));
++#ifdef MOZ_WIDGET_ANDROID
++  // 0027 outcome accounting (see OnStopRequest log).
++  mBodyBytes += aCount;
++#endif
+   nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
+   return nextListener->OnDataAvailable(aRequest, aInputStream, aOffset, aCount);
+ }
+diff --git a/netwerk/protocol/http/ParentChannelListener.h b/netwerk/protocol/http/ParentChannelListener.h
+index 8b1dbcdccb..6a8a68da1f 100644
+--- a/netwerk/protocol/http/ParentChannelListener.h
++++ b/netwerk/protocol/http/ParentChannelListener.h
+@@ -65,6 +65,12 @@ class ParentChannelListener final : public nsIInterfaceRequestor,
+   // True if we received OnStartRequest for a nsIMultiPartChannel, and are
+   // expected AllPartsStopped to be called when complete.
+   bool mIsMultiPart = false;
++
++  // Sinytra firefox-patches/0027: delivered-body accounting for the
++  // outcome log (status + bytes per channel). Instances are per-channel
++  // (one ParentChannelListener per wrapped channel), so a plain running
++  // total is exact; multi-part channels accumulate across parts.
++  uint64_t mBodyBytes = 0;
+ };
+ 
+ inline nsISupports* ToSupports(ParentChannelListener* aDoc) {
+-- 
+2.55.0
+
