@@ -1563,6 +1563,14 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   verdict**（title+eval），只看回调等于没验；pm clear 不能当常规手段
   （08:27 清后 refetch 仍可能在烂网下写新毒——写毒路径另案：中断/空体缘何
   被当 good 存）。当前设备装的是 HEAD 构建（闩在），worktree 已删，仓净。
+- **日志门跟宿主bug（2026-10-09 09:50 现场修复）**：第三方宿主永不
+  debuggable，按宿主门控等于 foreign 全盲（MiniWV 零 D 行实锤）。
+  `initLogGate` 改取 provider 自身安装 flags（`b6648b2`）；setprop 补
+  `log.tag.Sinytra` 无斜杠全局名（带斜杠 property 非法，device 实锤）。
+  同轮新行首亮：`consult-latched url=`、`onTitleChange title=`（空标题是
+  Gecko 侧报空，非桥弄丢）、`finish hold timeout titleEmpty=true`。
+  本轮单通道干净（tab28，HIT→pass-through→OnSuccess→Start→空标题→Stop），
+  字节数待 0027 publish 后 `OnStopResponse bodyBytes=` 一锤。
 
 ## 2. 下一步（按顺序，一次做一件）
 
