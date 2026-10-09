@@ -1669,7 +1669,9 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   与本轮是否抽中 bind 黑洞有关）；“重装治好”是同时换包换页换时间的三
   变量误判，作废。当前唯一判别轴 = 本轮有无黑洞（有则黑、无则绿），与
   包版本（昨天/今天都绿过也都黑过）、页面（Bing/example）无关。连黑窗口
-  17:08 起未解除。
+  17:08 起未解除。5 包归档已开（`Sinytra-apks/`：昨天 88ab6ad + 今天
+  c890114，缺 3 后补；构建纪要：JDK/SDK 走 mozbuild 自带，文档旧
+  `/opt/homebrew` 路径已失效待修）。
 
 
 ## 2. 下一步（按顺序，一次做一件）
