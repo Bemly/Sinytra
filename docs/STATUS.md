@@ -1592,9 +1592,22 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   活）；0028 resume-state（UI 侧 Sync/Notify + GPU 侧 Schedule* skipPaused
   + RecvResume 结果 + `NotifyDidRender` 计数，同门，诊断补丁定稿前删）。
   空标题= Gecko 侧报空（`onTitleChange` 实锤，非桥弄丢）。
-- **进行中**：MiniWV buster 轮数 `NotifyDidRender` 帧数——响=呈现路坏，
-  零=scene 没到（下步：WR transaction 到达日志）。酷安真页（github
-  release）复验排其后（MiniWV 定案即转 cool-round.sh 同条件）。
+- **进行中**：MiniWV 已 6 连绿（`pm clear` 后 v15/v16/v17 +
+  不清连跑 v18/v19/v20，title/finish/像素/渲染帧全齐）——当前构建
+  foreign 可 100% 开，与用户记忆（昨天之前 100%）一致，**代码无回归**。
+  黑区间（v1–v7、B10/B12）全在清前旧 profile 下，清后零复黑——
+  profile 态投毒定案（但清前未采 profile 文件清单，**毒是哪个文件
+  未识别，这是缺口**；再黑先采 `ls/du` 再清）。偏差承认：v3 的
+  “空体完成 B 判”是误读（334 系 br 压缩口径，v6 已纠）；“坏窗 flake”
+  中间结论作废（后被 A/B 分裂证伪）；“跨包呈现 bug”降级为
+  “跨包首跳 stall + 旧 profile 下必死”（清后同栈即绿，呈现路无辜）。
+- **残留真问题（非呈现，是首跳 stall）**：绿轮每轮 guard 重发 7–8 次
+  （`onLoadRequest×8`，首跳 dispatch 落地但 200/首字节迟迟不到，
+  约 50s 才 commit）。清 profile 没修掉它——它一直都在，只是旧
+  profile 下连 rescue 也救不活。3s 即开（00:50 A 轮）vs 50s 才开
+  （现在）的差即此。下步二选一：① 修首跳（necko/QUIC/Alt-Svc 面，
+  另案）；② 先转酷安真页（MiniWV 探针已绿，主任务优先）。
+  酷安真页（github release）复验排其后（cool-round.sh 同条件）。
 - **方法纪律（本次沉淀）**：改动配 MiniWV-example **cache-buster 渲染
   verdict**（title+像素双准，只看回调=没验）；对照必带 rx delta
   （wlan0+tun0，时变带宽 86 倍摆动实锤）+ 交替顺序；网络归因主证用
