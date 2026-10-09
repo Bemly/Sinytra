@@ -4,6 +4,7 @@ import android.content.Context;
 import android.webkit.ValueCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.StorageController;
 import org.mozilla.geckowebview.runtime.GeckoRuntimeHolder;
@@ -44,7 +45,7 @@ public final class GeckoWebStorageFacade implements android.webkit.SinytraWebSto
             try {
                 op.run();
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "storage op threw", t);
+                SinytraLog.w(TAG, "storage op threw", t);
             }
         };
         if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
@@ -56,7 +57,7 @@ public final class GeckoWebStorageFacade implements android.webkit.SinytraWebSto
 
     private static void logFailure(@NonNull GeckoResult<Void> result, @NonNull String op) {
         result.exceptionally(e -> {
-            android.util.Log.w(TAG, op + " failed", e);
+            SinytraLog.w(TAG, op + " failed", e);
             return null;
         });
     }

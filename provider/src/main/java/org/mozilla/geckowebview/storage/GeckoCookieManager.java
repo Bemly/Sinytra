@@ -4,7 +4,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.webkit.ValueCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -196,7 +196,7 @@ public final class GeckoCookieManager {
         }
         Throwable error = pushError.get();
         if (!posted || error != null) {
-            Log.w(TAG, "cookie policy push failed (behavior=" + behavior
+            SinytraLog.w(TAG, "cookie policy push failed (behavior=" + behavior
                     + " posted=" + posted + ")", error);
             return;
         }
@@ -233,7 +233,7 @@ public final class GeckoCookieManager {
             return;
         }
         if (!mAcceptFileSchemeCookies && isFileScheme(url)) {
-            Log.w(TAG, "setCookie refused (file scheme not accepted) url=" + url);
+            SinytraLog.w(TAG, "setCookie refused (file scheme not accepted) url=" + url);
             if (callback != null) {
                 callback.onReceiveValue(Boolean.FALSE);
             }
@@ -252,7 +252,7 @@ public final class GeckoCookieManager {
                 // login cookies silently lost; Chromium accepts writes
                 // any time, jar or not). Drained FIFO on first controller.
                 if (!mPending.add(url, value)) {
-                    Log.w(TAG, "setCookie dropped (pending overflow) url="
+                    SinytraLog.w(TAG, "setCookie dropped (pending overflow) url="
                             + url);
                 }
             }
@@ -279,7 +279,7 @@ public final class GeckoCookieManager {
             if (!Boolean.TRUE.equals(landed)) {
                 // The jar refused (behavior gate / add() validation) — loud,
                 // or CTS-style set-then-get goes hunting a ghost.
-                Log.w(TAG, "setCookie refused url=" + url + " value=" + value);
+                SinytraLog.w(TAG, "setCookie refused url=" + url + " value=" + value);
             }
             return;
         }
@@ -287,7 +287,7 @@ public final class GeckoCookieManager {
                 () -> controller.setCookie(url, value),
                 accepted -> {
                     if (!accepted) {
-                        Log.w(TAG, "setCookie refused url=" + url + " value="
+                        SinytraLog.w(TAG, "setCookie refused url=" + url + " value="
                                 + value);
                     }
                     callback.onReceiveValue(accepted);
@@ -389,11 +389,11 @@ public final class GeckoCookieManager {
                             done.countDown();
                         },
                         e -> {
-                            Log.w(TAG, "cookie query failed", e);
+                            SinytraLog.w(TAG, "cookie query failed", e);
                             done.countDown();
                         });
             } catch (Throwable t) {
-                Log.w(TAG, "cookie query could not be issued", t);
+                SinytraLog.w(TAG, "cookie query could not be issued", t);
                 done.countDown();
             }
         });
@@ -403,7 +403,7 @@ public final class GeckoCookieManager {
             Thread.currentThread().interrupt();
         }
         if (done.getCount() > 0) {
-            Log.w(TAG, "cookie query timed out after " + TIMEOUT_MS + "ms");
+            SinytraLog.w(TAG, "cookie query timed out after " + TIMEOUT_MS + "ms");
         }
         T result = value.get();
         return result != null ? result : fallback;
@@ -429,20 +429,20 @@ public final class GeckoCookieManager {
             try {
                 issued = op.get();
             } catch (Throwable t) {
-                Log.w(TAG, "cookie op could not be issued", t);
+                SinytraLog.w(TAG, "cookie op could not be issued", t);
                 return;
             }
             try {
                 issued.accept(
                         accepted -> {
                             if (!Boolean.TRUE.equals(accepted)) {
-                                Log.w(TAG, "setCookie refused url=" + url
+                                SinytraLog.w(TAG, "setCookie refused url=" + url
                                         + " value=" + value);
                             }
                         },
-                        e -> Log.w(TAG, "setCookie failed url=" + url, e));
+                        e -> SinytraLog.w(TAG, "setCookie failed url=" + url, e));
             } catch (Throwable t) {
-                Log.w(TAG, "cookie op could not be issued", t);
+                SinytraLog.w(TAG, "cookie op could not be issued", t);
             }
         });
     }
@@ -458,7 +458,7 @@ public final class GeckoCookieManager {
                         e -> main.post(() -> callbackOrDefault(
                                 callback, Boolean.FALSE)));
             } catch (Throwable t) {
-                Log.w(TAG, "cookie op could not be issued", t);
+                SinytraLog.w(TAG, "cookie op could not be issued", t);
                 main.post(() -> callbackOrDefault(callback, Boolean.FALSE));
             }
         });
@@ -481,14 +481,14 @@ public final class GeckoCookieManager {
     private StorageController awaitFirstController(@NonNull String op,
             @NonNull String detail) {
         if (isMainThread()) {
-            Log.w(TAG, op + " before runtime on main thread"
+            SinytraLog.w(TAG, op + " before runtime on main thread"
                     + " (honest empty) " + detail);
             return null;
         }
         boolean signalled = mGate.await(mPreRuntimeWaitMs);
         StorageController controller = controllerOrNull();
         if (controller == null) {
-            Log.w(TAG, op + " before runtime (honest empty; first-controller"
+            SinytraLog.w(TAG, op + " before runtime (honest empty; first-controller"
                     + " wait " + (signalled ? "woke without controller"
                             : "timed out") + ") " + detail);
         }
@@ -542,7 +542,7 @@ public final class GeckoCookieManager {
         if (entries.isEmpty()) {
             return;
         }
-        Log.i(TAG, "flushing " + entries.size() + " pending cookie writes");
+        SinytraLog.i(TAG, "flushing " + entries.size() + " pending cookie writes");
         queryHandler().post(() -> {
             for (PendingWrites.Entry entry : entries) {
                 try {
@@ -551,14 +551,14 @@ public final class GeckoCookieManager {
                     controller.setCookie(url, value).accept(
                             accepted -> {
                                 if (!Boolean.TRUE.equals(accepted)) {
-                                    Log.w(TAG, "pending setCookie refused url="
+                                    SinytraLog.w(TAG, "pending setCookie refused url="
                                             + url);
                                 }
                             },
-                            e -> Log.w(TAG,
+                            e -> SinytraLog.w(TAG,
                                     "pending setCookie failed url=" + url, e));
                 } catch (Throwable t) {
-                    Log.w(TAG, "pending setCookie could not be issued", t);
+                    SinytraLog.w(TAG, "pending setCookie could not be issued", t);
                 }
             }
         });
@@ -577,7 +577,7 @@ public final class GeckoCookieManager {
         if (mContext != null && Looper.myLooper() == Looper.getMainLooper()) {
             return GeckoRuntimeHolder.get(mContext.getApplicationContext());
         }
-        Log.w(TAG, "cookie op before runtime exists on a background thread");
+        SinytraLog.w(TAG, "cookie op before runtime exists on a background thread");
         return null;
     }
 
