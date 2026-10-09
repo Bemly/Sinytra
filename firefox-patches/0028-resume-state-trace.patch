@@ -1,12 +1,113 @@
-From 10e6076379e7bf045e73a9c697a801ad6e57c485 Mon Sep 17 00:00:00 2001
+From a3a2dd7c66b65742f948d8c5df9786d164ef4d1a Mon Sep 17 00:00:00 2001
 From: Sinytra <sinytra@local>
 Date: Fri, 9 Oct 2026 10:56:30 +0800
 Subject: [PATCH] Sinytra patch 0028: resume-state trace (diagnostic)
 
 ---
- widget/android/nsWindow.cpp | 34 ++++++++++++++++++++++++++++++++++
- 1 file changed, 34 insertions(+)
+ gfx/layers/ipc/CompositorBridgeParent.cpp     | 31 +++++++++++++++++
+ .../ipc/UiCompositorControllerParent.cpp      | 25 ++++++++++++++
+ widget/android/nsWindow.cpp                   | 34 +++++++++++++++++++
+ 3 files changed, 90 insertions(+)
 
+diff --git a/gfx/layers/ipc/CompositorBridgeParent.cpp b/gfx/layers/ipc/CompositorBridgeParent.cpp
+index 852cece065..da944c6be8 100644
+--- a/gfx/layers/ipc/CompositorBridgeParent.cpp
++++ b/gfx/layers/ipc/CompositorBridgeParent.cpp
+@@ -4,6 +4,31 @@
+ 
+ #include "mozilla/layers/CompositorBridgeParent.h"
+ 
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#  include "mozilla/Preferences.h"
++
++// Sinytra firefox-patches/0028 (DIAGNOSTIC, remove before 定稿):
++// GPU-side paused-state trace. UI-side resumed=1 with zero presented
++// frames after the first blank one (device-verified 2026-10-09 MiniWV)
++// means either content never scheduled or the GPU stayed paused;
++// both Schedule* early-returns below are silent. Gated on the 0005
++// sinytra.log.enabled runtime pref.
++static bool SinytraGpuLogEnabled() {
++  static const bool sEnabled =
++      mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++
++#  define SINYTRA_GPU_LOG(...)                                          \
++    do {                                                               \
++      if (SinytraGpuLogEnabled()) {                                    \
++        __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/surface",     \
++                            __VA_ARGS__);                              \
++      }                                                                \
++    } while (0)
++#endif
++
+ #include <stdint.h>  // for uint64_t
+ #include <stdio.h>   // for fprintf, stdout
+ 
+@@ -582,6 +607,9 @@ bool CompositorBridgeParent::ResumeCompositionAndResize(int x, int y, int width,
+ void CompositorBridgeParent::ScheduleComposition(wr::RenderReasons aReasons) {
+   MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread());
+   if (mPaused) {
++#ifdef MOZ_WIDGET_ANDROID
++    SINYTRA_GPU_LOG("ScheduleComposition skipPaused");
++#endif
+     return;
+   }
+ 
+@@ -1573,6 +1601,9 @@ void CompositorBridgeParent::ScheduleFrameAfterSceneBuild(
+     RefPtr<const wr::WebRenderPipelineInfo> aInfo) {
+   MOZ_ASSERT(CompositorThreadHolder::IsInCompositorThread());
+   if (mPaused) {
++#ifdef MOZ_WIDGET_ANDROID
++    SINYTRA_GPU_LOG("ScheduleFrameAfterSceneBuild skipPaused");
++#endif
+     return;
+   }
+ 
+diff --git a/gfx/layers/ipc/UiCompositorControllerParent.cpp b/gfx/layers/ipc/UiCompositorControllerParent.cpp
+index c3f47a1eab..1a86f87d2d 100644
+--- a/gfx/layers/ipc/UiCompositorControllerParent.cpp
++++ b/gfx/layers/ipc/UiCompositorControllerParent.cpp
+@@ -7,6 +7,25 @@
+ #  include "apz/src/APZCTreeManager.h"
+ #  include "mozilla/layers/AndroidHardwareBuffer.h"
+ #  include "mozilla/widget/AndroidCompositorWidget.h"
++#  include <android/log.h>
++#  include "mozilla/Preferences.h"
++
++// Sinytra firefox-patches/0028 (DIAGNOSTIC, remove before 定稿):
++// GPU-side resume-result trace (companion to the nsWindow.cpp
++// UI-side lines). Gated on the 0005 sinytra.log.enabled runtime pref.
++static bool SinytraGpuResumeLogEnabled() {
++  static const bool sEnabled =
++      mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++
++#  define SINYTRA_GPU_RESUME_LOG(...)                                  \
++    do {                                                               \
++      if (SinytraGpuResumeLogEnabled()) {                              \
++        __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/surface",     \
++                            __VA_ARGS__);                              \
++      }                                                                \
++    } while (0)
+ #endif
+ #include <utility>
+ 
+@@ -90,6 +109,12 @@ mozilla::ipc::IPCResult UiCompositorControllerParent::RecvResumeAndResize(
+         LayoutDeviceIntSize(aWidth, aHeight));
+ #endif
+     *aOutResumed = parent->ResumeCompositionAndResize(aX, aY, aWidth, aHeight);
++#if defined(MOZ_WIDGET_ANDROID)
++    SINYTRA_GPU_RESUME_LOG("RecvResumeAndResize resumed=%d %dx%d",
++                           *aOutResumed, aWidth, aHeight);
++  } else {
++    SINYTRA_GPU_RESUME_LOG("RecvResumeAndResize noParent");
++#endif
+   }
+   return IPC_OK();
+ }
 diff --git a/widget/android/nsWindow.cpp b/widget/android/nsWindow.cpp
 index 255884c279..c960b06ee1 100644
 --- a/widget/android/nsWindow.cpp
