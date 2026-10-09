@@ -1672,6 +1672,13 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   17:08 起未解除。5 包归档已开（`Sinytra-apks/`：昨天 88ab6ad + 今天
   c890114，缺 3 后补；构建纪要：JDK/SDK 走 mozbuild 自带，文档旧
   `/opt/homebrew` 路径已失效待修）。
+- **闩逃生补丁验证中（2026-10-09 22:05，`77ceb11`）**：闩住后彻底静默
+  16s 准一次救援重发、再静默 16s 转重开（`NavigationCommitGuard` 单文件
+  +4 JVM 锁，lint/239 锁绿，归档第 3 包，已装机）。首轮 Bing `?v1bing05`
+  走干净快路（ctor→200→title17→finish，子资源流，像素亲眼深色主页含
+  搜索框/备案号，壁纸未绘）——本轮无黑洞，救援分支未被触发，修法未验证；
+  连黑窗口似已过（22 点后首绿）。救援是否真救黑洞轮，待自然黑洞轮命中
+  （不抽奖烧轮）。
 
 
 ## 2. 下一步（按顺序，一次做一件）
