@@ -5,7 +5,7 @@
 env:
   # Forensics gate (STAYS OFF for verdict rounds; enable only for death
   # capture rounds, COOLAPK.md §5-0b):
-  # MOZ_LOG: DocumentChannel:5,nsDocShell:5,BrowsingContext:5,Process:5,nsHttp:5,timestamp
+  MOZ_LOG: DocumentChannel:5,nsDocShell:5,BrowsingContext:5,Process:5,nsHttp:5,timestamp
 prefs:
   network.connectivity-service.enabled: false
   network.captive-portal-service.enabled: false
