@@ -1631,13 +1631,22 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **纸面新结论（零设备成本，`/tmp/mini_b1.log` vs `/tmp/mini_v30.log`）**：
   0029 生效中——B1 的 3s cadence 超时 + `after 2 attempts` + SW-WR
   fallback + tab4 出生并 RUNNING（fallback 后 0.1s 即 bind 成功）。死点已
-  下移到 fallback 下游：百度 200 头 ×3 到（44.7s，三次 dispatch 全 HIT/
+  下移到 fallback   下游：百度 200 头 ×3 到（44.7s，三次 dispatch 全 HIT/
   pass-through/OnSuccess），但 content 侧 `DocumentChannelChild ctor`
   永不到（tab RUNNING 3s 在前），无 OnStop、无 PageStart。绿 v30 的 ctor
   在 tab RUNNING 后 0.06s、OnStart 之前——当前 blocker 是 R2 家族的
   “content 永不消费”（RedirectToRealChannelFinished aRv=0 后静默），
   不再是 GPU bind 本身。待判：fallback 是否与失聪相关（v27 绿轮有无
   fallback 待查；R2 无 fallback 同形——纸面未闭）。
+- **fallback⊥失聪（2026-10-09 晚，纸面 2×2 闭环，零设备成本）**：v27/v30
+  绿（无 fallback、有 ctor）× R2 黑（无 fallback、无 ctor，
+  `/tmp/cool_r2.log` 零 `Bind timed out`）× B1 黑（有 fallback、无 ctor）
+  × v18 绿（有 fallback、管线放行）——fallback 与 content 失聪正交，
+  fallback 无辜也无功，不再当判别轴。失聪形精化（B1）：parent
+  RedirectToRealChannel（aRv=0）→ 1.5s 后静默 dtor（ParentProcess
+  DocumentChannel + LoadListener，无 IPC 错误、无 crash，content tab
+  RUNNING 后零行）；dtor 触发源在轻量门下不可见（necko cancel/docshell
+  侧需 nsHttp 全门 single 捕获轮，COOLAPK §5-0b 纪律，逮到死轮再开）。
 
 
 ## 2. 下一步（按顺序，一次做一件）
