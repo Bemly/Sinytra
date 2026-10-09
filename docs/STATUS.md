@@ -1623,6 +1623,21 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **环境新变量（未定罪，记录）**：机上 `tun0` 在 verdict 轮 carrying
   流量；前台曾见 `moe.nb4a/sagernet`（VPN 客户端，不在 §1v hook 栈
   清单里）。待用户方便时确认隧道用途，不打扰、不预设归因。
+- **fission 归因卡在 2/3（2026-10-09 晚，三批全 void，停烧）**：v27+v30
+  有效绿（迁移停止+快commit）后，补样批（v31–v34）4 void、百度批
+  （B1–B5，用户改测百度主页）5 void——三批 14/15 void，全是 GPU 死窗
+  形（`Bind timed out` + 无 real PageStart + `DocumentChannelChild 0`），
+  fission 既未成立也未证无辜。按纪律停烧轮次，ledger 封存。
+- **纸面新结论（零设备成本，`/tmp/mini_b1.log` vs `/tmp/mini_v30.log`）**：
+  0029 生效中——B1 的 3s cadence 超时 + `after 2 attempts` + SW-WR
+  fallback + tab4 出生并 RUNNING（fallback 后 0.1s 即 bind 成功）。死点已
+  下移到 fallback 下游：百度 200 头 ×3 到（44.7s，三次 dispatch 全 HIT/
+  pass-through/OnSuccess），但 content 侧 `DocumentChannelChild ctor`
+  永不到（tab RUNNING 3s 在前），无 OnStop、无 PageStart。绿 v30 的 ctor
+  在 tab RUNNING 后 0.06s、OnStart 之前——当前 blocker 是 R2 家族的
+  “content 永不消费”（RedirectToRealChannelFinished aRv=0 后静默），
+  不再是 GPU bind 本身。待判：fallback 是否与失聪相关（v27 绿轮有无
+  fallback 待查；R2 无 fallback 同形——纸面未闭）。
 
 
 ## 2. 下一步（按顺序，一次做一件）
