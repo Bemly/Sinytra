@@ -1,4 +1,5 @@
 package android.webkit;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import androidx.annotation.NonNull;
 
@@ -46,7 +47,7 @@ public class SinytraHttpAuthHandler extends HttpAuthHandler {
         try {
             mDecision.proceed(user, pass);
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/session",
+            SinytraLog.w("Sinytra/session",
                     "auth decision proceed threw", t);
         }
     }
@@ -59,7 +60,7 @@ public class SinytraHttpAuthHandler extends HttpAuthHandler {
         try {
             mDecision.cancel();
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/session",
+            SinytraLog.w("Sinytra/session",
                     "auth decision cancel threw", t);
         }
     }
@@ -71,7 +72,7 @@ public class SinytraHttpAuthHandler extends HttpAuthHandler {
 
     private boolean markAnswered(@NonNull String what) {
         if (mAnswered) {
-            android.util.Log.w("Sinytra/session",
+            SinytraLog.w("Sinytra/session",
                     "auth handler already answered; ignoring " + what);
             return false;
         }

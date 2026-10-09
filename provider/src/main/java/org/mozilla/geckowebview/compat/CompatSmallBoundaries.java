@@ -1,4 +1,5 @@
 package org.mozilla.geckowebview.compat;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import android.webkit.WebMessagePort;
 import androidx.annotation.NonNull;
@@ -155,7 +156,7 @@ public final class CompatSmallBoundaries {
                         try {
                             mBridge.postMessage(mPort, data, null);
                         } catch (Throwable t) {
-                            android.util.Log.w("Sinytra/compat",
+                            SinytraLog.w("Sinytra/compat",
                                     "LiveMessagePort post threw", t);
                         }
                     }
@@ -166,7 +167,7 @@ public final class CompatSmallBoundaries {
                     try {
                         mBridge.close(mPort);
                     } catch (Throwable t) {
-                        android.util.Log.w("Sinytra/compat",
+                        SinytraLog.w("Sinytra/compat",
                                 "LiveMessagePort close threw", t);
                     }
                     return null;
@@ -204,7 +205,7 @@ public final class CompatSmallBoundaries {
                                                     new Object[] {
                                                         portHandler, msgHandler});
                                         } catch (Throwable t) {
-                                            android.util.Log.w("Sinytra/compat",
+                                            SinytraLog.w("Sinytra/compat",
                                                     "LiveMessagePort callback threw",
                                                     t);
                                         }
@@ -215,7 +216,7 @@ public final class CompatSmallBoundaries {
                                                 fire.run();
                                             }
                                         } catch (Throwable t) {
-                                            android.util.Log.w("Sinytra/compat",
+                                            SinytraLog.w("Sinytra/compat",
                                                     "LiveMessagePort post threw",
                                                     t);
                                         }
@@ -227,7 +228,7 @@ public final class CompatSmallBoundaries {
                     try {
                         mBridge.setCallback(mPort, fw);
                     } catch (Throwable t) {
-                        android.util.Log.w("Sinytra/compat",
+                        SinytraLog.w("Sinytra/compat",
                                 "LiveMessagePort setCallback threw", t);
                     }
                     return null;
@@ -273,7 +274,7 @@ public final class CompatSmallBoundaries {
                     return value != null ? value.toString() : null;
                 }
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/compat",
+                SinytraLog.w("Sinytra/compat",
                         "LiveMessagePort getData threw", t);
             }
             return null;

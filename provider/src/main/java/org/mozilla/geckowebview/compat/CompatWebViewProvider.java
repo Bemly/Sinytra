@@ -1,4 +1,5 @@
 package org.mozilla.geckowebview.compat;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import android.webkit.WebView;
 import androidx.annotation.NonNull;
@@ -101,7 +102,7 @@ public final class CompatWebViewProvider implements InvocationHandler {
                                         "onComplete", long.class),
                                 new Object[] {id});
                     } catch (Throwable t) {
-                        android.util.Log.w("Sinytra/compat",
+                        SinytraLog.w("Sinytra/compat",
                                 "visual state callback threw", t);
                     }
                 }

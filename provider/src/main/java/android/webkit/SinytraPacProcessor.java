@@ -1,4 +1,5 @@
 package android.webkit;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import android.net.Network;
 import android.net.Uri;
@@ -66,7 +67,7 @@ public final class SinytraPacProcessor implements PacProcessor {
             }
             return result;
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/pac", "findProxyForUrl threw", t);
+            SinytraLog.w("Sinytra/pac", "findProxyForUrl threw", t);
             return null;
         }
     }
@@ -87,7 +88,7 @@ public final class SinytraPacProcessor implements PacProcessor {
                 done.countDown();
             });
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/pac", "eval dispatch threw", t);
+            SinytraLog.w("Sinytra/pac", "eval dispatch threw", t);
             return null;
         }
         try {
@@ -147,7 +148,7 @@ public final class SinytraPacProcessor implements PacProcessor {
                 return false;
             }
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/pac", "setProxyScript threw", t);
+            SinytraLog.w("Sinytra/pac", "setProxyScript threw", t);
             return false;
         }
         mScript = script;

@@ -1,6 +1,6 @@
 package com.android.webview.chromium;
 
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.webkit.WebViewDelegate;
 import android.webkit.WebViewFactoryProvider;
 import java.lang.reflect.InvocationTargetException;
@@ -34,7 +34,7 @@ public final class WebViewChromiumFactoryProviderForT {
     public static WebViewFactoryProvider create(WebViewDelegate delegate) {
         GeckoWebViewFactoryProvider factory =
                 (GeckoWebViewFactoryProvider) GeckoWebViewFactoryProvider.create(delegate);
-        Log.i(TAG, "framework entry: trampoline -> GeckoWebViewFactoryProvider");
+        SinytraLog.i(TAG, "framework entry: trampoline -> GeckoWebViewFactoryProvider");
         return (WebViewFactoryProvider) Proxy.newProxyInstance(
                 WebViewChromiumFactoryProviderForT.class.getClassLoader(),
                 new Class<?>[] {WebViewFactoryProvider.class},

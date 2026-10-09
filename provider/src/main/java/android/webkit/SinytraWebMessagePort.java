@@ -1,4 +1,5 @@
 package android.webkit;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import android.os.Handler;
 import androidx.annotation.NonNull;
@@ -111,7 +112,7 @@ public final class SinytraWebMessagePort extends WebMessagePort {
                     try {
                         app.onMessage(self, message);
                     } catch (Throwable t) {
-                        android.util.Log.w("Sinytra/message",
+                        SinytraLog.w("Sinytra/message",
                                 "fw port onMessage threw", t);
                     }
                 };

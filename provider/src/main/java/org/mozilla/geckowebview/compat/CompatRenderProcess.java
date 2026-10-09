@@ -1,4 +1,5 @@
 package org.mozilla.geckowebview.compat;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import android.webkit.WebViewRenderProcess;
 import android.webkit.WebViewRenderProcessClient;
@@ -163,7 +164,7 @@ public final class CompatRenderProcess {
                 InvocationHandler rendererHandler = create(renderer);
                 boundary.invoke(null, target, new Object[] {view, rendererHandler});
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/compat", "renderer dispatch threw", t);
+                SinytraLog.w("Sinytra/compat", "renderer dispatch threw", t);
             }
         };
         if (executor != null) {
@@ -171,7 +172,7 @@ public final class CompatRenderProcess {
                 executor.execute(task);
                 return;
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/compat", "renderer executor threw", t);
+                SinytraLog.w("Sinytra/compat", "renderer executor threw", t);
             }
         }
         task.run();
