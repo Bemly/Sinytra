@@ -108,6 +108,10 @@ tag 系机上某模块的 fragment 追踪）：
   `cp` 出来本地 python-sqlite3 查 jar 落盘（副作用鉴别法）。
 - 切 WebView 对照（bromite）前先 `dumpsys webviewupdate` 复核 Current，
   跑完必须切回（2026-10-08 实锤忘切，被用户当场抓获）。
+- **网络归因主证一律用 bromite（2026-10-09 用户立规）**：它是同槽位 system
+  WebView（切 Current 即换引擎，App/进程/网络条件全同），比 Fennec/Canary
+  更对等；Fennec/Canary 只做引擎能力旁证。跑法同上条（复核→切→同 App 同
+  链接→记包版本+rx→切回）。
 
 ## 4. 已修（新会话不要重修，harness 47 PASS 行 0 FAIL / JVM 216 绿守着）
 
