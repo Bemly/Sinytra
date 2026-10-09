@@ -1662,6 +1662,13 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   GPU bind 黑洞（3s 超时×2）后零标题零 finish，截图亲眼纯黑。标题像素双
   黑 vs 双绿——网络/设备/URL 全无辜，故障隔离在我方 content 失聪，与百度
   批同形。Current 已切回我方。
+- **二分反转（2026-10-09 20:45–20:55，重装即治，代码无辜）**：昨天包
+  （`88ab6ad` 重编归档，dex 验）装机跑 example `?v1bxex01`——ctor/200/
+  OnStop 全通、像素亲眼出字（标题未到，部分绿）；今天包原样装回跑
+  `?v1bxex02`——ctor/200/title/finish 全齐、像素亲眼多语全文+Learn more，
+  全绿。两包今晚都渲染——“治病”的是重装本身（provider 重装重置 AMS 侧
+  服务/bind 状态，黑洞窗口随之解除），不是代码差异。今天改动无辜；
+  17:08–20:45 的连黑是同一坏窗口。5 包归档已有昨天+今天（缺 3 后补）。
 
 
 ## 2. 下一步（按顺序，一次做一件）
