@@ -1571,66 +1571,45 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   Gecko 侧报空，非桥弄丢）、`finish hold timeout titleEmpty=true`。
    本轮单通道干净（tab28，HIT→pass-through→OnSuccess→Start→空标题→Stop），
    字节数待 0027 publish 后 `OnStopResponse bodyBytes=` 一锤。
-- **MiniWV v1 輪（2026-10-09 10:14，`?v1log1`，回调绿像素黑新 signature）**：
-  全链绿（install ack→filter×3→HIT→pass-through→OnSuccess×2→PageStart→
-  空白Start吞吃→LocationChange→`onTitleChange title=Example Domain`→
-  `title adopted len=14`→PageStop success→`finish decision tLen=14 p=100`，
-  rx +234KB），但三截屏内容区纯黑、a11y 零内容节点。dump 见 WebView 在树
-  零子节点——挂载/呈现二选一，下一轮用 `viewDelegate onAttachedToWindow`
-  日志 + dumpsys 判。
-- **MiniWV v2 轮（10:24，`?v1log2`，挂载无辜、呈现侧实锤）**：
-  ctor-fail→53ms 后 onAttachedToWindow 重试→dumpsys 三级链
-  WebView→GeckoViewHost→MagnifiableSurfaceView 全尺寸 1080x2112；
-  handoff 三跳 rv=0；GPU 3 binds 存活；回调复绿；但像素仍黑。
-  结论：挂载链闭案，余量 = compositor 零呈现（`Composite` 零行弱证据；
-  SurfaceFlinger BLAST 层在、buffer 已分配）。纸面推演（子 agent）：
-  resume-missed/假成功（`UiCompositorControllerChild:130`）或
-  stuck-paused（`NotifyCompositorCreated:1212` 跳过 + `InitiallyPaused`
-  真）与症状精确吻合；两处 resume 失败分支的 gfxCriticalNote 全轮零行，
-  故只剩沉默跳过分支——0028 四行诊断日志一次加齐判。
-- **0027 落地验证（10:58 快照 -8，`?v1log3` 判 B：空体完成类）**：
-  outcome 行首亮（pref 门开，filters pushed=3）：主文档 OnStart 200→
-  OnStop 0x0 **bodyBytes=334**（s.js 1379；内部通道 521/296/201），之后
-  88s 零 PageStop/零 title/零 finish（仅 blank finish），rx +137KB。
-  status 全程正常但字节 <1KB 即终局——“空体完成”一锤定音（与 v1/v2 的
-  title+Stop+黑 轮间交替：同构建不同命运，flaky 本身即信号，待 0028
-  resume 日志 + content  fate 同轮对照）。
-- **0028（构建中）**：`nsWindow.cpp` 四处 `SINYTRA_RESUME_LOG`
-  （0005 门）：Notify resumed 值 + skipResume、Sync entry/childNull +
-  resumed 值 + skipResume。诊断补丁，定稿前删除。
-- **构建纪律（2026-10-09 血泪三条，後人免踩）**：① 0027 首编挂
-  `Preferences` 未声明——跨命名空间 helper 必须 `mozilla::` 限定
-  （已修）；② 0028 首编挂宏尾吞换行——多行宏编辑后必看尾行
-  （已修）；③ 本机构建并行默认 12 clang 把整机卡死，用户临时要求
-  `-j2`（`mach build -j2`，MOZ_MAKE_FLAGS 环境变量不管用；**暂行、
-  不进纪律**）。另：publish 后 provider 侧必须 `--refresh-dependencies`
-  否则吃旧快照（已成标准动作）。
-- **A/B 双绿又反转（2026-10-09 12:16，坏窗假设死）**：Canary 与 MiniWV
-  背靠背双绿（同窗 rx 78KB/93KB，像素皆有内容）→ 当时判 flake 窗；
-  随后两对 A/B（`?v1log9-12`）：A（self）3/3 绿、B（foreign）2/2 黑，
-  触发态（load~15/MemAvail~6.4G/僵尸9/thermal 0）绿黑无差。
-  累计 self 4/4 绿、foreign 1/7 绿——系统性分裂 + 偶发逃逸（race 形），
-  纯环境论死。B 黑轮回调 variance 大（v3 无 title 88s 静默 / v4-v6
-  title+Stop 齐 / B10-B12 连 title 都无）但像素恒黑。
-- **Cell3（FrameworkEntry=self+WebView 栈，`?v1log13`，绿）**：
-  `FRAMEWORK ENTRY PASS` 十项 + 像素有内容。叠加 Canary（self+直连）
-  绿、MiniWV（foreign+栈）黑 → 因子是 **host uid（跨包）**，
-  WebView 栈无辜。附带钉死：主文档 outcome 仍 334（br 压缩口径），
-  绿与 334 共存——内容字节彻底出局。
-- **v6 MOZ_LOG 捕获（A/截断/归属三证伪）**：DocumentChannel 全走完
-  （TriggerRedirect dest=3→Finished rv=0→PPDC/Parent/Child 齐→fission
-  2→3 迁移正）→ link 无辜；`brotlihandler decompress 334→out=577`
-  → 截断论死（0027 注记已改传输口径）；tab 归属迁移正确。
-  残留：`nsDocShell:5` 全轮零运行时行（现象记录，未追）。
+- **MiniWV 黑屏 verdict（2026-10-09，现状）**：MiniWV（foreign uid）
+  直载 example.com+buster 连续黑，回调与呈现分离——consult→PageStart→
+  title（`len=14`）→PageStop→finish 全绿、挂载三级链全尺寸、GPU resumed=1，
+  但像素恒黑。对照矩阵（同机背靠背、buster 防毒缓存、rx 会计）：
+  Canary（self+直连）3/3 绿、FrameworkEntry（self+WebView 栈）1/1 绿
+  （`FRAMEWORK ENTRY PASS` 十项）、MiniWV 1/7 绿。结论：因子是
+  **host uid（跨包呈现）**，WebView 栈无辜；foreign 偶发逃逸一次
+  （race 形，非纯环境——触发态 load/mem/僵尸/thermal 绿黑无差）。
+- **已证伪（各一行，不赘）**：挂载（dumpsys 三级链 1080x2112 +
+  SurfaceFlinger BLAST 层在）；UI/GPU resume（双 `resumed=1`、
+  `skipPaused` 全零）；content-link（v6 MOZ_LOG：TriggerRedirect
+  dest=3→Finished rv=0→PPDC/Parent/Child 齐→fission 2→3 迁移正）；
+  tab 归属错位（消费 tab 正确）；body 截断（`brotlihandler decompress
+  334→out=577`，necko 完整——**0027 bodyBytes 系传输（压缩）口径，
+  小数值≠截断**，注记已进 patch）；finish-path 产品缺口（bromite
+  同槽对照曾绿，系 exposed 缓存/时序差，非独立缺口）；闩/门/fission
+  （同轮同机对照排除在先）。
+- **仪器（现状）**：0027 outcome（status+bodyBytes，0005 门，快照 -8 起
+  活）；0028 resume-state（UI 侧 Sync/Notify + GPU 侧 Schedule* skipPaused
+  + RecvResume 结果 + `NotifyDidRender` 计数，同门，诊断补丁定稿前删）。
+  空标题= Gecko 侧报空（`onTitleChange` 实锤，非桥弄丢）。
+- **进行中**：MiniWV buster 轮数 `NotifyDidRender` 帧数——响=呈现路坏，
+  零=scene 没到（下步：WR transaction 到达日志）。酷安真页（github
+  release）复验排其后（MiniWV 定案即转 cool-round.sh 同条件）。
+- **方法纪律（本次沉淀）**：改动配 MiniWV-example **cache-buster 渲染
+  verdict**（title+像素双准，只看回调=没验）；对照必带 rx delta
+  （wlan0+tun0，时变带宽 86 倍摆动实锤）+ 交替顺序；网络归因主证用
+  bromite 同槽对照（用户立规）；pm clear 不当常规手段；verdict 轮
+  取证门保持 OFF（开门只 single 捕获轮，用完即关——v6 开/关各一次已验）；
+  MiniWV 换 URL 必重装（task intent 复用吃 extra）。
+- **构建纪律（本次沉淀）**：跨命名空间 helper 必 `mozilla::` 限定；
+  多行宏编辑后必看尾行（吞换行挂过一次）；publish 后 provider 必
+  `--refresh-dependencies`；本机默认 12 clang 卡死时 `mach build -j2`
+  （用户暂行要求，不进永久纪律）；AAR 进包验字符串用 raw 匹配
+  （token 化必漏）；snapshot 命名（-8/-10/-11/-12）与 patch 含量的
+  对应关系以 AAR 实测为准，不以提交顺序猜。
 - **环境新变量（未定罪，记录）**：机上 `tun0` 在 verdict 轮 carrying
-  流量（v3 +76KB）；前台曾见 `moe.nb4a/sagernet`（VPN 客户端，不在
-  §1v hook 栈清单里）。对照纪律追加：记 rx 时addle tun0 一并，
-  归因先看隧道抖动。用户在机旁，未打扰问。
-- **0028 追到 GPU 门口（构建中）**：UI+GPU 双 resumed=1、skipPaused=0、
-  mount/bytes/title/Stop 全齐、单 blank 帧后零呈现——盲区只剩
-  content→GPU layer/scene。0028 加 `NotifyDidRender` 计数
-  （`CompositorBridgeParent.cpp` 同文件同门）：下轮数帧——
-  响=呈现路，零=scene 没到（下下步：WR transaction 到达日志）。
+  流量；前台曾见 `moe.nb4a/sagernet`（VPN 客户端，不在 §1v hook 栈
+  清单里）。待用户方便时确认隧道用途，不打扰、不预设归因。
 
 
 ## 2. 下一步（按顺序，一次做一件）
