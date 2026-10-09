@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 import android.os.Bundle;
 import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.webkit.WebView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -31,27 +32,27 @@ public final class GlueHarnessActivity extends Activity {
         mStatus.setText("Glue harness: starting…");
         mStatus.setTextIsSelectable(true);
         setContentView(mStatus);
-        Log.i(TAG, "onCreate: starting probe thread");
+        SinytraLog.i(TAG, "onCreate: starting probe thread");
         new Thread(this::runProbe, "glue-harness").start();
     }
 
     private void runProbe() {
-        Log.i(TAG, "runProbe: entered");
+        SinytraLog.i(TAG, "runProbe: entered");
         StringBuilder out = new StringBuilder();
         try {
-            Log.i(TAG, "runProbe: loading factory class");
+            SinytraLog.i(TAG, "runProbe: loading factory class");
             Class<?> factoryClass =
                     Class.forName("org.mozilla.geckowebview.provider.GeckoWebViewFactoryProvider");
-            Log.i(TAG, "runProbe: factory class loaded: " + factoryClass.getClassLoader());
-            Log.i(TAG, "runProbe: constructing factory");
+            SinytraLog.i(TAG, "runProbe: factory class loaded: " + factoryClass.getClassLoader());
+            SinytraLog.i(TAG, "runProbe: constructing factory");
             GeckoWebViewFactoryProvider factory = new GeckoWebViewFactoryProvider();
             out.append("PASS provider construct\n");
-            Log.i(TAG, "runProbe: factory ok");
+            SinytraLog.i(TAG, "runProbe: factory ok");
 
             // android.webkit.WebView's constructor binds the CURRENT system
             // provider (Chromium) and requires a prepared Looper — must run on
             // the UI thread. Collect the objects first, then continue.
-            Log.i(TAG, "runProbe: creating WebView on UI thread");
+            SinytraLog.i(TAG, "runProbe: creating WebView on UI thread");
             final WebView[] webViewBox = new WebView[1];
             final Object[] privateAccessBox = new Object[1];
             final Throwable[] uiError = new Throwable[1];
@@ -71,7 +72,7 @@ public final class GlueHarnessActivity extends Activity {
             if (!uiDone.await(15, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("UI thread WebView create timeout");
             }
-            Log.i(TAG, "runProbe: WebView created, error=" + uiError[0]);
+            SinytraLog.i(TAG, "runProbe: WebView created, error=" + uiError[0]);
             if (uiError[0] != null) {
                 throw new IllegalStateException("WebView create failed", uiError[0]);
             }
@@ -83,7 +84,7 @@ public final class GlueHarnessActivity extends Activity {
             // GeckoSession constructor requires the UI thread too — create the
             // whole provider on the UI thread, like the real framework does
             // (WebViewFactory.getProvider → create() happens on the UI thread).
-            Log.i(TAG, "runProbe: creating provider on UI thread");
+            SinytraLog.i(TAG, "runProbe: creating provider on UI thread");
             final Object[] providerBox = new Object[1];
             final Throwable[] providerError = new Throwable[1];
             final java.util.concurrent.CountDownLatch providerDone =
@@ -100,7 +101,7 @@ public final class GlueHarnessActivity extends Activity {
             if (!providerDone.await(15, TimeUnit.SECONDS)) {
                 throw new IllegalStateException("UI thread createWebView timeout");
             }
-            Log.i(TAG, "runProbe: provider created, error=" + providerError[0]);
+            SinytraLog.i(TAG, "runProbe: provider created, error=" + providerError[0]);
             if (providerError[0] != null) {
                 throw new IllegalStateException("createWebView failed", providerError[0]);
             }
@@ -139,7 +140,7 @@ public final class GlueHarnessActivity extends Activity {
             }
 
             TestClient client = new TestClient();
-            Log.i(TAG, "runProbe: loading URL_1");
+            SinytraLog.i(TAG, "runProbe: loading URL_1");
             runOnUiThread(() -> {
                 provider.setWebViewClient(client.client);
                 provider.setWebChromeClient(client.chrome);
@@ -394,7 +395,7 @@ public final class GlueHarnessActivity extends Activity {
             out.append("GLUE FAIL: ").append(Log.getStackTraceString(t)).append('\n');
         }
         String result = out.toString();
-        Log.i(TAG, "\n" + result);
+        SinytraLog.i(TAG, "\n" + result);
         runOnUiThread(() -> mStatus.setText(result));
     }
 
@@ -470,7 +471,7 @@ public final class GlueHarnessActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                Log.i(TAG, "client: onPageStarted " + url);
+                SinytraLog.i(TAG, "client: onPageStarted " + url);
                 if (url != null && !url.equals("about:blank")) {
                     lastStartedUrl.set(url);
                     started.countDown();
@@ -479,7 +480,7 @@ public final class GlueHarnessActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                Log.i(TAG, "client: onPageFinished " + url);
+                SinytraLog.i(TAG, "client: onPageFinished " + url);
                 if (url != null && !url.equals("about:blank")) {
                     lastFinishedUrl.set(url);
                     finished.countDown();
@@ -492,7 +493,7 @@ public final class GlueHarnessActivity extends Activity {
                 @Override
                 public void onReceivedError(WebView view, int errorCode,
                         String description, String failingUrl) {
-                    Log.i(TAG, "errClient: onReceivedError " + errorCode + " "
+                    SinytraLog.i(TAG, "errClient: onReceivedError " + errorCode + " "
                             + failingUrl);
                     out[0] = new int[] {errorCode};
                     done.countDown();

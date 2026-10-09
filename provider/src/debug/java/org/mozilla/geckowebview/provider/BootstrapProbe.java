@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import androidx.annotation.NonNull;
 import java.io.File;
 import java.util.ArrayList;

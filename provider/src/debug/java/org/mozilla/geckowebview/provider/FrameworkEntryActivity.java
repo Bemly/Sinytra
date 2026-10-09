@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.pm.PackageInfo;
 import android.os.Bundle;
 import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
@@ -228,6 +229,6 @@ public final class FrameworkEntryActivity extends Activity {
                     .append('\n');
         }
         String result = out.toString();
-        Log.i(TAG, "\n" + result);
+        SinytraLog.i(TAG, "\n" + result);
     }
 }

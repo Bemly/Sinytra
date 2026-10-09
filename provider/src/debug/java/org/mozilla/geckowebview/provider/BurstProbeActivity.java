@@ -2,7 +2,7 @@ package org.mozilla.geckowebview.provider;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import java.util.concurrent.CountDownLatch;
@@ -31,7 +31,7 @@ public final class BurstProbeActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Log.i(TAG, "burst start: creator=" + Thread.currentThread().getName());
+        SinytraLog.i(TAG, "burst start: creator=" + Thread.currentThread().getName());
         android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
         layout.setOrientation(android.widget.LinearLayout.VERTICAL);
         setContentView(layout);
@@ -42,7 +42,7 @@ public final class BurstProbeActivity extends Activity {
                 new android.os.HandlerThread("Sinytra/burst-worker");
         worker.start();
         new android.os.Handler(worker.getLooper()).post(() -> {
-            Log.i(TAG, "worker: creator=" + Thread.currentThread().getName()
+            SinytraLog.i(TAG, "worker: creator=" + Thread.currentThread().getName()
                     + " main=" + (android.os.Looper.myLooper()
                             == android.os.Looper.getMainLooper()));
             for (int i = 0; i < URLS.length; i++) {
@@ -58,22 +58,22 @@ public final class BurstProbeActivity extends Activity {
                     webView.setWebViewClient(new WebViewClient() {
                         @Override
                         public void onPageFinished(WebView view, String finished) {
-                            Log.i(TAG, "finished[" + index + "] " + finished);
+                            SinytraLog.i(TAG, "finished[" + index + "] " + finished);
                             mDone.countDown();
                         }
                     });
                     webView.loadUrl(url);
-                    Log.i(TAG, "loaded[" + index + "] " + url);
+                    SinytraLog.i(TAG, "loaded[" + index + "] " + url);
                 } catch (Throwable t) {
-                    Log.w(TAG, "create/load[" + index + "] threw", t);
+                    SinytraLog.w(TAG, "create/load[" + index + "] threw", t);
                 }
             }
             try {
                 boolean ok = mDone.await(90, TimeUnit.SECONDS);
-                Log.i(TAG, ok ? "BURST PASS" : "BURST FAIL");
+                SinytraLog.i(TAG, ok ? "BURST PASS" : "BURST FAIL");
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                Log.i(TAG, "BURST FAIL(interrupted)");
+                SinytraLog.i(TAG, "BURST FAIL(interrupted)");
             }
             worker.quitSafely();
         });

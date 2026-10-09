@@ -8,6 +8,7 @@ import android.webkit.JsPromptResult;
 import android.webkit.JsResult;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -86,7 +87,7 @@ final class SystemCapabilityProbes {
                 cm.setAcceptThirdPartyCookies(webView, tpBefore);
                 cookieOk[0] = flipped && restored && tpFlipped;
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/syscaps", "cookie probe threw", t);
+                SinytraLog.w("Sinytra/syscaps", "cookie probe threw", t);
             } finally {
                 cookieDone.countDown();
             }
@@ -542,7 +543,7 @@ final class SystemCapabilityProbes {
                     os.write(body);
                     os.flush();
                 } catch (Throwable t) {
-                    android.util.Log.w("Sinytra/syscaps",
+                    SinytraLog.w("Sinytra/syscaps",
                             "attachment server ended", t);
                 }
             }, "sinytra-dl-server");
@@ -612,7 +613,7 @@ final class SystemCapabilityProbes {
                         os.write(body);
                         os.flush();
                     } catch (Throwable t) {
-                        android.util.Log.d("Sinytra/syscaps",
+                        SinytraLog.d("Sinytra/syscaps",
                                 "tls server connection ended", t);
                     }
                 }
@@ -654,7 +655,7 @@ final class SystemCapabilityProbes {
                                             }
                                         });
                             } catch (Throwable t) {
-                                android.util.Log.d("Sinytra/syscaps",
+                                SinytraLog.d("Sinytra/syscaps",
                                         "ssl probe eval attempt " + i
                                                 + " failed");
                             }

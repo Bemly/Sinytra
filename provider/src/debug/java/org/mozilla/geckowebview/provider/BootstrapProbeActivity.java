@@ -3,6 +3,7 @@ package org.mozilla.geckowebview.provider;
 import android.app.Activity;
 import android.os.Bundle;
 import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
@@ -29,7 +30,7 @@ public final class BootstrapProbeActivity extends Activity {
                 } catch (Throwable t) {
                     result.add("GeckoRuntime.create: FAIL " + Log.getStackTraceString(t));
                 }
-                Log.i(TAG, "\n" + result);
+                SinytraLog.i(TAG, "\n" + result);
                 view.setText(result.toString());
             });
         }, "bootstrap-probe").start();

@@ -4,7 +4,7 @@ import android.app.Activity;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -89,9 +89,9 @@ public class JsTitleProbeActivity extends Activity {
                             "file:///android_asset/cts-probe/frame_outer.html",
                             "file:///android_asset/cts-probe/frame_inner.html");
                 }
-                Log.i(TAG, "PROBE DONE");
+                SinytraLog.i(TAG, "PROBE DONE");
             } catch (Throwable t) {
-                Log.e(TAG, "PROBE FAILED", t);
+                SinytraLog.e(TAG, "PROBE FAILED", t);
             }
         }).start();
     }
@@ -144,7 +144,7 @@ public class JsTitleProbeActivity extends Activity {
                     load(w, html, httpBase);
                 }
             } catch (Throwable t) {
-                Log.e(TAG, name + " load threw", t);
+                SinytraLog.e(TAG, name + " load threw", t);
                 finished.countDown();
             }
         });
@@ -179,7 +179,7 @@ public class JsTitleProbeActivity extends Activity {
             }
             Thread.sleep(500);
         }
-        Log.i(TAG, "PROBE " + name + " finished=" + ok + " title=" + title
+        SinytraLog.i(TAG, "PROBE " + name + " finished=" + ok + " title=" + title
                 + " url=" + lastUrl[0] + " titleLagMs="
                 + (android.os.SystemClock.uptimeMillis() - finishedAt));
         CountDownLatch removed = new CountDownLatch(1);
@@ -189,7 +189,7 @@ public class JsTitleProbeActivity extends Activity {
                 mRoot.removeView(w);
                 w.destroy();
             } catch (Throwable t) {
-                Log.e(TAG, name + " teardown threw", t);
+                SinytraLog.e(TAG, name + " teardown threw", t);
             }
             removed.countDown();
         });
@@ -235,7 +235,7 @@ public class JsTitleProbeActivity extends Activity {
             try {
                 w.loadUrl(url);
             } catch (Throwable t) {
-                Log.e(TAG, name + " load threw", t);
+                SinytraLog.e(TAG, name + " load threw", t);
                 finished.countDown();
             }
         });
@@ -261,7 +261,7 @@ public class JsTitleProbeActivity extends Activity {
             }
             Thread.sleep(500);
         }
-        Log.i(TAG, "PROBE " + name + " finished=" + ok + " title=" + title
+        SinytraLog.i(TAG, "PROBE " + name + " finished=" + ok + " title=" + title
                 + " expect=" + expectTitle + " titleLagMs="
                 + (android.os.SystemClock.uptimeMillis() - finishedAt));
         // Origin witness (0020): file: codebase -> "file://", null
@@ -272,11 +272,11 @@ public class JsTitleProbeActivity extends Activity {
             try {
                 WebView w = (WebView) mRoot.getChildAt(mRoot.getChildCount() - 1);
                 w.evaluateJavascript("document.location.origin", value -> {
-                    Log.i(TAG, "PROBE " + name + " origin=" + value);
+                    SinytraLog.i(TAG, "PROBE " + name + " origin=" + value);
                     originGot.countDown();
                 });
             } catch (Throwable t) {
-                Log.e(TAG, name + " origin eval threw", t);
+                SinytraLog.e(TAG, name + " origin eval threw", t);
                 originGot.countDown();
             }
         });
@@ -288,7 +288,7 @@ public class JsTitleProbeActivity extends Activity {
                 mRoot.removeView(w);
                 w.destroy();
             } catch (Throwable t) {
-                Log.e(TAG, name + " teardown threw", t);
+                SinytraLog.e(TAG, name + " teardown threw", t);
             }
             removed.countDown();
         });

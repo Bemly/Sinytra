@@ -2,7 +2,7 @@ package org.mozilla.geckowebview.provider;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.List;
@@ -41,13 +41,13 @@ public final class CanaryRenderActivity extends Activity {
         mSession.setProgressDelegate(new GeckoSession.ProgressDelegate() {
             @Override
             public void onPageStart(GeckoSession session, String url) {
-                Log.i(TAG, "onPageStart " + url);
+                SinytraLog.i(TAG, "onPageStart " + url);
                 runOnUiThread(() -> mStatus.setText("loading: " + url));
             }
 
             @Override
             public void onPageStop(GeckoSession session, boolean success) {
-                Log.i(TAG, "onPageStop success=" + success);
+                SinytraLog.i(TAG, "onPageStop success=" + success);
                 runOnUiThread(() -> mStatus.setText(
                         success ? "CANARY PASS: page stopped, success=true"
                                 : "CANARY FAIL: page stopped, success=false"));
@@ -55,7 +55,7 @@ public final class CanaryRenderActivity extends Activity {
 
             @Override
             public void onProgressChange(GeckoSession session, int progress) {
-                Log.i(TAG, "progress=" + progress);
+                SinytraLog.i(TAG, "progress=" + progress);
             }
         });
         mSession.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
@@ -63,17 +63,17 @@ public final class CanaryRenderActivity extends Activity {
             public void onLocationChange(GeckoSession session, String url,
                     List<GeckoSession.PermissionDelegate.ContentPermission> perms,
                     Boolean hasUserGesture) {
-                Log.i(TAG, "location=" + url);
+                SinytraLog.i(TAG, "location=" + url);
             }
 
             @Override
             public void onCanGoBack(GeckoSession session, boolean canGoBack) {
-                Log.i(TAG, "canGoBack=" + canGoBack);
+                SinytraLog.i(TAG, "canGoBack=" + canGoBack);
             }
 
             @Override
             public void onCanGoForward(GeckoSession session, boolean canGoForward) {
-                Log.i(TAG, "canGoForward=" + canGoForward);
+                SinytraLog.i(TAG, "canGoForward=" + canGoForward);
             }
         });
         // 0006 download investigation: observe the external-response dispatch
@@ -84,13 +84,13 @@ public final class CanaryRenderActivity extends Activity {
             @Override
             public void onExternalResponse(GeckoSession session,
                     org.mozilla.geckoview.WebResponse response) {
-                Log.i(TAG, "onExternalResponse uri=" + response.uri
+                SinytraLog.i(TAG, "onExternalResponse uri=" + response.uri
                         + " status=" + response.statusCode);
             }
         });
 
         org.mozilla.geckowebview.view.GeckoViewHost.attach(this, view, mSession);
-        Log.i(TAG, "loading " + url);
+        SinytraLog.i(TAG, "loading " + url);
         mSession.loadUri(url);
     }
 
