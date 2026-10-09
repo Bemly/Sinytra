@@ -1,4 +1,5 @@
 package org.mozilla.geckowebview.session;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebView;
@@ -42,7 +43,7 @@ public final class RenderProcessBridge {
         SinytraRenderProcess process = mProcess;
         if (process == null) {
             if (android.os.Build.VERSION.SDK_INT < 29) {
-                android.util.Log.w("Sinytra/render",
+                SinytraLog.w("Sinytra/render",
                         "process(): WebViewRenderProcess is API 29+");
                 return null;
             }
@@ -77,7 +78,7 @@ public final class RenderProcessBridge {
                     return;
                 }
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/render",
+                SinytraLog.w("Sinytra/render",
                         "WebViewClient.onRenderProcessGone threw", t);
             }
         }
@@ -85,7 +86,7 @@ public final class RenderProcessBridge {
             return;
         }
         if (android.os.Build.VERSION.SDK_INT < 29) {
-            android.util.Log.w("Sinytra/render",
+            SinytraLog.w("Sinytra/render",
                     "onGeckoCrash: renderer client is API 29+");
             return;
         }
@@ -94,7 +95,7 @@ public final class RenderProcessBridge {
             try {
                 client.onRenderProcessUnresponsive(view, process());
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/render",
+                SinytraLog.w("Sinytra/render",
                         "onRenderProcessUnresponsive threw", t);
             }
         };
@@ -103,7 +104,7 @@ public final class RenderProcessBridge {
                 executor.execute(dispatch);
                 return;
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/render", "executor threw", t);
+                SinytraLog.w("Sinytra/render", "executor threw", t);
             }
         }
         dispatch.run();
@@ -115,7 +116,7 @@ public final class RenderProcessBridge {
             return;
         }
         if (android.os.Build.VERSION.SDK_INT < 29) {
-            android.util.Log.w("Sinytra/render",
+            SinytraLog.w("Sinytra/render",
                     "onResponsive: renderer client is API 29+");
             return;
         }
@@ -128,7 +129,7 @@ public final class RenderProcessBridge {
                     client.onRenderProcessUnresponsive(view, process());
                 }
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/render", "responsive dispatch threw", t);
+                SinytraLog.w("Sinytra/render", "responsive dispatch threw", t);
             }
         };
         if (executor != null) {
@@ -136,7 +137,7 @@ public final class RenderProcessBridge {
                 executor.execute(dispatch);
                 return;
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/render", "executor threw", t);
+                SinytraLog.w("Sinytra/render", "executor threw", t);
             }
         }
         dispatch.run();

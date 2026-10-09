@@ -5,6 +5,7 @@ import androidx.annotation.Nullable;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 
@@ -56,7 +57,7 @@ public final class PrintBridge {
                         e -> completion.onFailed(
                                 e != null ? e.toString() : "Gecko PDF failed"));
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "saveAsPdf threw", t);
+                SinytraLog.w(TAG, "saveAsPdf threw", t);
                 completion.onFailed(t.toString());
             }
         });
@@ -92,7 +93,7 @@ public final class PrintBridge {
                 out.flush();
                 main().post(completion::onFinished);
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "PDF copy threw", t);
+                SinytraLog.w(TAG, "PDF copy threw", t);
                 main().post(() -> completion.onFailed(t.toString()));
             }
         }, "sinytra-print").start();

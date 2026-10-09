@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.session;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 
@@ -95,7 +96,7 @@ public class PermissionBridge implements GeckoSession.PermissionDelegate {
         String origin = perm.uri != null ? perm.uri : "";
         Integer auto = autoDecision(perm.permission);
         if (auto != null) {
-            android.util.Log.d("Sinytra/permission",
+            SinytraLog.d("Sinytra/permission",
                     "auto decision perm=" + perm.permission + " -> " + auto);
             return GeckoResult.fromValue(auto);
         }
@@ -118,7 +119,7 @@ public class PermissionBridge implements GeckoSession.PermissionDelegate {
             try {
                 mHost.onGeolocationPrompt(origin, decision);
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/permission",
+                SinytraLog.w("Sinytra/permission",
                         "Host.onGeolocationPrompt threw", t);
                 decision.deny();
             }
@@ -126,7 +127,7 @@ public class PermissionBridge implements GeckoSession.PermissionDelegate {
             try {
                 mHost.onPermissionRequest(origin, perm.permission, decision);
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/permission",
+                SinytraLog.w("Sinytra/permission",
                         "Host.onPermissionRequest threw", t);
                 decision.deny();
             }

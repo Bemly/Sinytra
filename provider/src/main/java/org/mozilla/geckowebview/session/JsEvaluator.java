@@ -1,4 +1,5 @@
 package org.mozilla.geckowebview.session;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -53,7 +54,7 @@ public final class JsEvaluator {
                         });
                 return;
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/js", "transport eval threw", t);
+                SinytraLog.w("Sinytra/js", "transport eval threw", t);
             }
         }
         JsBridge bridge = mBridge;
@@ -66,20 +67,20 @@ public final class JsEvaluator {
                     try {
                         resultCallback.onReceiveValue(value);
                     } catch (Throwable t) {
-                        android.util.Log.w("Sinytra/js",
+                        SinytraLog.w("Sinytra/js",
                                 "result callback threw", t);
                     }
                 });
                 return;
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/js", "bridge eval threw", t);
+                SinytraLog.w("Sinytra/js", "bridge eval threw", t);
             }
         }
         if (resultCallback != null) {
             try {
                 resultCallback.onReceiveValue(null);
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/js", "result callback threw", t);
+                SinytraLog.w("Sinytra/js", "result callback threw", t);
             }
         }
     }

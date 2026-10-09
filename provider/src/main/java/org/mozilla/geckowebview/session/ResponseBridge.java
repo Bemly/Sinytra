@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.session;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.WebRequestInfo;
@@ -85,7 +86,7 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
                 mHost.onConsulted(info.uri);
             }
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/response",
+            SinytraLog.w("Sinytra/response",
                     "Host.onConsulted threw", t);
         }
         final WebResourceResponseHolder app =
@@ -93,7 +94,7 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
         if (app == null || app.body == null) {
             // Not handled: the C++ controller resets the interception and
             // the load proceeds normally.
-            android.util.Log.d("Sinytra/response",
+            SinytraLog.d("Sinytra/response",
                     "pass-through " + info.uri);
             return null;
         }
@@ -114,7 +115,7 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
             builder.header("Content-Type", contentType);
         }
         builder.body(app.body);
-        android.util.Log.d("Sinytra/response",
+        SinytraLog.d("Sinytra/response",
                 "synthesize " + info.uri + " status=" + app.statusCode);
         return GeckoResult.fromValue(builder.build());
     }

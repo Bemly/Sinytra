@@ -7,6 +7,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.util.Collections;
 import java.util.Map;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 
@@ -80,7 +81,7 @@ public final class InterceptBridge {
             return null;
         }
         if (policyBlocksNavigation(uri, isMainFrame, triggerUri)) {
-            android.util.Log.i("Sinytra/intercept",
+            SinytraLog.i("Sinytra/intercept",
                     "policy blocks navigation " + uri);
             return GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.DENY);
         }
@@ -88,7 +89,7 @@ public final class InterceptBridge {
             // 0001/0002: the necko controller answers this URI with the
             // app body; the P2-4 deny approximation must not fire (it
             // would cancel the load before the channel is claimed).
-            android.util.Log.d("Sinytra/intercept",
+            SinytraLog.d("Sinytra/intercept",
                     "response surface owns " + uri + "; standing down");
             return null;
         }
@@ -100,7 +101,7 @@ public final class InterceptBridge {
             try {
                 mHost.onInterceptDeny(uri, isRedirect, hasUserGesture);
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/intercept",
+                SinytraLog.w("Sinytra/intercept",
                         "Host.onInterceptDeny threw", t);
             }
             return GeckoResult.fromValue(org.mozilla.geckoview.AllowOrDeny.DENY);
@@ -139,7 +140,7 @@ public final class InterceptBridge {
                     new SinytraResourceRequest(uri, isMainFrame, isRedirect,
                             hasUserGesture, method, headerPairs));
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/intercept",
+            SinytraLog.w("Sinytra/intercept",
                     "Host.shouldIntercept threw", t);
             return null;
         }
@@ -159,7 +160,7 @@ public final class InterceptBridge {
         try {
             return mHost.policyBlocksNavigation(uri, isMainFrame, triggerUri);
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/intercept",
+            SinytraLog.w("Sinytra/intercept",
                     "Host.policyBlocksNavigation threw", t);
             return false;
         }

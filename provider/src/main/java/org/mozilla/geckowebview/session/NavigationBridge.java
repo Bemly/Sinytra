@@ -3,6 +3,7 @@ package org.mozilla.geckowebview.session;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.util.List;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.AllowOrDeny;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
@@ -51,7 +52,7 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
             try {
                 mHost.onAppOverrideDeny(request.uri);
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/navigation",
+                SinytraLog.w("Sinytra/navigation",
                         "Host.onAppOverrideDeny threw", t);
             }
             return GeckoResult.fromValue(AllowOrDeny.DENY);
@@ -61,7 +62,7 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
                 mHost.onRedirectLeg(request.uri, request.isRedirect,
                         request.triggerUri);
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/navigation",
+                SinytraLog.w("Sinytra/navigation",
                         "Host.onRedirectLeg threw", t);
             }
         }
@@ -96,7 +97,7 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
                     ErrorBridge.toSslPrimaryError(error.code),
                     ErrorBridge.describe(error.code), uri);
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/navigation", "Host.onLoadError threw", t);
+            SinytraLog.w("Sinytra/navigation", "Host.onLoadError threw", t);
         }
         return null;
     }

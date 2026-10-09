@@ -6,6 +6,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoSession;
 
 // StateBridge: SessionState/HistoryList <-> Bundle/WebBackForwardList
@@ -38,7 +39,7 @@ public final class StateBridge {
                     parcel.recycle();
                 }
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/state", "parcel save failed, using flat lists", t);
+                SinytraLog.w("Sinytra/state", "parcel save failed, using flat lists", t);
             }
         }
         ArrayList<String> urls = new ArrayList<>(snapshot.size());
@@ -90,7 +91,7 @@ public final class StateBridge {
                 return (GeckoSession.SessionState) parcelable;
             }
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/state", "parcel restore failed", t);
+            SinytraLog.w("Sinytra/state", "parcel restore failed", t);
         }
         return null;
     }

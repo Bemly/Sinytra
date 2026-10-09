@@ -1,4 +1,5 @@
 package org.mozilla.geckowebview.session;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -238,7 +239,7 @@ public final class MessageBridge {
             try {
                 mHost.onMessage(portId, data, origin);
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/message", "host onMessage threw", t);
+                SinytraLog.w("Sinytra/message", "host onMessage threw", t);
             }
         }
     }
@@ -264,7 +265,7 @@ public final class MessageBridge {
                 mHost.onMessage(port.id, data, origin);
             }
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/message", "deliver threw", t);
+            SinytraLog.w("Sinytra/message", "deliver threw", t);
         }
     }
 }

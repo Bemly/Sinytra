@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.session;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 
@@ -41,7 +42,7 @@ public class PromptBridge implements GeckoSession.PromptDelegate {
         try {
             mHost.onFileChooserRequest(prompt);
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/prompt", "Host.onFileChooserRequest threw", t);
+            SinytraLog.w("Sinytra/prompt", "Host.onFileChooserRequest threw", t);
         }
         return null;
     }
@@ -59,7 +60,7 @@ public class PromptBridge implements GeckoSession.PromptDelegate {
         try {
             mHost.onHttpAuthRequest(prompt, pending);
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/prompt", "Host.onHttpAuthRequest threw", t);
+            SinytraLog.w("Sinytra/prompt", "Host.onHttpAuthRequest threw", t);
             pending.complete(prompt.dismiss());
         }
         return pending;
@@ -76,7 +77,7 @@ public class PromptBridge implements GeckoSession.PromptDelegate {
             mHost.onJsAlert(title, message);
             return GeckoResult.fromValue(prompt.dismiss());
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/prompt", "Host.onJsAlert threw", t);
+            SinytraLog.w("Sinytra/prompt", "Host.onJsAlert threw", t);
             return null;
         }
     }
@@ -94,7 +95,7 @@ public class PromptBridge implements GeckoSession.PromptDelegate {
                     ? prompt.confirm(GeckoSession.PromptDelegate.ButtonPrompt.Type.POSITIVE)
                     : prompt.dismiss());
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/prompt", "Host.onJsConfirm threw", t);
+            SinytraLog.w("Sinytra/prompt", "Host.onJsConfirm threw", t);
             return null;
         }
     }
@@ -111,7 +112,7 @@ public class PromptBridge implements GeckoSession.PromptDelegate {
             return GeckoResult.fromValue(
                     value != null ? prompt.confirm(value) : prompt.dismiss());
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/prompt", "Host.onJsPrompt threw", t);
+            SinytraLog.w("Sinytra/prompt", "Host.onJsPrompt threw", t);
             return null;
         }
     }
@@ -127,7 +128,7 @@ public class PromptBridge implements GeckoSession.PromptDelegate {
                     allow ? org.mozilla.geckoview.AllowOrDeny.ALLOW
                             : org.mozilla.geckoview.AllowOrDeny.DENY));
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/prompt", "Host.onJsBeforeUnload threw", t);
+            SinytraLog.w("Sinytra/prompt", "Host.onJsBeforeUnload threw", t);
             return null;
         }
     }

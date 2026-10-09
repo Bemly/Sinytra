@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.session;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.WebResponse;
 
@@ -30,14 +31,14 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
         try {
             mHost.onTitleChanged(title);
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/content", "Host.onTitleChanged threw", t);
+            SinytraLog.w("Sinytra/content", "Host.onTitleChanged threw", t);
         }
     }
 
     @Override
     public void onExternalResponse(@NonNull GeckoSession session,
             @NonNull WebResponse response) {
-        android.util.Log.d("Sinytra/content",
+        SinytraLog.d("Sinytra/content",
                 "onExternalResponse uri=" + response.uri);
         try {
             String url = response.uri != null ? response.uri : "";
@@ -51,7 +52,7 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
             mHost.onDownloadStart(url, null, disposition,
                     mimeType != null ? mimeType : "application/octet-stream", -1);
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/content", "Host.onDownloadStart threw", t);
+            SinytraLog.w("Sinytra/content", "Host.onDownloadStart threw", t);
         }
     }
 
@@ -79,7 +80,7 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
         try {
             mHost.onFullScreen(fullScreen);
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/content", "Host.onFullScreen threw", t);
+            SinytraLog.w("Sinytra/content", "Host.onFullScreen threw", t);
         }
     }
 
@@ -88,7 +89,7 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
         try {
             mHost.onCloseWindow();
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/content", "Host.onCloseWindow threw", t);
+            SinytraLog.w("Sinytra/content", "Host.onCloseWindow threw", t);
         }
     }
 
@@ -97,7 +98,7 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
         try {
             mHost.onFocusRequest();
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/content", "Host.onFocusRequest threw", t);
+            SinytraLog.w("Sinytra/content", "Host.onFocusRequest threw", t);
         }
     }
 
@@ -106,7 +107,7 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
         try {
             mHost.onCrash();
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/content", "Host.onCrash threw", t);
+            SinytraLog.w("Sinytra/content", "Host.onCrash threw", t);
         }
     }
 }

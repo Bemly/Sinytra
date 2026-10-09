@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.session;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
 import org.mozilla.geckoview.SessionFinder;
@@ -38,7 +39,7 @@ public final class FindBridge {
                     finder.find(find, GeckoSession.FINDER_FIND_FORWARD);
             result.accept(this::deliver, e -> deliverFailure());
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/find", "findAllAsync threw", t);
+            SinytraLog.w("Sinytra/find", "findAllAsync threw", t);
             deliverFailure();
         }
     }
@@ -54,7 +55,7 @@ public final class FindBridge {
             mSession.getFinder().find(query, flags).accept(this::deliver,
                     e -> deliverFailure());
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/find", "findNext threw", t);
+            SinytraLog.w("Sinytra/find", "findNext threw", t);
             deliverFailure();
         }
     }
@@ -63,7 +64,7 @@ public final class FindBridge {
         try {
             mSession.getFinder().clear();
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/find", "clearMatches threw", t);
+            SinytraLog.w("Sinytra/find", "clearMatches threw", t);
         }
         mQuery = null;
     }
@@ -90,7 +91,7 @@ public final class FindBridge {
                 listener.onFindResultReceived(current, total, done);
             }
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/find", "FindListener threw", t);
+            SinytraLog.w("Sinytra/find", "FindListener threw", t);
         }
     }
 }

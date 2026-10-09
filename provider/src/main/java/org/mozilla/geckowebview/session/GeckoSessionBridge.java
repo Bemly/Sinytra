@@ -1,6 +1,6 @@
 package org.mozilla.geckowebview.session;
 
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.util.List;
@@ -133,7 +133,7 @@ public final class GeckoSessionBridge
                         @NonNull GeckoSession.HistoryDelegate.HistoryList historyList) {
                     mHistoryList = historyList;
                     adoptHistoryUrl(historyList);
-                    Log.i(TAG, "history: onHistoryStateChange size=" + historyList.size()
+                    SinytraLog.i(TAG, "history: onHistoryStateChange size=" + historyList.size()
                             + " index=" + SessionRescue.safeIndex(historyList)
                             + " urls=" + SessionRescue.snapshotUrls(historyList));
                 }
@@ -178,7 +178,7 @@ public final class GeckoSessionBridge
                         @NonNull GeckoSession.SessionState sessionState) {
                     mSessionState = sessionState;
                     adoptHistoryUrl(sessionState);
-                    Log.i(TAG, "history: onSessionStateChange size=" + sessionState.size()
+                    SinytraLog.i(TAG, "history: onSessionStateChange size=" + sessionState.size()
                             + " index=" + SessionRescue.safeIndex(sessionState)
                             + " urls=" + SessionRescue.snapshotUrls(sessionState));
                 }
@@ -290,7 +290,7 @@ public final class GeckoSessionBridge
         // 每个 LR 后有无宿主侧 loadUrl 重入即判 R2 (宿主双载), 无重入则倾向 R1
         // (页面驱动重复顶层导航). true=override (app 接管), false=allow (放行).
         boolean override = mClient.shouldOverrideUrlLoading(url);
-        Log.d(TAG, "shouldOverride url=" + url + " override=" + override);
+        SinytraLog.d(TAG, "shouldOverride url=" + url + " override=" + override);
         return override;
     }
 
@@ -480,12 +480,12 @@ public final class GeckoSessionBridge
         if (mPendingHold != null && !mPendingHold.fired) {
             // Defensive: PageStart flushes first so holds never overlap;
             // keep the earliest rather than stacking.
-            Log.w(TAG, "finish hold already armed");
+            SinytraLog.w(TAG, "finish hold already armed");
             return;
         }
         final Hold hold = new Hold();
         mPendingHold = hold;
-        Log.d(TAG, "finish hold armed url=" + mUrl);
+        SinytraLog.d(TAG, "finish hold armed url=" + mUrl);
         final android.os.Handler handler;
         try {
             handler = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -499,12 +499,12 @@ public final class GeckoSessionBridge
                 if (hold.fired) {
                     return;
                 }
-                Log.d(TAG, "finish hold timeout url=" + mUrl
+                SinytraLog.d(TAG, "finish hold timeout url=" + mUrl
                         + " titleEmpty=" + (mTitle == null || mTitle.isEmpty()));
                 firePendingHold();
             }, TITLE_HOLD_TIMEOUT_MS);
         } catch (Throwable t) {
-            Log.w(TAG, "finish hold schedule threw", t);
+            SinytraLog.w(TAG, "finish hold schedule threw", t);
             firePendingHold();
         }
     }
@@ -676,7 +676,7 @@ public final class GeckoSessionBridge
         mRescue.arm(redispatch, guardUrl);
         // 8x onLoadRequest churn 取证 (R2 配对): 只记宿主入口 dispatch, guard
         // 重发走 dispatchLoad 直调不经此行, 故本行出现即宿主侧 loadUrl 重入.
-        Log.d(TAG, "loadUrl url=" + url + " bypassCache=" + bypassCache);
+        SinytraLog.d(TAG, "loadUrl url=" + url + " bypassCache=" + bypassCache);
         dispatchLoad(url, bypassCache);
     }
 
@@ -932,7 +932,7 @@ public final class GeckoSessionBridge
         try {
             return new android.net.http.SslCertificate(info.certificate);
         } catch (Throwable t) {
-            Log.w(TAG, "certificate convert threw", t);
+            SinytraLog.w(TAG, "certificate convert threw", t);
             return null;
         }
     }
@@ -972,7 +972,7 @@ public final class GeckoSessionBridge
         try {
             mSession.flushSessionState();
         } catch (Throwable t) {
-            Log.w(TAG, "flushSessionState threw", t);
+            SinytraLog.w(TAG, "flushSessionState threw", t);
         }
     }
 
@@ -983,7 +983,7 @@ public final class GeckoSessionBridge
         GeckoSession.HistoryDelegate.HistoryList live = mHistoryList;
         GeckoSession.SessionState state = mSessionState;
         List<GeckoSession.HistoryDelegate.HistoryItem> snapshot = historySnapshot();
-        Log.i(TAG, "history: [" + where + "] live="
+        SinytraLog.i(TAG, "history: [" + where + "] live="
                 + SessionRescue.describe(live) + " state=" + SessionRescue.describe(state)
                 + " snapshot=" + SessionRescue.describe(snapshot));
     }

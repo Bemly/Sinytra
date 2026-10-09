@@ -3,6 +3,7 @@ package org.mozilla.geckowebview.session;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.util.List;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoSession;
 
 // Rescue + live-session outputs for one GeckoSessionBridge.
@@ -193,7 +194,7 @@ public final class SessionRescue {
             return;
         }
         arm(redispatch, uri);
-        android.util.Log.d(TAG, "redirectLeg watch url=" + uri);
+        SinytraLog.d(TAG, "redirectLeg watch url=" + uri);
     }
 
     /**
@@ -256,7 +257,7 @@ public final class SessionRescue {
                 return null;
             });
         } finally {
-            android.util.Log.d(TAG, "session.close took "
+            SinytraLog.d(TAG, "session.close took "
                     + (android.os.SystemClock.uptimeMillis() - startMs)
                     + "ms");
         }
@@ -291,11 +292,11 @@ public final class SessionRescue {
                 ready = readiness.isReady();
             }
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "transport readiness threw", t);
+            SinytraLog.w(TAG, "transport readiness threw", t);
         }
         if (shouldWaitForTransport(ready, mColdExtensions)) {
             mColdExtensions++;
-            android.util.Log.i(TAG,
+            SinytraLog.i(TAG,
                     "commit guard exhausted but transport not ready; waiting"
                             + " (cold extension " + mColdExtensions + "/"
                             + MAX_COLD_EXTENSIONS + ") url=" + mLastUrl);
@@ -306,43 +307,43 @@ public final class SessionRescue {
                 try {
                     last.run();
                 } catch (Throwable t) {
-                    android.util.Log.w(TAG,
+                    SinytraLog.w(TAG,
                             "redispatch after cold extension threw", t);
                 }
             }
             return;
         }
         if (mReopenUsed) {
-            android.util.Log.w(TAG, "commit guard exhausted after reopen;"
+            SinytraLog.w(TAG, "commit guard exhausted after reopen;"
                     + " giving up url=" + mLastUrl);
             return;
         }
         mReopenUsed = true;
-        android.util.Log.i(TAG,
+        SinytraLog.i(TAG,
                 "commit guard exhausted; reopening session once url="
                         + mLastUrl);
         ReopenHost host = mReopenHost;
         if (host == null) {
-            android.util.Log.w(TAG, "no reopen host; giving up");
+            SinytraLog.w(TAG, "no reopen host; giving up");
             return;
         }
         try {
             mSession.close();
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "session close before reopen threw", t);
+            SinytraLog.w(TAG, "session close before reopen threw", t);
         }
         try {
             android.content.Context app = host.appContext();
             mSession.open(org.mozilla.geckowebview.runtime.GeckoRuntimeHolder
                     .get(app));
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "session reopen threw; giving up", t);
+            SinytraLog.w(TAG, "session reopen threw; giving up", t);
             return;
         }
         try {
             host.repushFilters();
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "filter repush after reopen threw", t);
+            SinytraLog.w(TAG, "filter repush after reopen threw", t);
         }
         Runnable last = mLastDispatch;
         if (last != null) {
@@ -351,7 +352,7 @@ public final class SessionRescue {
             try {
                 last.run();
             } catch (Throwable t) {
-                android.util.Log.w(TAG, "redispatch after reopen threw", t);
+                SinytraLog.w(TAG, "redispatch after reopen threw", t);
             }
         }
     }
@@ -386,7 +387,7 @@ public final class SessionRescue {
             // so the strict-origin mirror tracks the latest navigation.
             settings.setSinytraFileReadsAllowed(fileReadsAllowed);
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "applyWebSettings threw", t);
+            SinytraLog.w(TAG, "applyWebSettings threw", t);
         }
     }
 
@@ -404,7 +405,7 @@ public final class SessionRescue {
                 return null;
             });
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "applyImagesPolicy threw", t);
+            SinytraLog.w(TAG, "applyImagesPolicy threw", t);
         }
     }
 

@@ -1,4 +1,5 @@
 package org.mozilla.geckowebview.session;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -187,7 +188,7 @@ final class NavigationCommitGuard {
         mProgress = true;
         if (!mConsultLatched) {
             mConsultLatched = true;
-            android.util.Log.d(TAG, "commit guard consult-latched url=" + url
+            SinytraLog.d(TAG, "commit guard consult-latched url=" + url
                     + "; refires suspended for this navigation");
         }
     }
@@ -228,7 +229,7 @@ final class NavigationCommitGuard {
                     if (!extend) {
                         mTotalFires++;
                         if (shouldForceExhaust(mTotalFires)) {
-                            android.util.Log.w(TAG,
+                            SinytraLog.w(TAG,
                                     "commit guard forcing exhaustion after "
                                             + mTotalFires
                                             + " refires without commit");
@@ -237,17 +238,17 @@ final class NavigationCommitGuard {
                         }
                         fire = mRedispatch;
                     } else {
-                        android.util.Log.d(TAG, "commit guard extending"
+                        SinytraLog.d(TAG, "commit guard extending"
                                 + " (necko progress seen)");
                     }
                 }
                 if (fire != null) {
-                    android.util.Log.d(TAG, "commit guard firing attempt="
+                    SinytraLog.d(TAG, "commit guard firing attempt="
                             + attempt);
                     try {
                         fire.run();
                     } catch (Throwable t) {
-                        android.util.Log.w(TAG,
+                        SinytraLog.w(TAG,
                                 "commit guard redispatch threw", t);
                     }
                 }
@@ -259,7 +260,7 @@ final class NavigationCommitGuard {
                 }
             }, delayForAttempt(attempt));
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "commit guard schedule threw", t);
+            SinytraLog.w(TAG, "commit guard schedule threw", t);
         }
     }
 
@@ -274,12 +275,12 @@ final class NavigationCommitGuard {
         if (exhausted == null) {
             return;
         }
-        android.util.Log.w(TAG, "commit guard exhausted; no PageStart after "
+        SinytraLog.w(TAG, "commit guard exhausted; no PageStart after "
                 + MAX_ATTEMPTS + " attempts");
         try {
             exhausted.run();
         } catch (Throwable t) {
-            android.util.Log.w(TAG, "commit guard exhausted threw", t);
+            SinytraLog.w(TAG, "commit guard exhausted threw", t);
         }
     }
 }

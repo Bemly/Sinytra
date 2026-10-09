@@ -1,4 +1,5 @@
 package org.mozilla.geckowebview.session;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -91,7 +92,7 @@ public final class JavascriptBridge {
             }
             bridge.registerInterface(name, methodNames, value -> {
                 if (value == null) {
-                    android.util.Log.w("Sinytra/jsiface",
+                    SinytraLog.w("Sinytra/jsiface",
                             "register " + name + " failed: honest bookkeeping kept");
                 }
             });
@@ -199,7 +200,7 @@ public final class JavascriptBridge {
                     replyBridge.answerStubCall(callId, true, json, null);
                 }
             } catch (Throwable t) {
-                android.util.Log.w("Sinytra/jsiface", "iface call threw", t);
+                SinytraLog.w("Sinytra/jsiface", "iface call threw", t);
                 if (replyBridge != null) {
                     replyBridge.answerStubCall(callId, false, null,
                             String.valueOf(t.getMessage() != null ? t.getMessage() : t));

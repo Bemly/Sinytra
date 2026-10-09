@@ -1,6 +1,6 @@
 package org.mozilla.geckowebview.session;
 
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.util.ArrayDeque;
@@ -213,7 +213,7 @@ public final class JsBridge {
         if (sBoundSessions.contains(session)) {
             return;
         }
-        Log.i(TAG, "bind: session=" + session + " installing extension");
+        SinytraLog.i(TAG, "bind: session=" + session + " installing extension");
         ensureInstalled(runtime, session);
     }
 
@@ -230,7 +230,7 @@ public final class JsBridge {
             payload.put("script", script);
             postRequest("eval", payload, callback);
         } catch (Throwable t) {
-            Log.w(TAG, "evaluate payload threw", t);
+            SinytraLog.w(TAG, "evaluate payload threw", t);
             callback.onResult(null);
         }
     }
@@ -244,7 +244,7 @@ public final class JsBridge {
             payload.put("methods", new JSONArray(methods));
             postRequest("register", payload, callback);
         } catch (Throwable t) {
-            Log.w(TAG, "register payload threw", t);
+            SinytraLog.w(TAG, "register payload threw", t);
             callback.onResult(null);
         }
     }
@@ -256,7 +256,7 @@ public final class JsBridge {
             payload.put("iface", iface);
             postRequest("unregister", payload, callback);
         } catch (Throwable t) {
-            Log.w(TAG, "unregister payload threw", t);
+            SinytraLog.w(TAG, "unregister payload threw", t);
             callback.onResult(null);
         }
     }
@@ -272,7 +272,7 @@ public final class JsBridge {
             postRequest("stub-result", payload, value -> {
             });
         } catch (Throwable t) {
-            Log.w(TAG, "answerStubCall threw", t);
+            SinytraLog.w(TAG, "answerStubCall threw", t);
         }
     }
 
@@ -314,7 +314,7 @@ public final class JsBridge {
             postRequest("port", payload, value -> {
             });
         } catch (Throwable t) {
-            Log.w(TAG, "postToPage threw", t);
+            SinytraLog.w(TAG, "postToPage threw", t);
         }
     }
 
@@ -330,7 +330,7 @@ public final class JsBridge {
             @NonNull EvalCallback callback) {
         if (sExtension == null || mSession == null
                 || !sBoundSessions.contains(mSession)) {
-            Log.w(TAG, kind + " before transport ready: honest-null");
+            SinytraLog.w(TAG, kind + " before transport ready: honest-null");
             callback.onResult(null);
             return;
         }
@@ -341,11 +341,11 @@ public final class JsBridge {
             Pending dropped = mPending.remove(id);
             if (dropped != null) {
                 removeFromMailbox(id);
-                Log.w(TAG, kind + " timeout id=" + id);
+                SinytraLog.w(TAG, kind + " timeout id=" + id);
                 try {
                     dropped.callback.onResult(null);
                 } catch (Throwable t) {
-                    Log.w(TAG, "timeout callback threw", t);
+                    SinytraLog.w(TAG, "timeout callback threw", t);
                 }
             }
         }, EVAL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
@@ -363,7 +363,7 @@ public final class JsBridge {
             }
             wakeHeldPoll();
         } catch (Throwable t) {
-            Log.w(TAG, kind + " enqueue threw", t);
+            SinytraLog.w(TAG, kind + " enqueue threw", t);
             mPending.remove(id);
             ScheduledFuture<?> timeout = pending.timeout;
             if (timeout != null) {
@@ -434,7 +434,7 @@ public final class JsBridge {
         try {
             held.result.complete(next.payload.toString());
         } catch (Throwable t) {
-            Log.w(TAG, "held poll complete threw", t);
+            SinytraLog.w(TAG, "held poll complete threw", t);
             synchronized (mMailbox) {
                 mMailbox.addFirst(next);
             }
@@ -468,7 +468,7 @@ public final class JsBridge {
                 sInstallStarted = false;
                 sPendingSessions.clear();
             }
-            Log.w(TAG, "ensureBuiltIn threw", t);
+            SinytraLog.w(TAG, "ensureBuiltIn threw", t);
         }
     }
 
@@ -495,7 +495,7 @@ public final class JsBridge {
             runtime.getWebExtensionController()
                     .ensureBuiltIn(EXTENSION_LOCATION, EXTENSION_ID)
                     .accept(ext -> {
-                        Log.i(TAG, "ensureBuiltIn installed: id=" + ext.id
+                        SinytraLog.i(TAG, "ensureBuiltIn installed: id=" + ext.id
                                 + " location=" + ext.location);
                         synchronized (LOCK) {
                             sExtension = ext;
@@ -506,14 +506,14 @@ public final class JsBridge {
                             sInstallStarted = false;
                             sPendingSessions.clear();
                         }
-                        Log.w(TAG, "ensureBuiltIn failed: honest-null until retry", e);
+                        SinytraLog.w(TAG, "ensureBuiltIn failed: honest-null until retry", e);
                     });
         } catch (Throwable t) {
             synchronized (LOCK) {
                 sInstallStarted = false;
                 sPendingSessions.clear();
             }
-            Log.w(TAG, "ensureBuiltIn threw", t);
+            SinytraLog.w(TAG, "ensureBuiltIn threw", t);
             return;
         }
         scheduleInstallWatchdog(runtime, attempt);
@@ -543,17 +543,17 @@ public final class JsBridge {
                     synchronized (LOCK) {
                         sInstallStarted = false;
                     }
-                    Log.w(TAG, "ensureBuiltIn never acked after "
+                    SinytraLog.w(TAG, "ensureBuiltIn never acked after "
                             + MAX_INSTALL_ATTEMPTS
                             + " attempts; transport down, re-arm on next bind");
                     return;
                 }
-                Log.i(TAG, "ensureBuiltIn no ack yet, retrying attempt="
+                SinytraLog.i(TAG, "ensureBuiltIn no ack yet, retrying attempt="
                         + (attempt + 1));
                 issueInstall(runtime, attempt + 1);
             }, delay);
         } catch (Throwable t) {
-            Log.w(TAG, "install watchdog schedule threw", t);
+            SinytraLog.w(TAG, "install watchdog schedule threw", t);
         }
     }
 
@@ -571,7 +571,7 @@ public final class JsBridge {
             try {
                 bindSessionDelegate(session, ext);
             } catch (Throwable t) {
-                Log.w(TAG, "bindSessionDelegate threw", t);
+                SinytraLog.w(TAG, "bindSessionDelegate threw", t);
             }
         }
     }
@@ -610,9 +610,9 @@ public final class JsBridge {
                         }
                     }, NATIVE_APP);
             sBoundSessions.add(session);
-            Log.i(TAG, "session delegate bound: " + session);
+            SinytraLog.i(TAG, "session delegate bound: " + session);
         } catch (Throwable t) {
-            Log.w(TAG, "setMessageDelegate(session) threw", t);
+            SinytraLog.w(TAG, "setMessageDelegate(session) threw", t);
         }
     }
 
@@ -645,10 +645,10 @@ public final class JsBridge {
                 onEvent(obj);
                 return null;
             }
-            Log.w(TAG, "unknown session message kind: " + kind);
+            SinytraLog.w(TAG, "unknown session message kind: " + kind);
             return null;
         } catch (Throwable t) {
-            Log.w(TAG, "handleSessionMessage threw", t);
+            SinytraLog.w(TAG, "handleSessionMessage threw", t);
             return null;
         }
     }
@@ -744,7 +744,7 @@ public final class JsBridge {
         try {
             pending.callback.onResult(result);
         } catch (Throwable t) {
-            Log.w(TAG, "eval callback threw", t);
+            SinytraLog.w(TAG, "eval callback threw", t);
         }
     }
 
@@ -763,7 +763,7 @@ public final class JsBridge {
             try {
                 listener.onPageEvent(obj);
             } catch (Throwable t) {
-                Log.w(TAG, "page event listener threw", t);
+                SinytraLog.w(TAG, "page event listener threw", t);
             }
         }
     }

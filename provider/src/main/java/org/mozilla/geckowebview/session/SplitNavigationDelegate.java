@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.session;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.AllowOrDeny;
 import org.mozilla.geckoview.GeckoResult;
 import org.mozilla.geckoview.GeckoSession;
@@ -42,20 +43,20 @@ final class SplitNavigationDelegate implements GeckoSession.NavigationDelegate {
             @NonNull LoadRequest request) {
         // 8x onLoadRequest churn 取证: 原生四字段, 时间戳与
         // GeckoSessionBridge.shouldOverride/loadUrl 行配对判 R2 有无宿主重入.
-        android.util.Log.d("Sinytra/navigation",
+        SinytraLog.d("Sinytra/navigation",
                 "onLoadRequest " + request.uri
                         + " isRedirect=" + request.isRedirect
                         + " hasUserGesture=" + request.hasUserGesture
                         + " triggerUri=" + request.triggerUri);
         if (request.uri != null && mIntercept.policyBlocksNavigation(
                 request.uri, true, request.triggerUri)) {
-            android.util.Log.i("Sinytra/navigation",
+            SinytraLog.i("Sinytra/navigation",
                     "policy blocks main-frame " + request.uri);
             if (mOnPolicyBlocked != null) {
                 try {
                     mOnPolicyBlocked.run();
                 } catch (Throwable t) {
-                    android.util.Log.w("Sinytra/navigation",
+                    SinytraLog.w("Sinytra/navigation",
                             "onPolicyBlocked threw", t);
                 }
             }
@@ -68,7 +69,7 @@ final class SplitNavigationDelegate implements GeckoSession.NavigationDelegate {
     @Override
     public GeckoResult<AllowOrDeny> onSubframeLoadRequest(@NonNull GeckoSession session,
             @NonNull LoadRequest request) {
-        android.util.Log.d("Sinytra/navigation",
+        SinytraLog.d("Sinytra/navigation",
                 "onSubframeLoadRequest " + request.uri);
         return mIntercept.onSubframeLoadRequest(session, request);
     }

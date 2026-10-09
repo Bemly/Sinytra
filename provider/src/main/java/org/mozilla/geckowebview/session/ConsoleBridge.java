@@ -1,4 +1,5 @@
 package org.mozilla.geckowebview.session;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -62,7 +63,7 @@ public final class ConsoleBridge {
                     payload.optString("message", ""),
                     payload.optInt("line", 0));
         } catch (Throwable t) {
-            android.util.Log.w("Sinytra/console",
+            SinytraLog.w("Sinytra/console",
                     "Host.onConsoleMessage threw", t);
         }
     }
