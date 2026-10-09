@@ -1,21 +1,20 @@
-From 224b36cd723a9dd1c4df9d25c7b03e5a223d7144 Mon Sep 17 00:00:00 2001
+From 10e6076379e7bf045e73a9c697a801ad6e57c485 Mon Sep 17 00:00:00 2001
 From: Sinytra <sinytra@local>
 Date: Fri, 9 Oct 2026 10:56:30 +0800
 Subject: [PATCH] Sinytra patch 0028: resume-state trace (diagnostic)
 
 ---
- widget/android/nsWindow.cpp | 34 +++++++++++++++++++++++++++++++++-
- 1 file changed, 33 insertions(+), 1 deletion(-)
+ widget/android/nsWindow.cpp | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
 
 diff --git a/widget/android/nsWindow.cpp b/widget/android/nsWindow.cpp
-index 255884c279..343f5093ba 100644
+index 255884c279..c960b06ee1 100644
 --- a/widget/android/nsWindow.cpp
 +++ b/widget/android/nsWindow.cpp
-@@ -46,7 +46,27 @@
+@@ -46,6 +46,28 @@
  #include "mozilla/MouseEvents.h"
  #include "mozilla/Preferences.h"
  #include "mozilla/PresShell.h"
--#include "mozilla/ProfilerLabels.h"
 +
 +// Sinytra firefox-patches/0028 (DIAGNOSTIC, remove before 定稿):
 +// resume-state trace. Both resume sites have silent skips
@@ -36,11 +35,12 @@ index 255884c279..343f5093ba 100644
 +      __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/surface",       \
 +                          __VA_ARGS__);                                \
 +    }                                                                  \
-+  } while (0)#include "mozilla/ProfilerLabels.h"
++  } while (0)
++
+ #include "mozilla/ProfilerLabels.h"
  #include "mozilla/ScopeExit.h"
  #include "mozilla/StaticPrefs_android.h"
- #include "mozilla/StaticPrefs_ui.h"
-@@ -1231,11 +1251,16 @@ class LayerViewSupport final
+@@ -1231,11 +1253,16 @@ class LayerViewSupport final
  
        bool resumed = mUiCompositorControllerChild->ResumeAndResize(
            mX, mY, mWidth, mHeight);
@@ -57,7 +57,7 @@ index 255884c279..343f5093ba 100644
      }
    }
  
-@@ -1441,6 +1466,9 @@ class LayerViewSupport final
+@@ -1441,6 +1468,9 @@ class LayerViewSupport final
        jni::Object::Param aSurfaceControl) {
      MOZ_ASSERT(AndroidBridge::IsJavaUiThread());
  
@@ -67,7 +67,7 @@ index 255884c279..343f5093ba 100644
      // Set this false prior to attempting to resume the compositor, so that if
      // resumption fails the subsequent recovery knows to initialize the
      // compositor in a resumed state.
-@@ -1478,6 +1506,8 @@ class LayerViewSupport final
+@@ -1478,6 +1508,8 @@ class LayerViewSupport final
  
        bool resumed = mUiCompositorControllerChild->ResumeAndResize(
            aX, aY, aWidth, aHeight);
@@ -76,7 +76,7 @@ index 255884c279..343f5093ba 100644
        if (!resumed) {
          gfxCriticalNote
              << "Failed to resume compositor from SyncResumeResizeCompositor";
-@@ -1489,6 +1519,8 @@ class LayerViewSupport final
+@@ -1489,6 +1521,8 @@ class LayerViewSupport final
          }
          return;
        }
