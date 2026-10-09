@@ -1685,6 +1685,17 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   1s 全绿（ctor→200→闩→title17→finish→子资源流，像素亲眼壁纸全绘，与
   bromite 同图）——快路无退化，但本轮同样无黑洞，blank 修复与救援分支
   均未被黑洞验证。22 点后连绿 3 轮，窗口确认已过。
+- **黑洞系统侧对照（2026-10-09 23:0x，用户逼问，首犯锁定）**：绿/黑三轮
+  系统日志对照——tab 的 `Start proc` 次次毫秒级到（绿黑无差），**只有
+  `$gpu` 的 `Start proc` 在黑轮里永不到**（无 veto、无报错、无 denial，
+  系统纯沉默）。当下活捉：`:gpu` 活进程 10135（36 分钟机龄）+ 同一
+  `$gpu` 服务 3 条 `destroying=true` 烂尾记录（2 分钟未完成）+ 4 个被
+  遗弃的前轮 tab 进程（force-stop 只杀宿主不杀 provider 孩子）。
+  机制：bind 发给半销毁占坑者→AMS 不起新进程→旧连接已死→永无回叫，
+  与黑洞签名（bind 真、无应答、系统零行）严丝合缝；tab 每轮新名故
+  不沾锅。安装/重启治好=杀占坑者清记录。定罪待下次黑轮当场 ps+dumpsys；
+  若实锤，修法=超时先杀占坑再重试（1880503 同构），另 Stahl tab 泄漏
+  与 onDestroy 挂起（M5-A teardown 家族嫌疑）并案。
 
 
 ## 2. 下一步（按顺序，一次做一件）
