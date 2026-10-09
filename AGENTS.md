@@ -191,7 +191,9 @@ P-1（bootstrap spike，最高优先级）→ P0（~20% API 跑起来）→ P1�
   的 API（如 `CookieManager.getCookie`，Chromium 同样阻塞调用线程）：等待必须有界、
   被等待的链必须在别的 Looper 线程完成（调用方即使是 UI 线程也不会死锁），理由写在
   类头注释（先例 `GeckoCookieManager`）；超时/取消显式处理；delegate 异常
-  不许上抛崩 App，按 WebView 语义降级 + 日志（tag `Sinytra/<模块>`，发布关 verbose）。
+  不许上抛崩 App，按 WebView 语义降级 + 日志（tag `Sinytra/<模块>`，分级门
+  `runtime/SinytraLog`：W/E 常开，debug 默认 D+、release 默认 I+，V 显式才开，
+  `adb shell setprop log.tag.Sinytra/<模块> <LEVEL>` 免重编 override）。
 - 安全：`addJavascriptInterface` 反射面最小化；自定义 scheme/拦截器默认拒文件访问，
   按 allowlist 放行。
 - 测试：每 bridge 至少一单测锁调用顺序/线程/返回值，顺序类行为用设备 harness 固化；

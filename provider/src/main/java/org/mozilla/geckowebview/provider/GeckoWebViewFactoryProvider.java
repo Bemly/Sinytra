@@ -2,7 +2,7 @@ package org.mozilla.geckowebview.provider;
 
 import android.content.Context;
 import android.net.Uri;
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import android.webkit.CookieManager;
 import android.webkit.GeolocationPermissions;
 import android.webkit.ServiceWorkerController;
@@ -15,6 +15,7 @@ import android.webkit.WebViewDatabase;
 import android.webkit.WebViewProvider;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckowebview.session.GeckoSessionBridge;
 import org.mozilla.geckowebview.settings.GeckoWebSettings;
 import org.mozilla.geckowebview.storage.GeckoCookieManager;
@@ -76,7 +77,7 @@ public final class GeckoWebViewFactoryProvider
     public GeckoWebViewFactoryProvider() {}
 
     public static android.webkit.WebViewFactoryProvider create(Object delegate) {
-        Log.i(TAG, "create() via trampoline/delegate=" + delegate);
+        SinytraLog.i(TAG, "create() via trampoline/delegate=" + delegate);
         GeckoWebViewFactoryProvider factory = new GeckoWebViewFactoryProvider();
         if (delegate instanceof android.webkit.WebViewDelegate) {
             try {
@@ -84,9 +85,11 @@ public final class GeckoWebViewFactoryProvider
                         ((android.webkit.WebViewDelegate) delegate).getApplication();
                 if (app != null) {
                     factory.mAppContext = app.getApplicationContext();
+                    SinytraLog.init(MainWatchdog.flagsDebuggable(
+                            app.getApplicationInfo().flags));
                 }
             } catch (Throwable t) {
-                Log.w(TAG, "WebViewDelegate.getApplication threw", t);
+                SinytraLog.w(TAG, "WebViewDelegate.getApplication threw", t);
             }
         }
         return factory;
@@ -97,6 +100,8 @@ public final class GeckoWebViewFactoryProvider
         if (mAppContext == null) {
             mAppContext = webView.getContext().getApplicationContext();
         }
+        SinytraLog.init(MainWatchdog.flagsDebuggable(
+                mAppContext.getApplicationInfo().flags));
         // Publish the host APK path to the process environment (0020): the
         // provider runs inside the host process, so this is the APK whose
         // assets back file:///android_asset/ (Chromium mapping). Tab
@@ -124,7 +129,7 @@ public final class GeckoWebViewFactoryProvider
         try {
             path = appContext != null ? appContext.getPackageCodePath() : null;
         } catch (Throwable t) {
-            Log.w(TAG, "getPackageCodePath threw", t);
+            SinytraLog.w(TAG, "getPackageCodePath threw", t);
         }
         path = hostApkEnvValue(path);
         if (path == null) {
@@ -133,11 +138,11 @@ public final class GeckoWebViewFactoryProvider
         try {
             android.system.Os.setenv("SINYTRA_HOST_APK", path, true);
         } catch (Throwable t) {
-            Log.w(TAG, "Os.setenv SINYTRA_HOST_APK threw", t);
+            SinytraLog.w(TAG, "Os.setenv SINYTRA_HOST_APK threw", t);
             return;
         }
         sHostApkPublished.set(true);
-        Log.i(TAG, "SINYTRA_HOST_APK=" + path);
+        SinytraLog.i(TAG, "SINYTRA_HOST_APK=" + path);
     }
 
     @Nullable
@@ -265,7 +270,7 @@ public final class GeckoWebViewFactoryProvider
                     backend.evaluateJavascriptBridge(script, callback);
                     return;
                 } catch (Throwable t) {
-                    android.util.Log.w(TAG, "pac eval threw", t);
+                    SinytraLog.w(TAG, "pac eval threw", t);
                 }
             }
             callback.onReceiveValue(null);
