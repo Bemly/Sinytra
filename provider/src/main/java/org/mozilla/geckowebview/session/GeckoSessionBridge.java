@@ -376,6 +376,8 @@ public final class GeckoSessionBridge
 
     @Override
     public void onPageFinished(boolean success) {
+        SinytraLog.d(TAG, "finish decision ok=" + success + " url=" + mUrl + " tLen="
+                + (mTitle == null ? -1 : mTitle.length()) + " nav=" + mNavigating + " p=" + mProgress);
         if (success) {
             // Swallow the pristine initial about:blank completion: Gecko
             // reports it, Chromium never does, and forwarding it arms every
@@ -421,6 +423,8 @@ public final class GeckoSessionBridge
     // onPageFinished runs. Single funnel for both content-delegate sites.
     private void onTitleArrived(@Nullable String title) {
         if (!shouldAdoptTitle(title, mTitle, mNavigating)) {
+            SinytraLog.d(TAG, "title rejected in=" + (title == null ? -1 : title.length())
+                    + " cur=" + (mTitle == null ? -1 : mTitle.length()) + " nav=" + mNavigating);
             // Commit placeholder: Gecko reports "" for the new document
             // before its real title arrives. Adopting it would regress
             // getTitle() mid-navigation (Chromium keeps the previous title
@@ -430,6 +434,8 @@ public final class GeckoSessionBridge
         }
         mTitle = title;
         mLastTitleMs = now();
+        SinytraLog.d(TAG, "title adopted len=" + (title == null ? -1 : title.length())
+                + " nav=" + mNavigating + " url=" + mUrl);
         mClient.onTitleChanged(title);
         // An empty arrival carries no news for a held finish (the hold
         // waits for a present, fresh title); only non-empty arrivals and

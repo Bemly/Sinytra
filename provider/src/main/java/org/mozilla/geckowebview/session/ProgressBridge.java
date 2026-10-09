@@ -1,6 +1,7 @@
 package org.mozilla.geckowebview.session;
 
 import androidx.annotation.NonNull;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.GeckoSession;
 
 // Translates GeckoSession.ProgressDelegate into WebViewClient/WebChromeClient-shaped
@@ -21,16 +22,19 @@ public class ProgressBridge implements GeckoSession.ProgressDelegate {
 
     @Override
     public void onPageStart(@NonNull GeckoSession session, @NonNull String url) {
+        SinytraLog.d("Sinytra/session", "pageStop path: onPageStart url=" + url);
         mHost.onPageStarted(url);
     }
 
     @Override
     public void onPageStop(@NonNull GeckoSession session, boolean success) {
+        SinytraLog.d("Sinytra/session", "pageStop path: onPageStop success=" + success);
         mHost.onPageFinished(success);
     }
 
     @Override
     public void onProgressChange(@NonNull GeckoSession session, int progress) {
+        SinytraLog.d("Sinytra/session", "pageStop path: onProgressChange progress=" + progress);
         mHost.onProgressChanged(progress);
     }
 
