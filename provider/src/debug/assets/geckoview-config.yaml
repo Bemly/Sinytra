@@ -13,10 +13,11 @@ prefs:
   network.captive-portal-service.enabled: false
   services.settings.server: http://127.0.0.1:1
   sinytra.log.enabled: true
-  # v23 experiment (fission-migration invalidation-loss hypothesis):
-  # single-process tabs (no mid-load BC migration). Diagnostic only —
-  # fission off drops site isolation, never ship without a decision.
-  fission.autostart: false
+  # v23 experiment parked (fission-migration invalidation-loss hypothesis):
+  # wheels confounded by GPU outage window (v24/v25 died pre-commit);
+  # revisit after 0029 envelope lands. fission off drops site isolation —
+  # never ship without a decision.
+  # fission.autostart: false
   # JS-dispatch layer logging (same forensics round as MOZ_LOG above):
   # GeckoViewNavigation/Settings/StorageController debug chain. The
   # dispatch-death prime suspect lives here, not in MOZ_LOG.
