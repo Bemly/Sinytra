@@ -1655,6 +1655,13 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   覆盖像素），像素 verdict 双方作废。网络隔离结论保留在日志证据上
   （bromite 2s 取到 HTML 并 finish，我方同条件 80s 零标题）——像素级绿
   需换干净 URL 重验。
+- **Bing 同槽对照（2026-10-09 20:13–20:17，双像素亲眼 verdict）**：bromite
+  `?v1bing01` 3s finish（`title=搜索 - Microsoft 必应`，rx +1MB），截图亲眼
+  必应主页全像素（搜索框/壁纸/资讯，无调端劫持，干净对照页）；我方
+  `?v1bing02` 同条件：dispatch/HIT/redirect（cn.bing.com）/200 头 ×3 全通，
+  GPU bind 黑洞（3s 超时×2）后零标题零 finish，截图亲眼纯黑。标题像素双
+  黑 vs 双绿——网络/设备/URL 全无辜，故障隔离在我方 content 失聪，与百度
+  批同形。Current 已切回我方。
 
 
 ## 2. 下一步（按顺序，一次做一件）
