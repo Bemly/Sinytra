@@ -1679,6 +1679,12 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   搜索框/备案号，壁纸未绘）——本轮无黑洞，救援分支未被触发，修法未验证；
   连黑窗口似已过（22 点后首绿）。救援是否真救黑洞轮，待自然黑洞轮命中
   （不抽奖烧轮）。
+- **blank 掐链修复上机即绿（2026-10-09 22:45，`78aa07d`，归档第 4 包）**：
+  隐式 blank 的 PageStart/LocationChange 不再 disarm（只补预算），真提交
+  才 disarm（`GeckoSessionBridge` 两处，lint/239 锁绿）。Bing `?v1bing07`
+  1s 全绿（ctor→200→闩→title17→finish→子资源流，像素亲眼壁纸全绘，与
+  bromite 同图）——快路无退化，但本轮同样无黑洞，blank 修复与救援分支
+  均未被黑洞验证。22 点后连绿 3 轮，窗口确认已过。
 
 
 ## 2. 下一步（按顺序，一次做一件）
