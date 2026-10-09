@@ -1647,11 +1647,14 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   DocumentChannel + LoadListener，  无 IPC 错误、无 crash，content tab
   RUNNING 后零行）；dtor 触发源在轻量门下不可见（necko cancel/docshell
   侧需 nsHttp 全门 single 捕获轮，COOLAPK §5-0b 纪律，逮到死轮再开）。
-- **bromite 同槽对照（2026-10-09 20:06，用户立规执行）**：同机同 MiniWV
-  同百度 `?v1cmp01`——bromite 2s `onPageFinished title=百度一下`
- （rx +1.37MB，97KB 白页像素），我方 B1–B5 同条件 80s 黑零标题。
-  网络/设备/URL 全无辜，故障隔离在我方 content 失聪（上一条）。对照完
-  已切回我方（Current 复核）。
+- **bromite 同槽对照更正（2026-10-09 20:0x，用户抓获像素作废）**：
+  首轮判“bromite 2s 绿”只验了标题（`onPageFinished title=百度一下`
+  2s 到，rx +1.37MB）没验像素，违“标题+像素双准”纪律——screencap 真看
+  是百度页内 JS 起的 `baiduboxapp://` 调端跳转撞 `ERR_UNKNOWN_URL_SCHEME`
+  的错误页，无“百度”二字。百度主页是脏测试页（任何引擎都会被它的调端
+  覆盖像素），像素 verdict 双方作废。网络隔离结论保留在日志证据上
+  （bromite 2s 取到 HTML 并 finish，我方同条件 80s 零标题）——像素级绿
+  需换干净 URL 重验。
 
 
 ## 2. 下一步（按顺序，一次做一件）
