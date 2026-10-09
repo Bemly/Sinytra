@@ -1696,16 +1696,15 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   不沾锅。安装/重启治好=杀占坑者清记录。定罪待下次黑轮当场 ps+dumpsys；
   若实锤，修法=超时先杀占坑再重试（1880503 同构），另 Stahl tab 泄漏
   与 onDestroy 挂起（M5-A teardown 家族嫌疑）并案。
-- **占坑根因定了大半（2026-10-09 23:1x，bromite 包实锤，用户方向）**：
-  为何杀不掉——我方 `:gpu` 是普通常驻进程服务，销毁走其主线程
-  onDestroy；主线程疑卡在已知 compositor 拆卸挂起（M5-A 那摊，0022/
-  0023 只修了 pause 路），系统干等（destroying 2 分钟→现堆到 6 条），
-  进程以前台+缓存身份活着（454MB）。bromite 包实测：其孩子全是
-  `isolatedProcess=true + externalService=true`——一次性进程，用完系统
-  直接埋，不存在半死占坑。我方学不了（Gecko 要读写 profile/共享内存，
-  隔离 uid 无权限），修法只能三件套：超时先杀占坑再重试（1880503 同构，
-  firefox 侧）+ onDestroy 挂起本身（M5-A destroy 路）+ 前轮 tab 僵尸
-  回收（现 4 个 ~200MB/个，force-stop 不连坐是根）。定罪仍待黑轮当场抓。
+- **onDestroy 嫌疑死亡（2026-10-09 23:4x，读代码证伪）**：`GeckoService-
+  ChildProcess.onDestroy()` 就是 log + `System.exit(0)` 秒死，GPU 子类未
+  复写——销毁挂起不成立，M5-A destroy 路嫌疑撤销。10135 主线程 procfs
+  采样本体闲（60 线程全 `get_signal`，5 秒 CPU 零增长；wchan 在此 ROM
+  全员残疾，早有记录）。占坑体闲着、无 CPU、不死——bind 投递为何不到，
+  绿窗占坑者身上问不出来。结论收敛：定罪只能等黑轮当场（占坑 pid/
+  CPU 动不动/records），此前任何新 patch 都是无靶开枪——今晚不再写新
+  patch，已装机救援+blankchain 为当前最优覆盖（洞轮转慢绿理论完好，
+  快路 3 连绿无退化）。工作收兵，待黑洞。
 - **杀占坑走不通，修法收敛（2026-10-09 23:3x，Gecko 代码实锤）**：
   看门狗跑在宿主进程（MiniWV uid），占坑者是 provider uid——跨 uid 杀
   进程产品代码无门（killProcess 同 uid 才行；killBackgroundProcesses 只
