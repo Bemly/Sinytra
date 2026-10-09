@@ -1544,6 +1544,13 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   新起 MiniWV resumed 但零日志（21 行），轮次作废。按 DEVICE §6：reboot 需
   明确目的 + 用户拍板，不在深夜烧轮；明晨卫生窗口重跑 E（门 OFF 后 app 行
   可留存 + rx 会计 + 5 分钟窗）。
+- **bromite 同槽位对照首轮（2026-10-09 08:06，用户立规首用）**：同机同网
+  （整机 ~0.3-13KB/s trickle）同 MiniWV 同 example.com——bromite 3 秒完整
+  finish（title=Example Domain，rx +59KB）；我方同条件 PageStart 到但 2 分钟
+  无 finish（rx +13KB）。结论：finish-path 有产品缺口，不是纯网络（PageStart
+  后 ProgressChanged/PageStop 投递或子资源挂起，另案；commit 闩无辜——它在
+  PageStart 即解除）。Current 已切回我方并复核（Current/Preferred 均为
+  debug 包）。以后网络归因照此模板：bromite 先行。
 
 ## 2. 下一步（按顺序，一次做一件）
 
