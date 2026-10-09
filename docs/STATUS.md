@@ -1569,8 +1569,43 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   `log.tag.Sinytra` 无斜杠全局名（带斜杠 property 非法，device 实锤）。
   同轮新行首亮：`consult-latched url=`、`onTitleChange title=`（空标题是
   Gecko 侧报空，非桥弄丢）、`finish hold timeout titleEmpty=true`。
-  本轮单通道干净（tab28，HIT→pass-through→OnSuccess→Start→空标题→Stop），
-  字节数待 0027 publish 后 `OnStopResponse bodyBytes=` 一锤。
+   本轮单通道干净（tab28，HIT→pass-through→OnSuccess→Start→空标题→Stop），
+   字节数待 0027 publish 后 `OnStopResponse bodyBytes=` 一锤。
+- **MiniWV v1 輪（2026-10-09 10:14，`?v1log1`，回调绿像素黑新 signature）**：
+  全链绿（install ack→filter×3→HIT→pass-through→OnSuccess×2→PageStart→
+  空白Start吞吃→LocationChange→`onTitleChange title=Example Domain`→
+  `title adopted len=14`→PageStop success→`finish decision tLen=14 p=100`，
+  rx +234KB），但三截屏内容区纯黑、a11y 零内容节点。dump 见 WebView 在树
+  零子节点——挂载/呈现二选一，下一轮用 `viewDelegate onAttachedToWindow`
+  日志 + dumpsys 判。
+- **MiniWV v2 轮（10:24，`?v1log2`，挂载无辜、呈现侧实锤）**：
+  ctor-fail→53ms 后 onAttachedToWindow 重试→dumpsys 三级链
+  WebView→GeckoViewHost→MagnifiableSurfaceView 全尺寸 1080x2112；
+  handoff 三跳 rv=0；GPU 3 binds 存活；回调复绿；但像素仍黑。
+  结论：挂载链闭案，余量 = compositor 零呈现（`Composite` 零行弱证据；
+  SurfaceFlinger BLAST 层在、buffer 已分配）。纸面推演（子 agent）：
+  resume-missed/假成功（`UiCompositorControllerChild:130`）或
+  stuck-paused（`NotifyCompositorCreated:1212` 跳过 + `InitiallyPaused`
+  真）与症状精确吻合；两处 resume 失败分支的 gfxCriticalNote 全轮零行，
+  故只剩沉默跳过分支——0028 四行诊断日志一次加齐判。
+- **0027 落地验证（10:58 快照 -8，`?v1log3` 判 B：空体完成类）**：
+  outcome 行首亮（pref 门开，filters pushed=3）：主文档 OnStart 200→
+  OnStop 0x0 **bodyBytes=334**（s.js 1379；内部通道 521/296/201），之后
+  88s 零 PageStop/零 title/零 finish（仅 blank finish），rx +137KB。
+  status 全程正常但字节 <1KB 即终局——“空体完成”一锤定音（与 v1/v2 的
+  title+Stop+黑 轮间交替：同构建不同命运，flaky 本身即信号，待 0028
+  resume 日志 + content  fate 同轮对照）。
+- **0028（构建中）**：`nsWindow.cpp` 四处 `SINYTRA_RESUME_LOG`
+  （0005 门）：Notify resumed 值 + skipResume、Sync entry/childNull +
+  resumed 值 + skipResume。诊断补丁，定稿前删除。
+- **构建纪律（2026-10-09 血泪三条，後人免踩）**：① 0027 首编挂
+  `Preferences` 未声明——跨命名空间 helper 必须 `mozilla::` 限定
+  （已修）；② 0028 首编挂宏尾吞换行——多行宏编辑后必看尾行
+  （已修）；③ 本机构建并行默认 12 clang 把整机卡死，用户临时要求
+  `-j2`（`mach build -j2`，MOZ_MAKE_FLAGS 环境变量不管用；**暂行、
+  不进纪律**）。另：publish 后 provider 侧必须 `--refresh-dependencies`
+  否则吃旧快照（已成标准动作）。
+
 
 ## 2. 下一步（按顺序，一次做一件）
 
