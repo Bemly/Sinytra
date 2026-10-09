@@ -1605,6 +1605,32 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   `-j2`（`mach build -j2`，MOZ_MAKE_FLAGS 环境变量不管用；**暂行、
   不进纪律**）。另：publish 后 provider 侧必须 `--refresh-dependencies`
   否则吃旧快照（已成标准动作）。
+- **A/B 双绿又反转（2026-10-09 12:16，坏窗假设死）**：Canary 与 MiniWV
+  背靠背双绿（同窗 rx 78KB/93KB，像素皆有内容）→ 当时判 flake 窗；
+  随后两对 A/B（`?v1log9-12`）：A（self）3/3 绿、B（foreign）2/2 黑，
+  触发态（load~15/MemAvail~6.4G/僵尸9/thermal 0）绿黑无差。
+  累计 self 4/4 绿、foreign 1/7 绿——系统性分裂 + 偶发逃逸（race 形），
+  纯环境论死。B 黑轮回调 variance 大（v3 无 title 88s 静默 / v4-v6
+  title+Stop 齐 / B10-B12 连 title 都无）但像素恒黑。
+- **Cell3（FrameworkEntry=self+WebView 栈，`?v1log13`，绿）**：
+  `FRAMEWORK ENTRY PASS` 十项 + 像素有内容。叠加 Canary（self+直连）
+  绿、MiniWV（foreign+栈）黑 → 因子是 **host uid（跨包）**，
+  WebView 栈无辜。附带钉死：主文档 outcome 仍 334（br 压缩口径），
+  绿与 334 共存——内容字节彻底出局。
+- **v6 MOZ_LOG 捕获（A/截断/归属三证伪）**：DocumentChannel 全走完
+  （TriggerRedirect dest=3→Finished rv=0→PPDC/Parent/Child 齐→fission
+  2→3 迁移正）→ link 无辜；`brotlihandler decompress 334→out=577`
+  → 截断论死（0027 注记已改传输口径）；tab 归属迁移正确。
+  残留：`nsDocShell:5` 全轮零运行时行（现象记录，未追）。
+- **环境新变量（未定罪，记录）**：机上 `tun0` 在 verdict 轮 carrying
+  流量（v3 +76KB）；前台曾见 `moe.nb4a/sagernet`（VPN 客户端，不在
+  §1v hook 栈清单里）。对照纪律追加：记 rx 时addle tun0 一并，
+  归因先看隧道抖动。用户在机旁，未打扰问。
+- **0028 追到 GPU 门口（构建中）**：UI+GPU 双 resumed=1、skipPaused=0、
+  mount/bytes/title/Stop 全齐、单 blank 帧后零呈现——盲区只剩
+  content→GPU layer/scene。0028 加 `NotifyDidRender` 计数
+  （`CompositorBridgeParent.cpp` 同文件同门）：下轮数帧——
+  响=呈现路，零=scene 没到（下下步：WR transaction 到达日志）。
 
 
 ## 2. 下一步（按顺序，一次做一件）
