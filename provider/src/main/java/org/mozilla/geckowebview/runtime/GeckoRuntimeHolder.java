@@ -3,7 +3,6 @@ package org.mozilla.geckowebview.runtime;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import java.io.File;
@@ -72,10 +71,10 @@ public final class GeckoRuntimeHolder {
             if (config != null) {
                 builder = builder.configFilePath(config.getAbsolutePath());
             } else if (debuggable) {
-                Log.w(TAG, "geckoview-config.yaml missing — 0005 gate off");
+                SinytraLog.w(TAG, "geckoview-config.yaml missing — 0005 gate off");
             }
             sRuntime = GeckoRuntime.create(app, builder.build());
-            Log.i(TAG, "GeckoRuntime created");
+            SinytraLog.i(TAG, "GeckoRuntime created");
             return sRuntime;
         }
     }
@@ -93,7 +92,7 @@ public final class GeckoRuntimeHolder {
         try {
             path = app.getApplicationContext().getPackageCodePath();
         } catch (Throwable t) {
-            Log.w(TAG, "hostApkEnvExtras path threw", t);
+            SinytraLog.w(TAG, "hostApkEnvExtras path threw", t);
             return extras;
         }
         path = hostApkPathOrNull(path);
@@ -133,7 +132,7 @@ public final class GeckoRuntimeHolder {
             }
             return out;
         } catch (IOException | PackageManager.NameNotFoundException e) {
-            Log.w(TAG, "geckoview-config.yaml missing/unreadable", e);
+            SinytraLog.w(TAG, "geckoview-config.yaml missing/unreadable", e);
             return null;
         }
     }

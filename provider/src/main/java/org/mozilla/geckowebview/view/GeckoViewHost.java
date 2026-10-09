@@ -2,7 +2,7 @@ package org.mozilla.geckowebview.view;
 
 import android.content.Context;
 import android.util.AttributeSet;
-import android.util.Log;
+import org.mozilla.geckowebview.runtime.SinytraLog;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import org.mozilla.geckoview.GeckoSession;
@@ -29,7 +29,7 @@ public class GeckoViewHost extends GeckoView {
 
     public void bind(@NonNull Context context, @NonNull GeckoSessionBridge bridge) {
         if (mBridge != null) {
-            Log.w(TAG, "rebind: releasing previous session");
+            SinytraLog.w(TAG, "rebind: releasing previous session");
             release();
         }
         mBridge = bridge;
@@ -64,7 +64,7 @@ public class GeckoViewHost extends GeckoView {
             try {
                 mBridge.close();
             } finally {
-                Log.d(TAG, "release/close took "
+                SinytraLog.d(TAG, "release/close took "
                         + (android.os.SystemClock.uptimeMillis() - startMs)
                         + "ms");
                 mBridge = null;
