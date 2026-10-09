@@ -170,6 +170,10 @@ P-1（bootstrap spike，最高优先级）→ P0（~20% API 跑起来）→ P1�
   `chore(framework)` / `docs:` / `test:`）；提交前 `git diff --stat` 自检。
 - Agent 工作流：先读相关现有文件再提方案；一次只改一个文件（组）；`lint + unit test`
   通过再提交；新文件位置符合 §1。
+- 构建留档（2026-10-09 定稿：编一个删一个没法做 A/B）：`provider-debug.apk`
+  常备 5 个版本——当前构建 + 4 个历史关键版本（分水岭以 STATUS ledger 指定，
+  缺失后补，不追编）；放本仓外归档目录（单包 ~500MB，不进 git），当前缺额
+  如实记在 STATUS 里。
 - 诊断纪律（2026-10-04 定稿：先源码后设备，先预测后动手）：桥接疑难先读两边源码——
   Chromium `android_webview` + AOSP `android14-release` 定语义基准，sibling firefox
   源码 + `docs/SOURCES.md` bugzilla + pin 版 javadoc 定 Gecko 实现，半小时能定的
