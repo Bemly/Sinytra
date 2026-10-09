@@ -1,16 +1,219 @@
-From a3a2dd7c66b65742f948d8c5df9786d164ef4d1a Mon Sep 17 00:00:00 2001
+From 449880f69554ff85404000ef68fb3aba151abde9 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Fri, 9 Oct 2026 08:35:09 +0800
+Subject: [PATCH 1/3] Sinytra patch 0027: per-channel outcome log (response
+ status + delivered bytes)
+
+Java bridge logs decisions and lifecycle but never the outcome: a channel
+can complete 'successfully' with an empty body (poisoned cache entry,
+truncated stream) and nothing says so (device-verified 2026-10-09: full
+PageStart/PageStop, empty title, black pixels; cache source visible only
+under MOZ_LOG nsHttp). Log status at OnStartRequest and status+total bytes
+at OnStopRequest under the 0005 sinytra.log.enabled runtime pref (zero
+release cost). Validation: shows on next local publish + debug round.
+---
+ .../protocol/http/ParentChannelListener.cpp   | 67 +++++++++++++++++++
+ netwerk/protocol/http/ParentChannelListener.h |  6 ++
+ 2 files changed, 73 insertions(+)
+
+diff --git a/netwerk/protocol/http/ParentChannelListener.cpp b/netwerk/protocol/http/ParentChannelListener.cpp
+index 02e27b8102..d56e6096e0 100644
+--- a/netwerk/protocol/http/ParentChannelListener.cpp
++++ b/netwerk/protocol/http/ParentChannelListener.cpp
+@@ -32,6 +32,36 @@
+ #include "nsIWindowWatcher.h"
+ #include "nsQueryObject.h"
+ 
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#  include "mozilla/Preferences.h"
++#  include "nsIChannel.h"
++#  include "nsIHttpChannel.h"
++#  include "nsIURI.h"
++
++// Sinytra firefox-patches/0027: per-channel outcome log (response status +
++// delivered bytes). The Java bridge only sees consult decisions and lifecycle
++// callbacks — a channel can complete "successfully" with an empty body
++// (poisoned cache entry, truncated stream) and nothing on the Java side says
++// so (device-verified 2026-10-09: full PageStart/PageStop, empty title, black
++// pixels, requestFromCache=1 visible only under MOZ_LOG nsHttp). This line
++// makes that class a one-line verdict. Runtime-pref gated (0005 mechanism),
++// zero release cost.
++static bool SinytraOutcomeLogEnabled() {
++  static const bool sEnabled =
++      mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++
++#  define SINYTRA_OUTCOME_LOG(...)                                   \
++    do {                                                             \
++      if (SinytraOutcomeLogEnabled()) {                              \
++        __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",   \
++                            __VA_ARGS__);                            \
++      }                                                              \
++    } while (0)
++#endif
++
+ using mozilla::dom::ServiceWorkerInterceptController;
+ 
+ namespace mozilla {
+@@ -94,6 +124,26 @@ ParentChannelListener::OnStartRequest(nsIRequest* aRequest) {
+   }
+ 
+   LOG(("ParentChannelListener::OnStartRequest [this=%p]\n", this));
++#ifdef MOZ_WIDGET_ANDROID
++  {
++    // 0027 outcome log: response status for this channel (0 when the
++    // response head is not an HTTP one). Best-effort: any QI failure
++    // leaves the logged values at their unknown defaults.
++    uint32_t status = 0;
++    if (nsCOMPtr<nsIHttpChannel> httpChan = do_QueryInterface(aRequest)) {
++      (void)httpChan->GetResponseStatus(&status);
++    }
++    nsAutoCString spec;
++    if (nsCOMPtr<nsIChannel> chan = do_QueryInterface(aRequest)) {
++      nsCOMPtr<nsIURI> uri;
++      if (NS_SUCCEEDED(chan->GetURI(getter_AddRefs(uri))) && uri) {
++        uri->GetSpec(spec);
++      }
++    }
++    SINYTRA_OUTCOME_LOG("OnStartResponse uri=%s status=%u", spec.get(),
++                        (unsigned)status);
++  }
++#endif
+   nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
+   return nextListener->OnStartRequest(aRequest);
+ }
+@@ -105,6 +155,19 @@ ParentChannelListener::OnStopRequest(nsIRequest* aRequest,
+ 
+   LOG(("ParentChannelListener::OnStopRequest: [this=%p status=%" PRIu32 "]\n",
+        this, static_cast<uint32_t>(aStatusCode)));
++#ifdef MOZ_WIDGET_ANDROID
++  // 0027 outcome log: terminal verdict for this channel (mBodyBytes
++  // accumulated in OnDataAvailable). NOTE the count is transfer
++  // (post-content-encoding) bytes at this layer: example.com reads
++  // bodyBytes=334 while the brotli-decoded document is 577
++  // (device-verified 2026-10-09 v6: decompress 334 -> out=577). So
++  // "small bodyBytes" alone is NOT truncation evidence; compare
++  // against the encoded size (or check the decoder), and use
++  // status + title/PageStop fate for the verdict.
++  SINYTRA_OUTCOME_LOG("OnStopResponse status=0x%x bodyBytes=%llu",
++                      (unsigned)aStatusCode,
++                      (unsigned long long)mBodyBytes);
++#endif
+   nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
+   nsresult rv = nextListener->OnStopRequest(aRequest, aStatusCode);
+ 
+@@ -125,6 +188,10 @@ ParentChannelListener::OnDataAvailable(nsIRequest* aRequest,
+   if (!mNextListener) return NS_ERROR_UNEXPECTED;
+ 
+   LOG(("ParentChannelListener::OnDataAvailable [this=%p]\n", this));
++#ifdef MOZ_WIDGET_ANDROID
++  // 0027 outcome accounting (see OnStopRequest log).
++  mBodyBytes += aCount;
++#endif
+   nsCOMPtr<nsIStreamListener> nextListener = mNextListener;
+   return nextListener->OnDataAvailable(aRequest, aInputStream, aOffset, aCount);
+ }
+diff --git a/netwerk/protocol/http/ParentChannelListener.h b/netwerk/protocol/http/ParentChannelListener.h
+index 8b1dbcdccb..6a8a68da1f 100644
+--- a/netwerk/protocol/http/ParentChannelListener.h
++++ b/netwerk/protocol/http/ParentChannelListener.h
+@@ -65,6 +65,12 @@ class ParentChannelListener final : public nsIInterfaceRequestor,
+   // True if we received OnStartRequest for a nsIMultiPartChannel, and are
+   // expected AllPartsStopped to be called when complete.
+   bool mIsMultiPart = false;
++
++  // Sinytra firefox-patches/0027: delivered-body accounting for the
++  // outcome log (status + bytes per channel). Instances are per-channel
++  // (one ParentChannelListener per wrapped channel), so a plain running
++  // total is exact; multi-part channels accumulate across parts.
++  uint64_t mBodyBytes = 0;
+ };
+ 
+ inline nsISupports* ToSupports(ParentChannelListener* aDoc) {
+-- 
+2.55.0
+
+
+From 5a85ed6881e8011bf29e232de8e17671ba62ec5d Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Fri, 9 Oct 2026 08:51:45 +0800
+Subject: [PATCH 2/3] Sinytra patch 0009: log component-package derivation
+ result
+
+A wrong package here SEGVs child spawn with no other signal; log which
+derivation won (fast-path / webview-package / catch-fallback) once per
+process. Always-on WARN like the 0008/0013 path logs.
+---
+ .../java/org/mozilla/gecko/process/ServiceUtils.java   | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java
+index 2dabc7990f..34aaae9ee2 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/ServiceUtils.java
+@@ -9,6 +9,7 @@ import android.content.Context;
+ import android.content.pm.PackageInfo;
+ import android.content.pm.PackageManager;
+ import android.content.pm.ServiceInfo;
++import android.util.Log;
+ import androidx.annotation.NonNull;
+ 
+ /* package */ final class ServiceUtils {
+@@ -114,6 +115,10 @@ import androidx.annotation.NonNull;
+       return sComponentPackage;
+     }
+     String resolved = context.getPackageName();
++    // 0009 outcome log (fires once per process): which derivation won. A
++    // wrong package here means child spawn SEGVs with no other signal, so
++    // this stays an always-on WARN like the 0008/0013 path logs.
++    String via = "context-fallback";
+     try {
+       final String mozglue =
+           ((dalvik.system.BaseDexClassLoader) ServiceUtils.class.getClassLoader())
+@@ -128,6 +133,7 @@ import androidx.annotation.NonNull;
+       if (providerApk.equals(contextApk)) {
+         // Fast path: classes and services live in the context APK.
+         resolved = context.getPackageName();
++        via = "fast-path";
+       } else {
+         final PackageInfo pi = android.webkit.WebView.getCurrentWebViewPackage();
+         if (pi != null
+@@ -135,12 +141,16 @@ import androidx.annotation.NonNull;
+             && (providerApk.equals(pi.applicationInfo.sourceDir)
+                 || providerApk.equals(pi.applicationInfo.publicSourceDir))) {
+           resolved = pi.packageName;
++          via = "webview-package";
+         }
+       }
+     } catch (final Throwable t) {
+       resolved = context.getPackageName();
++      via = "catch-fallback";
+     }
+     sComponentPackage = resolved;
++    Log.w("ServiceUtils",
++        "getComponentPackage via=" + via + " pkg=" + resolved);
+     return sComponentPackage;
+   }
+ 
+-- 
+2.55.0
+
+
+From ab92893a410a4c6d6f96c1e94da579757b0f8712 Mon Sep 17 00:00:00 2001
 From: Sinytra <sinytra@local>
 Date: Fri, 9 Oct 2026 10:56:30 +0800
-Subject: [PATCH] Sinytra patch 0028: resume-state trace (diagnostic)
+Subject: [PATCH 3/3] Sinytra patch 0028: resume-state trace (diagnostic)
 
 ---
- gfx/layers/ipc/CompositorBridgeParent.cpp     | 31 +++++++++++++++++
+ gfx/layers/ipc/CompositorBridgeParent.cpp     | 34 +++++++++++++++++++
  .../ipc/UiCompositorControllerParent.cpp      | 25 ++++++++++++++
  widget/android/nsWindow.cpp                   | 34 +++++++++++++++++++
- 3 files changed, 90 insertions(+)
+ 3 files changed, 93 insertions(+)
 
 diff --git a/gfx/layers/ipc/CompositorBridgeParent.cpp b/gfx/layers/ipc/CompositorBridgeParent.cpp
-index 852cece065..da944c6be8 100644
+index 852cece065..d0399f78d0 100644
 --- a/gfx/layers/ipc/CompositorBridgeParent.cpp
 +++ b/gfx/layers/ipc/CompositorBridgeParent.cpp
 @@ -4,6 +4,31 @@
@@ -65,6 +268,16 @@ index 852cece065..da944c6be8 100644
      return;
    }
  
+@@ -1586,6 +1617,9 @@ void CompositorBridgeParent::NotifyDidRender(const VsyncId& aCompositeStartId,
+                                              TimeStamp& aRenderStart,
+                                              TimeStamp& aCompositeEnd,
+                                              wr::RendererStats* aStats) {
++#ifdef MOZ_WIDGET_ANDROID
++  SINYTRA_GPU_LOG("NotifyDidRender");
++#endif
+   if (!mWrBridge) {
+     return;
+   }
 diff --git a/gfx/layers/ipc/UiCompositorControllerParent.cpp b/gfx/layers/ipc/UiCompositorControllerParent.cpp
 index c3f47a1eab..1a86f87d2d 100644
 --- a/gfx/layers/ipc/UiCompositorControllerParent.cpp
