@@ -49,6 +49,8 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
     public GeckoResult<AllowOrDeny> onLoadRequest(@NonNull GeckoSession session,
             @NonNull LoadRequest request) {
         if (request.uri != null && mHost.shouldOverrideUrlLoading(request.uri)) {
+            SinytraLog.d("Sinytra/navigation",
+                    "app override DENY " + request.uri);
             try {
                 mHost.onAppOverrideDeny(request.uri);
             } catch (Throwable t) {
@@ -92,6 +94,9 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
     @Override
     public GeckoResult<String> onLoadError(@NonNull GeckoSession session,
             @NonNull String uri, @NonNull WebRequestError error) {
+        SinytraLog.d("Sinytra/navigation", "loadError gecko=" + error.code
+                + " webview=" + ErrorBridge.toWebViewErrorCode(error.code)
+                + " url=" + uri);
         try {
             mHost.onLoadError(ErrorBridge.toWebViewErrorCode(error.code),
                     ErrorBridge.toSslPrimaryError(error.code),

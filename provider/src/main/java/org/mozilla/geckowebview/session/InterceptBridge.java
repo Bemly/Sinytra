@@ -98,6 +98,8 @@ public final class InterceptBridge {
         if (appResponse != null) {
             // P2 patch will substitute this body; today only DENY is
             // expressible, so record + deny (loud, never silently wrong).
+            SinytraLog.d("Sinytra/intercept",
+                    "intercept DENY (body pending P2 transport) " + uri);
             try {
                 mHost.onInterceptDeny(uri, isRedirect, hasUserGesture);
             } catch (Throwable t) {

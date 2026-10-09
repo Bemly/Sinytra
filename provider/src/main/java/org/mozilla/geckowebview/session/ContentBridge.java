@@ -28,6 +28,9 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
 
     @Override
     public void onTitleChange(@NonNull GeckoSession session, @Nullable String title) {
+        // The value itself is the diagnosis (empty-title rounds: a null/empty
+        // arrival here vs a dropped adoption downstream are different bugs).
+        SinytraLog.d("Sinytra/content", "onTitleChange title=" + title);
         try {
             mHost.onTitleChanged(title);
         } catch (Throwable t) {
@@ -77,6 +80,7 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
 
     @Override
     public void onFullScreen(@NonNull GeckoSession session, boolean fullScreen) {
+        SinytraLog.d("Sinytra/content", "onFullScreen " + fullScreen);
         try {
             mHost.onFullScreen(fullScreen);
         } catch (Throwable t) {
@@ -86,6 +90,7 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
 
     @Override
     public void onCloseRequest(@NonNull GeckoSession session) {
+        SinytraLog.d("Sinytra/content", "onCloseRequest");
         try {
             mHost.onCloseWindow();
         } catch (Throwable t) {
@@ -95,6 +100,7 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
 
     @Override
     public void onFocusRequest(@NonNull GeckoSession session) {
+        SinytraLog.d("Sinytra/content", "onFocusRequest");
         try {
             mHost.onFocusRequest();
         } catch (Throwable t) {
@@ -104,6 +110,7 @@ public class ContentBridge implements GeckoSession.ContentDelegate {
 
     @Override
     public void onCrash(@NonNull GeckoSession session) {
+        SinytraLog.w("Sinytra/content", "onCrash (renderer gone)");
         try {
             mHost.onCrash();
         } catch (Throwable t) {
