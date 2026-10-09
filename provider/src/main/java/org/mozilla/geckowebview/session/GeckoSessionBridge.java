@@ -267,7 +267,12 @@ public final class GeckoSessionBridge
     @Override
     public void onUrlChanged(@NonNull String url) {
         mUrl = url;
-        mRescue.disarm();
+        // A blank LocationChange is window-attach (same reason as the blank
+        // Start above): it must not disarm the real navigation's chain.
+        // Explicit about: loads still disarm (nothing more is coming).
+        if (!shouldSwallowBlankStart(url, mExplicitAboutLoad)) {
+            mRescue.disarm();
+        }
         mClient.onUrlChanged(url);
     }
 
@@ -321,11 +326,14 @@ public final class GeckoSessionBridge
 
     @Override
     public void onPageStarted(@NonNull String url) {
-        // Commit signal: the LoadUri dispatch landed (disarms the guard).
-        mRescue.disarm();
         // Proof of life: the pipeline serves this session — refill the
         // one-shot reopen budget (and the cold-extension budget) for
-        // future stalls.
+        // future stalls. A blank Start proves the native window attached,
+        // never that the real dispatch landed (different document), so it
+        // refills budgets but must NOT disarm the guard (device-verified
+        // 2026-10-09: in black-hole rounds the implicit blank commits late —
+        // after refires began — and disarming there murders the rescue chain
+        // right as recovery lands; the real PageStart disarms below).
         mRescue.noteProofOfLife();
         // Chromium order: finished-before-next-start. A held success-finish
         // belongs to the previous navigation and must fire before this one
@@ -353,11 +361,15 @@ public final class GeckoSessionBridge
         // WebView never attaches → permanent black under a fully live
         // session: bytes/title/callbacks all flowing). Explicit about:
         // loads (flagged at loadUrl time) always report. Internal
-        // bookkeeping above (guard disarm, budgets, pairing bit) still
-        // runs — only app delivery is skipped.
+        // bookkeeping above (budgets, pairing bit) still runs — only app
+        // delivery is skipped, and the guard stays armed: the swallowed
+        // blank is window-attach, not navigation-commit (see above).
         if (shouldSwallowBlankStart(url, mExplicitAboutLoad)) {
             return;
         }
+        // Commit signal: a real (non-blank) dispatch landed — disarms the
+        // guard.
+        mRescue.disarm();
         // App-visible commit (non-blank by construction: blanks return
         // above): redirect legs after this point may arm a resume watch.
         mRescue.noteCommit(url);
