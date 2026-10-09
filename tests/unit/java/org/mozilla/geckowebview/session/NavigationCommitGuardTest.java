@@ -155,4 +155,43 @@ public final class NavigationCommitGuardTest {
         assertTrue(guard.isConsultLatched());
         guard.disarm();
     }
+
+    // --- latch escape (2026-10-09 MiniWV black-hole rounds): a latched but
+    // utterly quiet arm earns one rescue refire, then escalates to reopen.
+    // Chatter resets the quiet count, so the churning class never triggers.
+
+    @Test
+    public void latchedQuietDecision_extendsBelowRescue() {
+        assertEquals(0, NavigationCommitGuard.latchedQuietDecision(0, false));
+        assertEquals(0, NavigationCommitGuard.latchedQuietDecision(7, false));
+        assertEquals(0, NavigationCommitGuard.latchedQuietDecision(
+                NavigationCommitGuard.LATCHED_QUIET_RESCUE_AT - 1, false));
+    }
+
+    @Test
+    public void latchedQuietDecision_rescuesOnceAtBound() {
+        assertEquals(1, NavigationCommitGuard.latchedQuietDecision(
+                NavigationCommitGuard.LATCHED_QUIET_RESCUE_AT, false));
+        // Already rescued: no second rescue, keep extending to exhaust.
+        assertEquals(0, NavigationCommitGuard.latchedQuietDecision(
+                NavigationCommitGuard.LATCHED_QUIET_RESCUE_AT, true));
+        assertEquals(0, NavigationCommitGuard.latchedQuietDecision(
+                NavigationCommitGuard.LATCHED_QUIET_RESCUE_AT + 1, true));
+    }
+
+    @Test
+    public void latchedQuietDecision_exhaustsAtBound() {
+        assertEquals(2, NavigationCommitGuard.latchedQuietDecision(
+                NavigationCommitGuard.LATCHED_QUIET_EXHAUST_AT, false));
+        assertEquals(2, NavigationCommitGuard.latchedQuietDecision(
+                NavigationCommitGuard.LATCHED_QUIET_EXHAUST_AT, true));
+        assertEquals(2, NavigationCommitGuard.latchedQuietDecision(
+                NavigationCommitGuard.LATCHED_QUIET_EXHAUST_AT + 100, true));
+    }
+
+    @Test
+    public void latchedQuietDecision_rescueBelowExhaust() {
+        assertTrue(NavigationCommitGuard.LATCHED_QUIET_RESCUE_AT
+                < NavigationCommitGuard.LATCHED_QUIET_EXHAUST_AT);
+    }
 }
