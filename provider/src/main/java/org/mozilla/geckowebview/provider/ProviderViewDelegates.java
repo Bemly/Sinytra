@@ -75,6 +75,7 @@ final class ProviderViewDelegates {
                 return false;
             }
             @Override public void onAttachedToWindow() {
+                SinytraLog.d(TAG, "viewDelegate onAttachedToWindow; attaching host");
                 provider.attachViewHost();
             }
             @Override public void onDetachedFromWindow() {}
