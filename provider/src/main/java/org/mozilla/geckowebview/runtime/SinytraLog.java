@@ -8,11 +8,12 @@ import androidx.annotation.Nullable;
 // (VERBOSE < DEBUG < INFO < WARN < ERROR). Effective level per call:
 // WARN and above always log (contract failures must surface everywhere);
 // otherwise an explicit setLevel() wins (tests, harness); else the
-// platform override `adb shell setprop log.tag.Sinytra/<mod> <LEVEL>`
-// (no rebuild); else debuggable builds log DEBUG+, release builds INFO+.
-// So release carries I/W/E and drops D/V; debug carries D and drops V;
-// VERBOSE only when explicitly enabled. Tag rule (AGENTS §7):
-// always "Sinytra/<module>", never anything else.
+// platform override `adb shell setprop log.tag.Sinytra <LEVEL>` (no
+// rebuild; note: the property name cannot contain '/', so the override is
+// process-global, not per-module); else debuggable builds log DEBUG+,
+// release builds INFO+. So release carries I/W/E and drops D/V; debug
+// carries D and drops V; VERBOSE only when explicitly enabled. Tag rule
+// (AGENTS §7): always "Sinytra/<module>", never anything else.
 // Bottom layer (AGENTS §2): depends on nothing of ours.
 public final class SinytraLog {
     public static final int VERBOSE = Log.VERBOSE;
@@ -24,6 +25,9 @@ public final class SinytraLog {
     // Explicit level override; -1 = automatic (setprop, then debuggable).
     private static volatile int sExplicitLevel = -1;
     private static volatile boolean sDebuggable;
+
+    // Slash-free tag for the platform property override (see class header).
+    private static final String GLOBAL_TAG = "Sinytra";
 
     private SinytraLog() {}
 
@@ -50,7 +54,9 @@ public final class SinytraLog {
         if (explicitLevel >= 0) {
             return level >= explicitLevel;
         }
-        if (Log.isLoggable(tag, level)) {
+        // Process-global override (per-module tags contain '/', which is
+        // illegal in property names — verified on device).
+        if (Log.isLoggable(GLOBAL_TAG, level)) {
             return true;
         }
         return sDebuggable ? level >= DEBUG : level >= INFO;
