@@ -1706,6 +1706,15 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   隔离 uid 无权限），修法只能三件套：超时先杀占坑再重试（1880503 同构，
   firefox 侧）+ onDestroy 挂起本身（M5-A destroy 路）+ 前轮 tab 僵尸
   回收（现 4 个 ~200MB/个，force-stop 不连坐是根）。定罪仍待黑轮当场抓。
+- **杀占坑走不通，修法收敛（2026-10-09 23:3x，Gecko 代码实锤）**：
+  看门狗跑在宿主进程（MiniWV uid），占坑者是 provider uid——跨 uid 杀
+  进程产品代码无门（killProcess 同 uid 才行；killBackgroundProcesses 只
+  杀后台；占坑者是前台；su 只限调试机）。gpu 轮换名也大（jinja 单例
+  `$gpu` vs tab 池，需 manifest+Gecko+C++ 联动，`0030` 级）。真根因是
+  onDestroy 挂起（M5-A destroy 路未修）+ tab 僵尸是正常缓存行为（不动，
+  杀了伤下次启动）。已装机的救援+blankchain 按机制应把黑洞轮转慢绿
+  （fallback 后链不断，有干净重发机会）——待自然黑洞验证，不抽奖。
+  定罪清单（下次黑当场，一条命令）：占坑 pid 有无/CPU 动不动/records。
 
 
 ## 2. 下一步（按顺序，一次做一件）
