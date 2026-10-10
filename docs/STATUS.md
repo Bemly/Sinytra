@@ -1724,6 +1724,30 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   （fallback 后链不断，有干净重发机会）——待自然黑洞验证，不抽奖。
   定罪清单（下次黑当场，一条命令）：占坑 pid 有无/CPU 动不动/records。
 
+## 1ab. WEBVIEW TEST content-handoff stall 深挖（2026-10-10，HEAD `79f0edd`）
+
+- **现象**：`com.snc.test.webview2` 里任何 http(s) 页（bing/example/google，
+  fresh 进程）consult 全绿 + 200 头到，但 PageStart 永不到，黑像素；
+  同分钟 bromite 同 App 同 URL 全绿，MiniWV 同小时全绿（example×2/bing）。
+- **非回归**：`88ab6ad`（10/8 代码）同流程同形死；10/8“秒渲染”走的是
+  风暴 + App 自抛异常降级 ALLOW 的运气道。x64/版本与此 stall 无关。
+- **途中修两笔（均已合入，JVM 250 锁）**：`8eb67b0` 同 URL 连发合并
+  （919 loadUrl/208ms 风暴→单通道）；`79f0edd` consult 改走 Request
+  overload（反编译定死：string 实现 https 一律自载 + true，Request 非
+  redirect 回 false；修后 consult false，风暴消失——但 commit 仍无）。
+- **MOZ_LOG 断点（DocumentChannel:5，无 nsHttp）**：example listener 走到
+  `RedirectToRealChannel` 后永无 `RedirectToRealChannelFinished`
+  （verify 回调不到），34s 后被 reopen `Cancel NS_BINDING_ABORTED`；
+  绿轮同点毫秒级 Finished→Setup→Resume。chrome/extension 页在同进程
+  正常 Finished——只有 http(s) 文档页死。
+- **证伪 BYPASS_CACHE**：aLoadFlags 绿 `0x3d0004` vs 黑 `0x3d8204`
+  （+BYPASS_CACHE/FRESH_CONNECTION，App 设 LOAD_NO_CACHE）；诊断构建
+  强置 bypass=false（`0x3d0004`）仍同形死——已 revert，仓净设备净。
+- **附带**：post-reopen 重发丢 LoadUri 派发（listener-gap 老面孔）；
+  tab 子进程在 logcat 全程零行（MOZ_LOG 不进 child，源码无传播点，
+  属正常盲区非证据）。
+- **下一步**：Gecko C++ 插桩 `ClaimParentLoad/mOpenPromise` 续跑点
+  （patch + 全量重编，另立项），或找 webview 进程 docshell 态差异。
 
 ## 2. 下一步（按顺序，一次做一件）
 
