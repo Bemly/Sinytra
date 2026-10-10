@@ -1116,7 +1116,8 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   `browsingContext`（直接比 docshell）；`GetLoadingDocument` 是 out-param；
   substitute 构建必须每次 export MOZCONFIG（缺则 1 秒挂，屡踩）。
 - **JVM 175 锁全绿**，lint 绿。
-- **设备（2026-10-03 夜）**：load 持续 ~15（MTK D 态堆积，僵尸已排除），
+- **设备（2026-10-03 夜）**：load 持续 ~15（MTK D 态堆积，僵尸本轮已清；
+  单次清场不定无辜），
   child tab `Timeout executing service`，导航 LoadRequest 后零回调——容量型
   flake，非逻辑。`su -c reboot` 已发（含目的 ledger），之后 USB 层无设备
   15 分钟+，疑卡启动/掉线，待人手确认。回来后：卫生 → T2/T3 verdict →
@@ -1708,8 +1709,8 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **救援链全通但新会话照聋（2026-10-10 14:42，首黑洞验证轮）**：Bing
   黑洞复发（超时×2）→闩→16s 静默→`rescue refire` 首现→再静默→
   `escalating to reopen`→新会话 ctor（新 tab）→OnStart×3→然后同形失聪
-  （无标题无 finish，像素亲眼纯黑；省电模式 OFF、电量 16% 充电中、体温
-  正常，无关）。机制本身全对（重发/升级/重开/新 ctor 逐级点亮），但新
+   （无标题无 finish，像素亲眼纯黑；同期读数仅记录：省电 OFF、电量 16%
+   充电中、体温 34℃，不定无辜）。机制本身全对（重发/升级/重开/新 ctor 逐级点亮），但新
   会话也聋——病在 content 链接失聪本身，不在 session 新旧。MiniWV 今晨
   黑，B 站同窗极大概率同病（同 provider 同黑洞）。下一步：失聪本身需
   Gecko 侧深挖（redirect 后 content 侧无应答），provider 侧已无牌可打。
