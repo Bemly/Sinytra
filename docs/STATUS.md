@@ -1705,6 +1705,14 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   CPU 动不动/records），此前任何新 patch 都是无靶开枪——今晚不再写新
   patch，已装机救援+blankchain 为当前最优覆盖（洞轮转慢绿理论完好，
   快路 3 连绿无退化）。工作收兵，待黑洞。
+- **救援链全通但新会话照聋（2026-10-10 14:42，首黑洞验证轮）**：Bing
+  黑洞复发（超时×2）→闩→16s 静默→`rescue refire` 首现→再静默→
+  `escalating to reopen`→新会话 ctor（新 tab）→OnStart×3→然后同形失聪
+  （无标题无 finish，像素亲眼纯黑；省电模式 OFF、电量 16% 充电中、体温
+  正常，无关）。机制本身全对（重发/升级/重开/新 ctor 逐级点亮），但新
+  会话也聋——病在 content 链接失聪本身，不在 session 新旧。MiniWV 今晨
+  黑，B 站同窗极大概率同病（同 provider 同黑洞）。下一步：失聪本身需
+  Gecko 侧深挖（redirect 后 content 侧无应答），provider 侧已无牌可打。
 - **杀占坑走不通，修法收敛（2026-10-09 23:3x，Gecko 代码实锤）**：
   看门狗跑在宿主进程（MiniWV uid），占坑者是 provider uid——跨 uid 杀
   进程产品代码无门（killProcess 同 uid 才行；killBackgroundProcesses 只
