@@ -145,4 +145,31 @@ public final class GeckoSessionBridgeTriageTest {
         assertFalse(GeckoSessionBridge.shouldSwallowBlankStart("about:srcdoc",
                 false));
     }
+
+    @Test
+    public void coalesceLoad_liveSameUrlAbsorbed() {
+        assertTrue(SessionRescue.shouldCoalesceLoad(true,
+                "https://cn.bing.com/", "https://cn.bing.com/"));
+    }
+
+    @Test
+    public void coalesceLoad_differentUrlPasses() {
+        assertFalse(SessionRescue.shouldCoalesceLoad(true,
+                "https://cn.bing.com/", "https://example.com/"));
+    }
+
+    @Test
+    public void coalesceLoad_disarmedReloadPasses() {
+        // Post-commit reload: chain disarmed, must dispatch normally.
+        assertFalse(SessionRescue.shouldCoalesceLoad(false,
+                "https://cn.bing.com/", "https://cn.bing.com/"));
+    }
+
+    @Test
+    public void coalesceLoad_nullNeverCoalesces() {
+        assertFalse(SessionRescue.shouldCoalesceLoad(true, null,
+                "https://cn.bing.com/"));
+        assertFalse(SessionRescue.shouldCoalesceLoad(true,
+                "https://cn.bing.com/", null));
+    }
 }

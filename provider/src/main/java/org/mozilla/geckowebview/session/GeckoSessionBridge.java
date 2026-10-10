@@ -682,6 +682,18 @@ public final class GeckoSessionBridge
         if (url != null) {
             mUrl = url;
         }
+        // Duplicate burst absorption (device-verified 2026-10-10: one GO tap
+        // entered provider.loadUrl 919 times in 208ms): while the same URL's
+        // guard chain is still live, the in-flight channel already covers the
+        // navigation — re-arming would reset its budget and re-dispatching
+        // would cancel its channel, churning forever. Absorb quietly (mirror
+        // state is identical values). Post-commit reloads are disarmed and
+        // pass through normally.
+        if (SessionRescue.shouldCoalesceLoad(mRescue.isArmed(),
+                mRescue.lastUrl(), url)) {
+            SinytraLog.d(TAG, "loadUrl coalesced duplicate url=" + url);
+            return;
+        }
         // Arm the commit guard before dispatching: if the LoadUri message is
         // dropped (cold-start listener gap) no PageStart ever arrives and the
         // guard re-issues this same navigation, bounded. Any commit signal,
