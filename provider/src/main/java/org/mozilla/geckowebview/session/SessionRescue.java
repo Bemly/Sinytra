@@ -35,6 +35,13 @@ public final class SessionRescue {
         android.content.Context appContext();
 
         void repushFilters();
+
+        // Re-assert the view binding after close+open (fresh native window /
+        // compositor). Surface resume events do not re-fire on their own —
+        // device-observed 2026-10-10: post-reopen NotifyCompositorCreated
+        // skipResume with no RecvResumeAndResize after it, page committed
+        // with title but pixels stuck blank. Headless hosts no-op.
+        void rebindView();
     }
 
     static final int MAX_COLD_EXTENSIONS = 4;
@@ -339,6 +346,15 @@ public final class SessionRescue {
         } catch (Throwable t) {
             SinytraLog.w(TAG, "session reopen threw; giving up", t);
             return;
+        }
+        // Fresh native window: re-assert the view binding BEFORE the
+        // navigation is re-issued, so the new compositor gets a surface +
+        // resume while content is still on its way (never throws: a failed
+        // rebind degrades to headless, commit path unaffected).
+        try {
+            host.rebindView();
+        } catch (Throwable t) {
+            SinytraLog.w(TAG, "rebindView after reopen threw", t);
         }
         try {
             host.repushFilters();

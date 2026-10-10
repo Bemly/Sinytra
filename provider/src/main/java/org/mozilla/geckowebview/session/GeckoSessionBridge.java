@@ -103,6 +103,9 @@ public final class GeckoSessionBridge
 
         @Override
         void repushFilters();
+
+        @Override
+        void rebindView();
     }
 
     public void setTransportReady(@Nullable Readiness readiness) {

@@ -218,6 +218,36 @@ public final class GeckoWebViewProvider
             public void repushFilters() {
                 mInterception.repushFilters();
             }
+
+            @Override
+            public void rebindView() {
+                // Rescue reopen built a fresh native window: re-assert the
+                // view binding so the new compositor gets a surface + resume
+                // (surface events do not re-fire on their own). Headless
+                // (null host) or destroyed: no pixels to drive, skip quietly
+                // — the commit path is unaffected. Never throws: rescue
+                // continues to redispatch either way.
+                if (mDestroyed || mViewHost == null) {
+                    return;
+                }
+                try {
+                    org.mozilla.geckowebview.runtime.MainThread.call(() -> {
+                        if (!mDestroyed && mViewHost != null) {
+                            GeckoViewHost.attach(
+                                    mWebView.getContext()
+                                            .getApplicationContext(),
+                                    mViewHost, mBridge.session());
+                            SinytraLog.d(TAG,
+                                    "reopen rebindView: session re-asserted");
+                        }
+                        return null;
+                    });
+                } catch (Throwable t) {
+                    SinytraLog.w(TAG,
+                            "reopen rebindView threw; continuing headless",
+                            t);
+                }
+            }
         });
         // Runtime create + session open are @UiThread (GeckoView contract),
         // but the framework may create the provider on a background looper
