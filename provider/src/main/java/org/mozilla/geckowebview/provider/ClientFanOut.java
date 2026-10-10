@@ -5,6 +5,7 @@ import android.webkit.DownloadListener;
 import android.webkit.SinytraSslErrorHandler;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -113,13 +114,18 @@ final class ClientFanOut
     }
 
     @Override
-    public boolean shouldOverrideUrlLoading(@NonNull String url) {
+    public boolean shouldOverrideRequest(@NonNull WebResourceRequest request) {
         WebViewClient client = mOwner.webViewClient();
         if (client == null) {
             return false;
         }
         try {
-            return client.shouldOverrideUrlLoading(mOwner.webView(), url);
+            // API-24+ framework contract: consult the Request overload. Its
+            // default forwards to the legacy string overload, so legacy-only
+            // apps stay covered; consulting the string overload directly
+            // instead fires legacy take-over impls for every https URL
+            // (device-verified 2026-10-10, WEBVIEW TEST black screen).
+            return client.shouldOverrideUrlLoading(mOwner.webView(), request);
         } catch (Throwable t) {
             SinytraLog.w(TAG, "WebViewClient.shouldOverrideUrlLoading threw", t);
             return false;

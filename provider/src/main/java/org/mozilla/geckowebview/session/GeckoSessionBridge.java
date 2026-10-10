@@ -16,7 +16,8 @@ public final class GeckoSessionBridge
         void onUrlChanged(@NonNull String url);
         void onCanGoBackChanged(boolean canGoBack);
         void onCanGoForwardChanged(boolean canGoForward);
-        boolean shouldOverrideUrlLoading(@NonNull String url);
+        boolean shouldOverrideRequest(
+                @NonNull android.webkit.WebResourceRequest request);
         void onPageStarted(@NonNull String url);
         void onPageFinished(boolean success);
         void onProgressChanged(int progress);
@@ -292,13 +293,15 @@ public final class GeckoSessionBridge
     }
 
     @Override
-    public boolean shouldOverrideUrlLoading(@NonNull String url) {
+    public boolean shouldOverrideRequest(
+            @NonNull android.webkit.WebResourceRequest request) {
         // 8x onLoadRequest churn 取证 (R2 配对): 与
         // SplitNavigationDelegate.onLoadRequest 及下述 loadUrl 行按时间戳对齐 —
         // 每个 LR 后有无宿主侧 loadUrl 重入即判 R2 (宿主双载), 无重入则倾向 R1
         // (页面驱动重复顶层导航). true=override (app 接管), false=allow (放行).
-        boolean override = mClient.shouldOverrideUrlLoading(url);
-        SinytraLog.d(TAG, "shouldOverride url=" + url + " override=" + override);
+        boolean override = mClient.shouldOverrideRequest(request);
+        SinytraLog.d(TAG, "shouldOverride url=" + request.getUrl()
+                + " redirect=" + request.isRedirect() + " override=" + override);
         return override;
     }
 

@@ -2,6 +2,7 @@ package org.mozilla.geckowebview.session;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import android.webkit.WebResourceRequest;
 import java.util.List;
 import org.mozilla.geckowebview.runtime.SinytraLog;
 import org.mozilla.geckoview.AllowOrDeny;
@@ -16,8 +17,17 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
         void onUrlChanged(@NonNull String url);
         void onCanGoBackChanged(boolean canGoBack);
         void onCanGoForwardChanged(boolean canGoForward);
-        // Maps to WebViewClient.shouldOverrideUrlLoading: true = host handles it, DENY the load.
-        boolean shouldOverrideUrlLoading(@NonNull String url);
+        // API-24+ contract: the framework consults the Request overload;
+        // its default implementation forwards to the legacy string overload,
+        // so legacy-only apps are covered without a second consult. Consulting
+        // the string overload DIRECTLY is wrong: it fires legacy take-over
+        // impls that return true for every https URL (device-verified
+        // 2026-10-10, WEBVIEW TEST: string impl reloads via r0 + true,
+        // Request impl returns false for non-redirect main-frame loads).
+        // Method/headers are GET/empty here: LoadRequest carries no
+        // request-body surface (0002 info lives on the necko consult path) —
+        // apps branching on them in shouldOverride are a documented gap.
+        boolean shouldOverrideRequest(@NonNull WebResourceRequest request);
 
         // Fired when the host takes over a URL (shouldOverrideUrlLoading true →
         // LoadRequest DENY). The load produces no PageStart by design — commit
@@ -48,7 +58,9 @@ public class NavigationBridge implements GeckoSession.NavigationDelegate {
     @Override
     public GeckoResult<AllowOrDeny> onLoadRequest(@NonNull GeckoSession session,
             @NonNull LoadRequest request) {
-        if (request.uri != null && mHost.shouldOverrideUrlLoading(request.uri)) {
+        if (request.uri != null && mHost.shouldOverrideRequest(
+                new InterceptBridge.SinytraResourceRequest(request.uri,
+                        true, request.isRedirect, request.hasUserGesture))) {
             SinytraLog.d("Sinytra/navigation",
                     "app override DENY " + request.uri);
             try {
