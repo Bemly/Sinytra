@@ -148,3 +148,6 @@ adb -s V885Q49L8TAMFEEE shell "su -c 'for p in \$(pgrep -f kokoro.provider); do 
   成 2.5G/1.8G 不影响任何技术结论。
 - 不为"健康"主动 reboot（§6 纪律）：轻量 hygiene 建健康窗口即可，
   除非某轮实验明确要验证跨进程/系统状态。
+- **临时截图当轮删（2026-10-10 用户立规）**：`screencap`/`uiautomator dump`
+  pull 回本地亲眼验证后，`/sdcard` 上的临时图当轮 `rm` 掉；只删本轮自建的，
+  历史文件与其他目录一律不动。
