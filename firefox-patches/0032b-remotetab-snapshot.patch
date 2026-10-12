@@ -1,0 +1,26 @@
+From 35c94a004da8e6044f26b1953f7da6729c14a3f7 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Mon, 12 Oct 2026 22:09:05 +0800
+Subject: [PATCH] Sinytra patch 0032b: remoteTab presence in browser-bind
+ snapshot (diagnostic)
+
+---
+ mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+index 318ed07300..e9e639fe2e 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+@@ -345,7 +345,7 @@ export class GeckoViewNavigation extends GeckoViewModule {
+             br?.isRemoteBrowser
+           } bc=${bc?.id} wgp-inprocess=${wg?.isInProcess} tabparent=${
+             !!br?.frameLoader?.tabParent
+-          }`;
++          } remotetab=${!!br?.frameLoader?.remoteTab}`;
+         } catch (e) {}
+         break;
+       }
+-- 
+2.55.0
+
