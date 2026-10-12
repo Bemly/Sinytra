@@ -1,4 +1,4 @@
-From 54ad66a0798bf53f223c4870fbf8de7ad4adf624 Mon Sep 17 00:00:00 2001
+From ec2bf58e39a506105808184a32fe142aac2518a1 Mon Sep 17 00:00:00 2001
 From: Sinytra <sinytra@local>
 Date: Mon, 12 Oct 2026 22:38:01 +0800
 Subject: [PATCH] Sinytra patch 0034: LoadURI forward-branch trace (diagnostic)
@@ -7,11 +7,11 @@ BrowsingContext::LoadURI has three silent outcomes: local docshell,
 null ContentParent (SendLoadURI never sent), or sent. Log which one
 under the 0005 pref gate. Diagnostic - remove before final.
 ---
- docshell/base/BrowsingContext.cpp | 43 +++++++++++++++++++++++++++++++
- 1 file changed, 43 insertions(+)
+ docshell/base/BrowsingContext.cpp | 57 +++++++++++++++++++++++++++++++
+ 1 file changed, 57 insertions(+)
 
 diff --git a/docshell/base/BrowsingContext.cpp b/docshell/base/BrowsingContext.cpp
-index bcfcb767e8..b888791710 100644
+index bcfcb767e8..14a63b7834 100644
 --- a/docshell/base/BrowsingContext.cpp
 +++ b/docshell/base/BrowsingContext.cpp
 @@ -4,6 +4,12 @@
@@ -50,7 +50,7 @@ index bcfcb767e8..b888791710 100644
      return docShell->LoadURI(aLoadState, aSetNavigating);
    }
  
-@@ -2389,6 +2411,27 @@ nsresult BrowsingContext::LoadURI(nsDocShellLoadState* aLoadState,
+@@ -2389,6 +2411,41 @@ nsresult BrowsingContext::LoadURI(nsDocShellLoadState* aLoadState,
        wgc->SendLoadURI(this, mozilla::WrapNotNull(aLoadState), aSetNavigating);
      }
    } else if (XRE_IsParentProcess()) {
@@ -68,10 +68,24 @@ index bcfcb767e8..b888791710 100644
 +        if (aLoadState && aLoadState->URI()) {
 +          aLoadState->URI()->GetSpec(spec);
 +        }
++        // Sinytra 0034b: zombie-shell discriminator. A ContentParent object
++        // can outlive (or precede) its IPDL channel: alive + CanSend says
++        // the endpoint should take the message; anything else is a shell
++        // whose SendLoadURI vanishes silently (device-verified shape).
++        int64_t childId = -1;
++        int alive = 0;
++        int canSend = 0;
++        if (probeCp) {
++          childId = (int64_t)probeCp->ChildID();
++          alive = (int)probeCp->IsAlive();
++          canSend = (int)probeCp->CanSend();
++        }
 +        __android_log_print(
 +            ANDROID_LOG_DEBUG, "Sinytra/response",
-+            "BC::LoadURI uri=%s localDocShell=%d hasContentParent=%d",
-+            spec.get(), (int)(bool)mDocShell, (int)(bool)probeCp);
++            "BC::LoadURI uri=%s localDocShell=%d hasContentParent=%d "
++            "childId=%" PRId64 " alive=%d canSend=%d",
++            spec.get(), (int)(bool)mDocShell, (int)(bool)probeCp, childId,
++            alive, canSend);
 +      }
 +    }
 +#endif
