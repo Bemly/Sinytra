@@ -1,4 +1,4 @@
-From 0c5b4367ecf613b4bb12f62b28f4085c4a057f38 Mon Sep 17 00:00:00 2001
+From 9e7813ff56e5fe53be06320bf55ebc8c9d82026a Mon Sep 17 00:00:00 2001
 From: Sinytra <sinytra@local>
 Date: Mon, 12 Oct 2026 22:38:01 +0800
 Subject: [PATCH] Sinytra patch 0034: LoadURI forward-branch trace (diagnostic)
@@ -7,12 +7,12 @@ BrowsingContext::LoadURI has three silent outcomes: local docshell,
 null ContentParent (SendLoadURI never sent), or sent. Log which one
 under the 0005 pref gate. Diagnostic - remove before final.
 ---
- docshell/base/BrowsingContext.cpp | 63 +++++++++++++++++++++++++++++++
- dom/ipc/ContentChild.cpp          | 10 ++---
- 2 files changed, 68 insertions(+), 5 deletions(-)
+ docshell/base/BrowsingContext.cpp | 86 ++++++++++++++++++++++++++++++-
+ dom/ipc/ContentChild.cpp          | 10 ++--
+ 2 files changed, 89 insertions(+), 7 deletions(-)
 
 diff --git a/docshell/base/BrowsingContext.cpp b/docshell/base/BrowsingContext.cpp
-index bcfcb767e8..f61078d4e5 100644
+index bcfcb767e8..63d7ee38b7 100644
 --- a/docshell/base/BrowsingContext.cpp
 +++ b/docshell/base/BrowsingContext.cpp
 @@ -4,6 +4,12 @@
@@ -51,7 +51,7 @@ index bcfcb767e8..f61078d4e5 100644
      return docShell->LoadURI(aLoadState, aSetNavigating);
    }
  
-@@ -2389,6 +2411,47 @@ nsresult BrowsingContext::LoadURI(nsDocShellLoadState* aLoadState,
+@@ -2389,6 +2411,50 @@ nsresult BrowsingContext::LoadURI(nsDocShellLoadState* aLoadState,
        wgc->SendLoadURI(this, mozilla::WrapNotNull(aLoadState), aSetNavigating);
      }
    } else if (XRE_IsParentProcess()) {
@@ -73,8 +73,11 @@ index bcfcb767e8..f61078d4e5 100644
 +        // can outlive (or precede) its IPDL channel: alive + CanSend says
 +        // the endpoint should take the message; anything else is a shell
 +        // whose SendLoadURI vanishes silently (device-verified shape).
-+        // 0034c: IsInitialized + Pid separate half-opened shells
++        // Sinytra 0034c: IsInitialized + Pid separate half-opened shells
 +        // (alive covers INITIALIZED) and map ChildID to an OS pid.
++        // Sinytra 0034d: log SendLoadURI's own bool result. A false here
++        // (serialization/channel failure) vs true-but-never-received
++        // (IPDL-level loss) decides the next move.
 +        int64_t childId = -1;
 +        int alive = 0;
 +        int inited = 0;
@@ -99,6 +102,33 @@ index bcfcb767e8..f61078d4e5 100644
      if (ContentParent* cp = Canonical()->GetContentParent()) {
        // nsDocShell::LoadURI does this too, but for a process switching load
        // the entry this load adds can be committed before its notification
+@@ -2452,8 +2518,24 @@ nsresult BrowsingContext::LoadURI(nsDocShellLoadState* aLoadState,
+                           aLoadState->URI()->GetSpecOrDefault().get());
+ #endif
+ 
+-      (void)cp->SendLoadURI(this, mozilla::WrapNotNull(aLoadState),
+-                            aSetNavigating);
++      bool loadUriSent = cp->SendLoadURI(this, mozilla::WrapNotNull(aLoadState),
++                                          aSetNavigating);
++#ifdef MOZ_WIDGET_ANDROID
++      {
++        // Sinytra 0034d (companion): SendLoadURI's own bool result. false =
++        // serialization/channel failure at send time; true-but-never-
++        // received = IPDL-level loss downstream. Same 0005 pref gate.
++        static const bool sEnabled =
++            mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++        if (sEnabled) {
++          __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++                              "BC::LoadURI sendDone sent=%d canSendNow=%d",
++                              (int)loadUriSent, (int)cp->CanSend());
++        }
++      }
++#else
++      (void)loadUriSent;
++#endif
+     }
+   } else {
+     if (!sourceBC) {
 diff --git a/dom/ipc/ContentChild.cpp b/dom/ipc/ContentChild.cpp
 index 28592146a1..50cb90dce1 100644
 --- a/dom/ipc/ContentChild.cpp
