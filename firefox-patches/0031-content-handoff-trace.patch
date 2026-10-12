@@ -1,0 +1,117 @@
+From e44fac89f05dfc7862535bb81c9d68b93ec2e918 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Mon, 12 Oct 2026 21:04:43 +0800
+Subject: [PATCH] Sinytra patch 0031: content-side handoff trace (diagnostic)
+
+Companion to 0030's parent lines. MOZ_LOG never reaches logcat from child
+processes, but __android_log_print does - same 0005 pref gate. Proves
+whether the content docshell began a URI load (DoURILoad) and created its
+channel (DCC ctor) for a navigation. Diagnostic - remove before final.
+---
+ docshell/base/nsDocShell.cpp         | 33 ++++++++++++++++++++++++++++
+ netwerk/ipc/DocumentChannelChild.cpp | 28 +++++++++++++++++++++++
+ 2 files changed, 61 insertions(+)
+
+diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
+index 71a2864c7f..59aeb85ea5 100644
+--- a/docshell/base/nsDocShell.cpp
++++ b/docshell/base/nsDocShell.cpp
+@@ -4,6 +4,22 @@
+ 
+ #include "nsDocShell.h"
+ 
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++
++// Sinytra firefox-patches/0031: docshell entry trace (companion to 0030).
++// Proves the content docshell began a URI load at all. Same 0005 pref gate
++// (Preferences.h is already included below). Diagnostic — remove before final.
++static bool SinytraDocShellLoadLogEnabled();
++#  define SINYTRA_DOCSHELL_LOAD_LOG(...)                              \
++    do {                                                             \
++      if (SinytraDocShellLoadLogEnabled()) {                         \
++        __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",   \
++                            __VA_ARGS__);                            \
++      }                                                              \
++    } while (0)
++#endif
++
+ #include <algorithm>
+ #include "mozilla/CycleCollectedJSContext.h"
+ #include "mozilla/dom/HTMLFormElement.h"
+@@ -9702,9 +9718,26 @@ nsresult nsDocShell::PerformTrustedTypesPreNavigationCheck(
+   return NS_OK;
+ }
+ 
++#ifdef MOZ_WIDGET_ANDROID
++static bool SinytraDocShellLoadLogEnabled() {
++  static const bool sEnabled =
++      mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++#endif
++
+ nsresult nsDocShell::DoURILoad(nsDocShellLoadState* aLoadState,
+                                Maybe<uint32_t> aCacheKey,
+                                nsIRequest** aRequest) {
++#ifdef MOZ_WIDGET_ANDROID
++  {
++    nsAutoCString spec;
++    if (aLoadState && aLoadState->URI()) {
++      aLoadState->URI()->GetSpec(spec);
++    }
++    SINYTRA_DOCSHELL_LOAD_LOG("DoURILoad uri=%s", spec.get());
++  }
++#endif
+   // Double-check that we're still around to load this URI.
+   if (mIsBeingDestroyed) {
+     // Return NS_OK despite not doing anything to avoid throwing exceptions
+diff --git a/netwerk/ipc/DocumentChannelChild.cpp b/netwerk/ipc/DocumentChannelChild.cpp
+index 82f4f1862b..662880b104 100644
+--- a/netwerk/ipc/DocumentChannelChild.cpp
++++ b/netwerk/ipc/DocumentChannelChild.cpp
+@@ -30,6 +30,30 @@ using namespace mozilla::ipc;
+ extern mozilla::LazyLogModule gDocumentChannelLog;
+ #define LOG(fmt) MOZ_LOG(gDocumentChannelLog, mozilla::LogLevel::Verbose, fmt)
+ 
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#  include "mozilla/Preferences.h"
++
++// Sinytra firefox-patches/0031: content-side handoff trace (companion to
++// 0030's parent lines). MOZ_LOG never reaches logcat from child processes,
++// but __android_log_print does — same 0005 pref gate. Proves the content
++// docshell created its channel for a navigation. Diagnostic — remove
++// before final. (Distinct static name: netwerk/ipc builds unified.)
++static bool SinytraContentHandoffLogEnabled() {
++  static const bool sEnabled =
++      mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++
++#  define SINYTRA_CONTENT_HANDOFF_LOG(...)                            \
++    do {                                                             \
++      if (SinytraContentHandoffLogEnabled()) {                       \
++        __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",   \
++                            __VA_ARGS__);                            \
++      }                                                              \
++    } while (0)
++#endif
++
+ namespace mozilla {
+ namespace net {
+ 
+@@ -54,6 +78,10 @@ DocumentChannelChild::DocumentChannelChild(nsDocShellLoadState* aLoadState,
+   mLoadingContext = nullptr;
+   LOG(("DocumentChannelChild ctor [this=%p, uri=%s]", this,
+        aLoadState->URI()->GetSpecOrDefault().get()));
++#ifdef MOZ_WIDGET_ANDROID
++  SINYTRA_CONTENT_HANDOFF_LOG("DCC ctor uri=%s",
++                              aLoadState->URI()->GetSpecOrDefault().get());
++#endif
+ }
+ 
+ DocumentChannelChild::~DocumentChannelChild() {
+-- 
+2.55.0
+
