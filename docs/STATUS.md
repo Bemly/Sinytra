@@ -1764,6 +1764,22 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   - 收敛：内容 docshell 存在（远端 window global 活）但从不为 http
     导航建 PDocumentChannel；parent 侧到 open-promise resolve 为止全对。
     下一步只剩 frameloader→TabChild 腿（C++，另立 0033）或先放一放。
+- **根因定死：cgroup freezer 冻住 tab（2026-10-13 00:14，thaw 即绿）**：
+  - 0034b 行：`SendLoadURI` 发往 `alive=1/inited=1/canSend=1` 的 endpoint
+    却永不到达；0031b（ungate，绿轮自证有效）零行。tab 进程活着、线程齐。
+  - 直接读 `cgroup.freeze`：serving tab（含出生仅 60 秒的新 tab）`=1`
+    ——被 kernel 冻住。Gecko IPDL 走 UNIX socket：写 frozen 进程成功入
+    核缓冲（故 sent=1 无报错），读端永不醒——与全部观测严丝合缝；
+    parent 侧页面（blank/chrome/extension）不走 tab，故一直正常。
+  - 验证：`echo 0` thaw 后同一 session 下一次 GO——1 秒内 CC 到、
+    PageStart 到、title 到、body+s.js+PageStop 全齐（导航半全绿）。
+  - 相关性全对上：SNC 对话框流程强制 15–60s 间隔（冻住）vs MiniWV
+    2s（抢赢）；B 站 immediate/delayed 接触反转；10/8 绿（快打/净设备）。
+  - 解冻后 unmask 出第二个独立故障（渲染半）：compositor resume 失败 +
+    GPU IPC kills，黑像素——归 M5-A 域，另案。
+  - 修法方向（新立项）：导航前保 tab 温暖（查 unbind 触发点：dumpsys
+    见 tab `cch/oom900/cached/empty` 即已掉绑定；thaw 无需 su 的机制：
+    binder ping？常驻 fg 绑定？）。诊断 patch 0030–0034 定稿前全删。
 
 ## 2. 下一步（按顺序，一次做一件）
 
