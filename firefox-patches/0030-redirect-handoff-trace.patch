@@ -1,0 +1,152 @@
+From 262bfdbc6b3eea7aae207ca98454a0f114e574ec Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Mon, 12 Oct 2026 20:14:57 +0800
+Subject: [PATCH] Sinytra patch 0030: RedirectToRealChannel handoff trace
+ (diagnostic)
+
+Wedged navigations reach listener RedirectToRealChannel but never
+RedirectToRealChannelFinished (device-verified 2026-10-10, WEBVIEW TEST:
+consult green + 200 headers, no PageStart; green rounds finish the same
+point in ms). Log the resolve point, the early returns, and the
+DocumentChannelParent open-promise continuation under the 0005
+sinytra.log.enabled runtime pref. Diagnostic - remove before final.
+---
+ netwerk/ipc/DocumentChannelParent.cpp | 28 ++++++++++++++++++
+ netwerk/ipc/DocumentLoadListener.cpp  | 42 +++++++++++++++++++++++++++
+ 2 files changed, 70 insertions(+)
+
+diff --git a/netwerk/ipc/DocumentChannelParent.cpp b/netwerk/ipc/DocumentChannelParent.cpp
+index 12d590c0ac..988342ef55 100644
+--- a/netwerk/ipc/DocumentChannelParent.cpp
++++ b/netwerk/ipc/DocumentChannelParent.cpp
+@@ -14,6 +14,30 @@
+ extern mozilla::LazyLogModule gDocumentChannelLog;
+ #define LOG(fmt) MOZ_LOG(gDocumentChannelLog, mozilla::LogLevel::Verbose, fmt)
+ 
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#  include "mozilla/Preferences.h"
++
++// Sinytra firefox-patches/0030: open-promise continuation trace (companion
++// to the listener-side handoff lines in DocumentLoadListener.cpp). Proves
++// the DocumentChannelParent::Init Then callback ran after the listener
++// resolved mOpenPromise. Runtime-pref gated (0005), diagnostic — remove
++// before final.
++static bool SinytraDcpHandoffLogEnabled() {
++  static const bool sEnabled =
++      mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++
++#  define SINYTRA_DCP_HANDOFF_LOG(...)                               \
++    do {                                                             \
++      if (SinytraDcpHandoffLogEnabled()) {                           \
++        __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",   \
++                            __VA_ARGS__);                            \
++      }                                                              \
++    } while (0)
++#endif
++
+ using namespace mozilla::dom;
+ 
+ namespace mozilla {
+@@ -89,6 +113,10 @@ bool DocumentChannelParent::Init(dom::CanonicalBrowsingContext* aContext,
+       [self](DocumentLoadListener::OpenPromiseSucceededType&& aResolveValue) {
+         // The DLL is waiting for us to resolve the
+         // PDocumentChannel::RedirectToRealChannelPromise given as parameter.
++#ifdef MOZ_WIDGET_ANDROID
++        SINYTRA_DCP_HANDOFF_LOG("DCP open-promise continuation running this=%p",
++                                self.get());
++#endif
+         auto promise = self->RedirectToRealChannel(
+             std::move(aResolveValue.mStreamFilterEndpoints),
+             aResolveValue.mRedirectFlags, aResolveValue.mLoadFlags,
+diff --git a/netwerk/ipc/DocumentLoadListener.cpp b/netwerk/ipc/DocumentLoadListener.cpp
+index 2a62fcd56d..e746c8ac31 100644
+--- a/netwerk/ipc/DocumentLoadListener.cpp
++++ b/netwerk/ipc/DocumentLoadListener.cpp
+@@ -103,6 +103,32 @@ static constexpr int kMaxSameURLContentFrames = 2;
+ 
+ using namespace mozilla::dom;
+ 
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#  include "mozilla/Preferences.h"
++
++// Sinytra firefox-patches/0030: RedirectToRealChannel handoff trace.
++// A wedged navigation reaches listener RedirectToRealChannel but never
++// RedirectToRealChannelFinished (device-verified 2026-10-10, WEBVIEW TEST:
++// consult green + 200 headers, no PageStart; green rounds finish the same
++// point in ms). These lines discriminate: resolve-point reached vs one of
++// the early returns vs continuation never running. Runtime-pref gated
++// (0005 mechanism), zero release cost. Diagnostic — remove before final.
++static bool SinytraHandoffLogEnabled() {
++  static const bool sEnabled =
++      mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++  return sEnabled;
++}
++
++#  define SINYTRA_HANDOFF_LOG(...)                                    \
++    do {                                                             \
++      if (SinytraHandoffLogEnabled()) {                              \
++        __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",   \
++                            __VA_ARGS__);                            \
++      }                                                              \
++    } while (0)
++#endif
++
+ namespace mozilla {
+ namespace net {
+ 
+@@ -2481,6 +2507,9 @@ DocumentLoadListener::RedirectToRealChannel(
+       RedirectChannelRegistrar::GetOrCreate();
+   if (!registrar) {
+     // Shutdown is in progress.
++#ifdef MOZ_WIDGET_ANDROID
++    SINYTRA_HANDOFF_LOG("RedirectToRealChannel noregistrar this=%p", this);
++#endif
+     return PDocumentChannelParent::RedirectToRealChannelPromise::
+         CreateAndReject(ipc::ResponseRejectReason::SendError, __func__);
+   }
+@@ -2507,11 +2536,17 @@ DocumentLoadListener::RedirectToRealChannel(
+   if (aDestinationProcess) {
+     RefPtr<ContentParent> cp = *aDestinationProcess;
+     if (!cp) {
++#ifdef MOZ_WIDGET_ANDROID
++      SINYTRA_HANDOFF_LOG("RedirectToRealChannel null-dest this=%p", this);
++#endif
+       MOZ_ASSERT(aStreamFilterEndpoints.IsEmpty());
+       return RedirectToParentProcess(aRedirectFlags, aLoadFlags);
+     }
+ 
+     if (!cp->CanSend()) {
++#ifdef MOZ_WIDGET_ANDROID
++      SINYTRA_HANDOFF_LOG("RedirectToRealChannel dest-dead this=%p", this);
++#endif
+       return PDocumentChannelParent::RedirectToRealChannelPromise::
+           CreateAndReject(ipc::ResponseRejectReason::SendError, __func__);
+     }
+@@ -2539,6 +2574,10 @@ DocumentLoadListener::RedirectToRealChannel(
+   }
+ 
+   if (mOpenPromiseResolved) {
++#ifdef MOZ_WIDGET_ANDROID
++    SINYTRA_HANDOFF_LOG("RedirectToRealChannel already-resolved this=%p",
++                        this);
++#endif
+     LOG(
+         ("DocumentLoadListener RedirectToRealChannel [this=%p] "
+          "promise already resolved. Aborting.",
+@@ -2556,6 +2595,9 @@ DocumentLoadListener::RedirectToRealChannel(
+       MakeRefPtr<PDocumentChannelParent::RedirectToRealChannelPromise::Private>(
+           __func__);
+ 
++#ifdef MOZ_WIDGET_ANDROID
++  SINYTRA_HANDOFF_LOG("OpenPromise resolving this=%p", this);
++#endif
+   mOpenPromise->Resolve(
+       OpenPromiseSucceededType({std::move(aStreamFilterEndpoints),
+                                 aRedirectFlags, aLoadFlags,
+-- 
+2.55.0
+
