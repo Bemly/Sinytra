@@ -1,0 +1,65 @@
+From 76f8f530139eccd5821124de8246dfaf1a4d1124 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Mon, 12 Oct 2026 22:26:36 +0800
+Subject: [PATCH] Sinytra patch 0031b: PContent::LoadURI receipt trace
+ (diagnostic)
+
+ContentChild::RecvLoadURI has two silent drops (discarded context,
+not-in-process mirror); either kills a navigation content-side with
+zero visibility. Log arrival + gate state under the 0005 pref gate.
+Diagnostic - remove before final.
+---
+ dom/ipc/ContentChild.cpp | 30 ++++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/dom/ipc/ContentChild.cpp b/dom/ipc/ContentChild.cpp
+index 16520e2d35..28592146a1 100644
+--- a/dom/ipc/ContentChild.cpp
++++ b/dom/ipc/ContentChild.cpp
+@@ -4,6 +4,8 @@
+ 
+ #ifdef MOZ_WIDGET_ANDROID
+ #  include "AndroidDecoderModule.h"
++#  include <android/log.h>
++#  include <inttypes.h>
+ #endif
+ 
+ #include "BrowserChild.h"
+@@ -4341,6 +4343,34 @@ mozilla::ipc::IPCResult ContentChild::RecvReportFrameTimingData(
+ mozilla::ipc::IPCResult ContentChild::RecvLoadURI(
+     const MaybeDiscarded<BrowsingContext>& aContext,
+     nsDocShellLoadState* aLoadState, bool aSetNavigating) {
++#ifdef MOZ_WIDGET_ANDROID
++  {
++    // Sinytra 0031b: PContent::LoadURI receipt trace (diagnostic). The two
++    // silent drops below are invisible in MOZ_LOG; log arrival + which gate
++    // (if any) drops the navigation content-side. Same 0005 pref gate
++    // (Preferences.h already included). Diagnostic — remove before final.
++    static const bool sEnabled =
++        mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++    if (sEnabled) {
++      nsAutoCString spec;
++      if (aLoadState && aLoadState->URI()) {
++        aLoadState->URI()->GetSpec(spec);
++      }
++      bool discarded = aContext.IsNullOrDiscarded();
++      bool inProcess = false;
++      uint64_t bcId = 0;
++      if (!discarded) {
++        RefPtr<BrowsingContext> ctx = aContext.get();
++        inProcess = ctx->IsInProcess();
++        bcId = ctx->Id();
++      }
++      __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++                          "CC::RecvLoadURI uri=%s discarded=%d inProcess=%d "
++                          "bc=%" PRIu64,
++                          spec.get(), (int)discarded, (int)inProcess, bcId);
++    }
++  }
++#endif
+   if (aContext.IsNullOrDiscarded()) {
+     return IPC_OK();
+   }
+-- 
+2.55.0
+
