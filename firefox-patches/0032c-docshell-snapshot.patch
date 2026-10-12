@@ -1,0 +1,28 @@
+From 6299e2172264632b0b080e2edf5ad93ddc408ff0 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Mon, 12 Oct 2026 22:16:24 +0800
+Subject: [PATCH] Sinytra patch 0032c: docshell presence in browser-bind
+ snapshot (diagnostic)
+
+---
+ mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+index e9e639fe2e..d0767ea5d3 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+@@ -345,7 +345,9 @@ export class GeckoViewNavigation extends GeckoViewModule {
+             br?.isRemoteBrowser
+           } bc=${bc?.id} wgp-inprocess=${wg?.isInProcess} tabparent=${
+             !!br?.frameLoader?.tabParent
+-          } remotetab=${!!br?.frameLoader?.remoteTab}`;
++          } remotetab=${!!br?.frameLoader?.remoteTab} docshell=${
++            !!bc?.docShell
++          }`;
+         } catch (e) {}
+         break;
+       }
+-- 
+2.55.0
+
