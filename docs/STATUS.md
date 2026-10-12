@@ -1748,6 +1748,22 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   属正常盲区非证据）。
 - **下一步**：Gecko C++ 插桩 `ClaimParentLoad/mOpenPromise` 续跑点
   （patch + 全量重编，另立项），或找 webview 进程 docshell 态差异。
+- **0030/0031/0032 三轮插桩结论（2026-10-12 夜，`e31e470`）**：
+  - 0030（parent resolve 点 + DCP 续跑 + 早退）：死轮 `OpenPromise
+    resolving` 照亮、`noregistrar/null-dest/dest-dead/already-resolved`
+    全零行——listener 正常 resolve，无早退；但 `DCP open-promise
+    continuation` 在死轮**零行**（绿轮 1 行）：DCP 根本没被创建。
+  - 0031（content DoURILoad + DCC ctor，直打 logcat 绕过 MOZ_LOG
+    不进 child 的盲区）：机制自证有效（chrome/extension 页行照出），
+    但 http 页零行——内容侧 docshell 从未开始。
+  - 0032（LoadUri 时 browser 绑定快照）：死绿**逐字段相同**
+    （`remote=true bc=2 wgp-inprocess=false tabparent=false`）——绑定层无辜。
+  - 证伪 BYPASS_CACHE（诊断构建强置 false，`0x3d0004` 照死，已 revert）、
+    fission（关掉重开一轮照死，已 revert）、profile（整目录 nuked 重建
+    照死，addon/prefs 事后验尸均干净）。
+  - 收敛：内容 docshell 存在（远端 window global 活）但从不为 http
+    导航建 PDocumentChannel；parent 侧到 open-promise resolve 为止全对。
+    下一步只剩 frameloader→TabChild 腿（C++，另立 0033）或先放一放。
 
 ## 2. 下一步（按顺序，一次做一件）
 
