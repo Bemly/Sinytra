@@ -1,0 +1,83 @@
+From 54ad66a0798bf53f223c4870fbf8de7ad4adf624 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Mon, 12 Oct 2026 22:38:01 +0800
+Subject: [PATCH] Sinytra patch 0034: LoadURI forward-branch trace (diagnostic)
+
+BrowsingContext::LoadURI has three silent outcomes: local docshell,
+null ContentParent (SendLoadURI never sent), or sent. Log which one
+under the 0005 pref gate. Diagnostic - remove before final.
+---
+ docshell/base/BrowsingContext.cpp | 43 +++++++++++++++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+
+diff --git a/docshell/base/BrowsingContext.cpp b/docshell/base/BrowsingContext.cpp
+index bcfcb767e8..b888791710 100644
+--- a/docshell/base/BrowsingContext.cpp
++++ b/docshell/base/BrowsingContext.cpp
+@@ -4,6 +4,12 @@
+ 
+ #include "mozilla/dom/BrowsingContext.h"
+ 
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#  include <inttypes.h>
++#  include "mozilla/Preferences.h"
++#endif
++
+ #include "ipc/IPCMessageUtils.h"
+ #include "mozilla/GfxMessageUtils.h"
+ 
+@@ -2322,6 +2328,22 @@ nsresult BrowsingContext::LoadURI(nsDocShellLoadState* aLoadState,
+   if (mDocShell) {
+     nsCOMPtr<nsIDocShell> docShell = mDocShell;
+ 
++#ifdef MOZ_WIDGET_ANDROID
++    {
++      // Sinytra 0034 (companion): local-docshell branch. If this fires,
++      // the load runs parent-side and content is never involved.
++      static const bool sEnabled =
++          mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++      if (sEnabled) {
++        nsAutoCString spec;
++        if (aLoadState && aLoadState->URI()) {
++          aLoadState->URI()->GetSpec(spec);
++        }
++        __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++                            "BC::LoadURI local-docshell uri=%s", spec.get());
++      }
++    }
++#endif
+     return docShell->LoadURI(aLoadState, aSetNavigating);
+   }
+ 
+@@ -2389,6 +2411,27 @@ nsresult BrowsingContext::LoadURI(nsDocShellLoadState* aLoadState,
+       wgc->SendLoadURI(this, mozilla::WrapNotNull(aLoadState), aSetNavigating);
+     }
+   } else if (XRE_IsParentProcess()) {
++#ifdef MOZ_WIDGET_ANDROID
++    {
++      // Sinytra 0034: LoadURI forward-branch trace (diagnostic). Three
++      // silent outcomes live here: local docshell (parent loads directly),
++      // null ContentParent (SendLoadURI never sent — the wedged signature),
++      // or sent. Same 0005 pref gate. Diagnostic — remove before final.
++      static const bool sEnabled =
++          mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++      if (sEnabled) {
++        ContentParent* probeCp = Canonical()->GetContentParent();
++        nsAutoCString spec;
++        if (aLoadState && aLoadState->URI()) {
++          aLoadState->URI()->GetSpec(spec);
++        }
++        __android_log_print(
++            ANDROID_LOG_DEBUG, "Sinytra/response",
++            "BC::LoadURI uri=%s localDocShell=%d hasContentParent=%d",
++            spec.get(), (int)(bool)mDocShell, (int)(bool)probeCp);
++      }
++    }
++#endif
+     if (ContentParent* cp = Canonical()->GetContentParent()) {
+       // nsDocShell::LoadURI does this too, but for a process switching load
+       // the entry this load adds can be committed before its notification
+-- 
+2.55.0
+
