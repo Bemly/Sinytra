@@ -1,0 +1,112 @@
+From eddea8089accf74a9d80882fa78ee82ae9c9225b Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Mon, 12 Oct 2026 21:51:11 +0800
+Subject: [PATCH] Sinytra patch 0033: frameloader-content leg trace
+ (diagnostic)
+
+BrowserParent::LoadURL has three silent early returns and
+BrowserChild::RecvLoadURL has a silent no-docshell return; either one
+kills a navigation with zero MOZ_LOG. Log URI + gate state on both ends
+under the 0005 sinytra.log.enabled runtime pref. Diagnostic - remove
+before final.
+---
+ dom/ipc/BrowserChild.cpp  | 30 ++++++++++++++++++++++++++++++
+ dom/ipc/BrowserParent.cpp | 24 ++++++++++++++++++++++++
+ 2 files changed, 54 insertions(+)
+
+diff --git a/dom/ipc/BrowserChild.cpp b/dom/ipc/BrowserChild.cpp
+index ad297bb1d9..d1429c2ae2 100644
+--- a/dom/ipc/BrowserChild.cpp
++++ b/dom/ipc/BrowserChild.cpp
+@@ -4,6 +4,11 @@
+ 
+ #include "BrowserChild.h"
+ 
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#  include "mozilla/Preferences.h"
++#endif
++
+ #ifdef ACCESSIBILITY
+ #  include "nsAccessibilityService.h"
+ #endif
+@@ -839,9 +844,34 @@ mozilla::ipc::IPCResult BrowserChild::RecvLoadURL(
+   nsAutoCString spec;
+   aLoadState->URI()->GetSpec(spec);
+ 
++#ifdef MOZ_WIDGET_ANDROID
++  {
++    // Sinytra 0033: content-side receipt trace (diagnostic). Proves the
++    // LoadURL IPC reached the content docshell owner, and whether it has
++    // a docshell to drive. Same 0005 pref gate. Diagnostic — remove
++    // before final.
++    static const bool sEnabled =
++        mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++    if (sEnabled) {
++      __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++                          "BC::RecvLoadURL uri=%s", spec.get());
++    }
++  }
++#endif
++
+   nsCOMPtr<nsIDocShell> docShell = do_GetInterface(WebNavigation());
+   if (!docShell) {
+     NS_WARNING("WebNavigation does not have a docshell");
++#ifdef MOZ_WIDGET_ANDROID
++    {
++      static const bool sEnabled =
++          mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++      if (sEnabled) {
++        __android_log_print(ANDROID_LOG_DEBUG, "Sinytra/response",
++                            "BC::RecvLoadURL NO-DOCSHELL uri=%s", spec.get());
++      }
++    }
++#endif
+     return IPC_OK();
+   }
+   docShell->LoadURI(aLoadState, true);
+diff --git a/dom/ipc/BrowserParent.cpp b/dom/ipc/BrowserParent.cpp
+index 7eba540147..95dbe996c9 100644
+--- a/dom/ipc/BrowserParent.cpp
++++ b/dom/ipc/BrowserParent.cpp
+@@ -4,6 +4,10 @@
+ 
+ #include "BrowserParent.h"
+ 
++#ifdef MOZ_WIDGET_ANDROID
++#  include <android/log.h>
++#endif
++
+ #include "base/basictypes.h"
+ #include "mozilla/AlreadyAddRefed.h"
+ #include "mozilla/EventForwards.h"
+@@ -973,6 +977,26 @@ bool BrowserParent::SendLoadRemoteScript(const nsAString& aURL,
+ }
+ 
+ void BrowserParent::LoadURL(nsDocShellLoadState* aLoadState) {
++#ifdef MOZ_WIDGET_ANDROID
++  {
++    // Sinytra 0033: frameloader->content leg trace (diagnostic). The three
++    // silent early returns below are indistinguishable in MOZ_LOG; log the
++    // URI + which gate (if any) drops the load. Same 0005 pref gate.
++    // Diagnostic — remove before final.
++    static const bool sEnabled =
++        mozilla::Preferences::GetBool("sinytra.log.enabled", false);
++    if (sEnabled) {
++      nsAutoCString spec;
++      if (aLoadState && aLoadState->URI()) {
++        aLoadState->URI()->GetSpec(spec);
++      }
++      __android_log_print(
++          ANDROID_LOG_DEBUG, "Sinytra/response",
++          "BP::LoadURL uri=%s destroyed=%d creating=%d", spec.get(),
++          (int)mIsDestroyed, (int)mCreatingWindow);
++    }
++  }
++#endif
+   MOZ_ASSERT(aLoadState);
+   MOZ_ASSERT(aLoadState->URI());
+   if (mIsDestroyed) {
+-- 
+2.55.0
+
