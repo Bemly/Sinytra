@@ -1,0 +1,45 @@
+From 2507291348fe43ca95e247e8049d19da50905649 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Mon, 12 Oct 2026 21:23:44 +0800
+Subject: [PATCH] Sinytra patch 0032: browser-content binding snapshot at
+ LoadUri (diagnostic)
+
+A wedged navigation reaches the parent speculative load + 200 but its
+content docshell never creates PDocumentChannel (no DCP::Init;
+device-verified 2026-10-12). Dump remote-ness, browsing context id,
+window-global placement and tabParent presence via the geckoview.logging
+debug gate at dispatch time. Diagnostic - remove before final.
+---
+ .../geckoview/GeckoViewNavigation.sys.mjs        | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+index f795cce780..318ed07300 100644
+--- a/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
++++ b/mobile/shared/modules/geckoview/GeckoViewNavigation.sys.mjs
+@@ -331,6 +331,22 @@ export class GeckoViewNavigation extends GeckoViewModule {
+           schemelessInput,
+           appLinkLaunchType,
+         });
++        // Sinytra 0032: browser↔content binding snapshot at dispatch time.
++        // A wedged navigation reaches parent speculative load + 200 but its
++        // content docshell never creates PDocumentChannel (no DCP::Init in
++        // parent; device-verified 2026-10-12). This line tells remote-ness
++        // and window-global placement apart. Diagnostic — remove before
++        // final.
++        try {
++          const br = this.browser;
++          const bc = br?.browsingContext;
++          const wg = bc?.currentWindowGlobal;
++          debug`Sinytra/browser-bind browser=${!!br} remote=${
++            br?.isRemoteBrowser
++          } bc=${bc?.id} wgp-inprocess=${wg?.isInProcess} tabparent=${
++            !!br?.frameLoader?.tabParent
++          }`;
++        } catch (e) {}
+         break;
+       }
+       case "GeckoView:Reload":
+-- 
+2.55.0
+
