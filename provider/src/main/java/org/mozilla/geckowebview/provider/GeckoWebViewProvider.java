@@ -468,7 +468,11 @@ public final class GeckoWebViewProvider
                 return;
             }
             host.setVisibility(android.view.View.GONE);
-            host.post(() -> {
+            // Delayed, not posted: a same-loop post can run before the GONE
+            // traversal and coalesce into a no-op (device-verified: posted
+            // VISIBLE executed in the same ms, zero surface pass followed).
+            // 300ms guarantees the destroy traversal lands first.
+            host.postDelayed(() -> {
                 try {
                     if (!mDestroyed && mViewHost != null) {
                         mViewHost.setVisibility(
@@ -478,7 +482,7 @@ public final class GeckoWebViewProvider
                 } catch (Throwable t) {
                     SinytraLog.w(TAG, "surface pass restore threw", t);
                 }
-            });
+            }, 300);
         } catch (Throwable t) {
             SinytraLog.w(TAG, "surface pass kick threw", t);
         }
