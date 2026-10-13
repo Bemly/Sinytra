@@ -214,11 +214,9 @@ git clone --depth 1 https://github.com/wszgrcy/capacitor-geckoview-starter
 # 插件 fork 相对上游
 curl -sL "https://github.com/ionic-team/capacitor-plugins/compare/main...wszgrcy:capacitor-geckoview-plugins:main.diff"
 # 兼容性实测（本文 §4 数据）
-cd /Volumes//Projects/firefox && git apply --check --verbose /tmp/wz-cut.diff
+cd ~/Projects/firefox && git apply --check --verbose /tmp/wz-cut.diff
 ```
 
 本次取证中间产物在 `/tmp/sinytra-wszgrcy/`（易失，重启即清）。全量 clone
-非必需（diff 已覆盖全部改动）；如需 clone 放 `/Volumes/（项目卷）/Projects/`
-即可——该卷与仓库同卷、空间充足，**不要**放系统盘（`/`）。注意卷名含
-U+F8FF 特殊字符：shell 字面路径经 Bash 传递时编码不稳定（实测踩过），
-用 `~/sinytra-vol` 符号链接或 python 探测访问。
+非必需（diff 已覆盖全部改动）；如需 clone 放 `~/Projects/` 即可（本机即
+构建机，无外置卷——旧 `/Volumes` + `~/sinytra-vol` 路径已失效）。

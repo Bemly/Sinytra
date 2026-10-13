@@ -14,9 +14,8 @@
   artifactId 是 **geckoview-default**（computeArtifactId 新规则），且
   `substitute-local-geckoview.gradle` 把 nightly 坐标换成本地
   geckoview-default——已验证咬合
-- sibling checkout 位置：`/Volumes/（U+F8FF 卷）/Projects/firefox`。
-  **卷名含 U+F8FF 字面路径经 Bash 传递编码不稳定（实测反复踩）**，一律走
-  `~/sinytra-vol` 符号链接或 python 探测；磁盘以该卷为准（非系统盘）
+- sibling checkout 位置：`~/Projects/firefox`（与本仓库同目录并列，本机即
+  构建机，无外置卷/`sinytra-vol`——旧路径已失效，2026-10-14 实地核验）
 - 分支：`sinytra-pin-158`（158 线，唯一活跃线）；`sinytra-pin`
   （153 线，已退役：2026-10-01 起 r29 NDK 已删，`objdir-opt` 不可再构建；
   分支仅保留 0001-0003 的 153 版 patch 历史，不再维护）
@@ -74,20 +73,21 @@
 ## 工作流
 
 ```bash
-cd ~/sinytra-vol/Projects/firefox        # U+F8FF 卷名，见 Pin 节
+cd ~/Projects/firefox
 git checkout sinytra-pin-158             # 158 线，唯一活跃线
-export MOZCONFIG="$HOME/sinytra-vol/Projects/firefox/mozconfig-158"
-export MOZBUILD_STATE_PATH="$HOME/sinytra-vol/Projects/mozbuild"
+export MOZCONFIG="$HOME/Projects/firefox/mozconfig-158"
+export MOZBUILD_STATE_PATH="$HOME/Projects/mozbuild"
 export PATH="$HOME/.cargo/bin:$PATH"
 #（逐个应用/修改 patch 后）
 ./mach build binaries                    # 增量；新增 GeneratedJNI 头先 build export
 ./mach gradle geckoview:publishDebugPublicationToMavenRepository
 # 本地产物 artifactId=geckoview-default；substitute 脚本换 nightly 坐标
-cd ~/sinytra-vol/Projects/Sinytra
-export MOZCONFIG="$HOME/sinytra-vol/Projects/firefox/mozconfig-158"  # 必带：
+cd ~/Projects/Sinytra
+export MOZCONFIG="$HOME/Projects/firefox/mozconfig-158"  # 必带：
 # 默认 mozconfig 指向已删的 objdir-opt，缺了它 substitute 脚本的
 # `mach environment --verbose` 失败，provider 配置阶段报缺 compileSdk
-JAVA_HOME=/opt/homebrew/opt/openjdk@17 ANDROID_HOME=/opt/homebrew/share/android-commandlinetools \
+JAVA_HOME="$HOME/Projects/mozbuild/jdk/jdk-17.0.20.1+1/Contents/Home" \
+ANDROID_HOME="$HOME/Projects/mozbuild/android-sdk-macosx" \
   ./gradlew :provider:assembleDebug -PsinytraLocalGecko=true
 # 真机回归：CanaryRenderActivity 金丝雀 + GlueHarnessActivity 全量探针（现 41 PASS）
 ```

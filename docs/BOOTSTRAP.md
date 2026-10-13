@@ -144,10 +144,11 @@ Mozilla Maven AAR
 ```text
 ② 本地 Gecko（现行形态）
 
-<U+F8FF 卷>/Projects/          （经 ~/sinytra-vol 符号链接访问）
+~/Projects/                     （本机即构建机，无外置卷/符号链接）
 ├── Sinytra/     ← 本仓库（Provider + patch stack，只存差异）
 ├── firefox/     ← Mozilla Firefox checkout（sibling，不进本 Git；分支 sinytra-pin-158）
-└── mozbuild/    ← MOZBUILD_STATE_PATH
+├── mozbuild/    ← MOZBUILD_STATE_PATH（含 mozbuild 自带 JDK/SDK/NDK，见 DEVICE.md §4）
+└── Sinytra-apks/ ← 构建归档（单包 ~500MB，不进 git）
 
 provider/build.gradle 在 -PsinytraLocalGecko 下 apply
 ${topsrcdir}/substitute-local-geckoview.gradle（topobjdir = firefox/objdir-158）：
@@ -185,4 +186,4 @@ Provider → 本地 patch 后的 GeckoView → 本地 Gecko，provider 源码不
 > `framework-stubs/`（android14 接口 stub，compileOnly），语义核对看
 > `SOURCES.md` 的 android14-release 源码链接或设备 `framework.jar`。
 
-实际布局见 §3 ②（全部在 U+F8FF 外置卷上，内置盘空间不足；`~/src` 布局不适用）。
+实际布局见 §3 ②（本机内置盘 `~/Projects/`，无外置卷；`~/src` 布局不适用）。

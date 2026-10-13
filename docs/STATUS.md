@@ -1670,8 +1670,8 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   变量误判，作废。当前唯一判别轴 = 本轮有无黑洞（有则黑、无则绿），与
   包版本（昨天/今天都绿过也都黑过）、页面（Bing/example）无关。连黑窗口
   17:08 起未解除。5 包归档已开（`Sinytra-apks/`：昨天 88ab6ad + 今天
-  c890114，缺 3 后补；构建纪要：JDK/SDK 走 mozbuild 自带，文档旧
-  `/opt/homebrew` 路径已失效待修）。
+   c890114，缺 3 后补；构建纪要：JDK/SDK 走 mozbuild 自带（旧
+   `/opt/homebrew` + `~/sinytra-vol` 路径已修，见 `DEVICE.md` §4）。
 - **闩逃生补丁验证中（2026-10-09 22:05，`77ceb11`）**：闩住后彻底静默
   16s 准一次救援重发、再静默 16s 转重开（`NavigationCommitGuard` 单文件
   +4 JVM 锁，lint/239 锁绿，归档第 3 包，已装机）。首轮 Bing `?v1bing05`

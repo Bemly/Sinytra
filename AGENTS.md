@@ -29,10 +29,10 @@
 > FIREFOX_COMMIT = 34ed69f161676c3ac7ca5f201fade6d081e5bcd2
 >   （mozilla-central 158.0a1 最后一刻，2026-09-25 定稿；158.0 正式 tag
 >    未发布，出来后再评估切 release tag——version.txt=158.0a1 已核，
->    对齐上面的 nightly AAR。sibling checkout：<U+F8FF 卷>/Projects/firefox，
->    分支 sinytra-pin-158——与仓库同卷、非系统盘，磁盘以该卷为准；卷名
->    字面路径经 shell 传参编码不稳定，用 ~/sinytra-vol 符号链接访问，
->    详见 firefox-patches/README.md；153 线已退役（2026-10-01：r29 NDK
+>   对齐上面的 nightly AAR。sibling checkout：`~/Projects/firefox`，
+>   分支 sinytra-pin-158（与本仓库同目录并列；`~/Projects/mozbuild` 为
+>   MOZBUILD_STATE_PATH；构建链实地路径见 `docs/DEVICE.md` §4 与
+>   firefox-patches/README.md）；153 线已退役（2026-10-01：r29 NDK
 >    已删，不可再构建；`sinytra-pin` 分支仅留历史）；
 >    本地替换默认关闭，-PsinytraLocalGecko 启用）
 > ```

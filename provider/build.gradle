@@ -4,9 +4,9 @@ plugins {
 
 // BOOTSTRAP §3②: local GeckoView substitution is OPT-IN. Daily builds keep
 // the pinned Maven AAR below; enable with -PsinytraLocalGecko.
-// Sibling checkout: /Volumes/（U+F8FF 卷）/Projects/firefox（与本仓库同卷，
-// 磁盘以该卷为准；卷名含 U+F8FF 特殊字符，shell 里建议经 ~/sinytra-vol 符号
-// 链接或 python 探测访问——字面路径经 Bash 传递时编码不稳定，实测踩过）。
+// Sibling checkout: ~/Projects/firefox (branch sinytra-pin-158, beside this
+// repo); MOZBUILD_STATE_PATH=~/Projects/mozbuild. Toolchain paths live in
+// docs/DEVICE.md §4 — keep that section current, do not duplicate paths here.
 def sinytraLocalGecko = (project.findProperty('sinytraLocalGecko') ?: 'false').toBoolean()
 if (sinytraLocalGecko) {
     ext.topsrcdir = file("${rootProject.projectDir}/../firefox").absolutePath

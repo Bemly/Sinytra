@@ -61,12 +61,15 @@ adb -s V885Q49L8TAMFEEE shell "su -c 'dumpsys webviewupdate'"
   && adb -s V885Q49L8TAMFEEE install -r provider/build/outputs/apk/debug/provider-debug.apk
 ```
 
-> 构建环境（2026-09-25 校准）：`JAVA_HOME=/opt/homebrew/opt/openjdk@17`，
-> Gradle wrapper 9.4.1 + AGP 9.2.0，`ANDROID_HOME=/opt/homebrew/share/android-commandlinetools`
->（platforms 34/36/37.0–37.2 + build-tools 34–36），
-> `MOZBUILD_STATE_PATH=~/sinytra-vol/Projects/mozbuild`，`PATH` 前置 `~/.cargo/bin`。
+> 构建环境（2026-10-14 实地核验：本机即构建机，无外置卷/`sinytra-vol`）：
+> `JAVA_HOME=~/Projects/mozbuild/jdk/jdk-17.0.20.1+1/Contents/Home`（Temurin 17），
+> Gradle wrapper 9.4.1 + AGP 9.2.0，
+> `ANDROID_HOME=~/Projects/mozbuild/android-sdk-macosx`（platforms 34 + 37.2），
+> `MOZBUILD_STATE_PATH=~/Projects/mozbuild`，`PATH` 前置 `~/.cargo/bin`
+> （另有 `~/.gradle/gradle.properties` 把 toolchain 指到 mozbuild JDK）。
 > `compileSdk = 37.2` 跟随 GeckoView 158 构建链（android-components/.config.yml）；
-> `targetSdk = 34` 不变（对齐本机）。
+> `targetSdk = 34` 不变（对齐本机）。旧 `/opt/homebrew` + `~/sinytra-vol`
+> 路径已失效，勿用。
 
 - 需要读 framework 侧状态一律先 `dumpsys webviewupdate`，再看 logcat
   （tag 前缀 `Sinytra/<模块>`），不要猜。
