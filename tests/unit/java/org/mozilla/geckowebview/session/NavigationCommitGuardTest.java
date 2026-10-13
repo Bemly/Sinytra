@@ -194,4 +194,27 @@ public final class NavigationCommitGuardTest {
         assertTrue(NavigationCommitGuard.LATCHED_QUIET_RESCUE_AT
                 < NavigationCommitGuard.LATCHED_QUIET_EXHAUST_AT);
     }
+
+    // --- latched wall-clock cap (2026-10-13 SNC GPU-kill round): a
+    // consulting-but-never-committing arm must escalate even while chatter
+    // keeps resetting the quiet ladder. Unset timestamp never fires. ---
+
+    @Test
+    public void wallCap_unsetNeverFires() {
+        assertFalse(NavigationCommitGuard.shouldForceWallExhaust(
+                0, 0));
+        assertFalse(NavigationCommitGuard.shouldForceWallExhaust(
+                0, NavigationCommitGuard.LATCHED_WALL_CAP_MS * 10));
+    }
+
+    @Test
+    public void wallCap_firesAtCap() {
+        long first = 1000L;
+        assertFalse(NavigationCommitGuard.shouldForceWallExhaust(first,
+                first + NavigationCommitGuard.LATCHED_WALL_CAP_MS - 1));
+        assertTrue(NavigationCommitGuard.shouldForceWallExhaust(first,
+                first + NavigationCommitGuard.LATCHED_WALL_CAP_MS));
+        assertTrue(NavigationCommitGuard.shouldForceWallExhaust(first,
+                first + NavigationCommitGuard.LATCHED_WALL_CAP_MS + 60000L));
+    }
 }

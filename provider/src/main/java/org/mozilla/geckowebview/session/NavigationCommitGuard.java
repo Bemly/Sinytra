@@ -85,6 +85,21 @@ import androidx.annotation.Nullable;
 // need a live UI Looper — see InterceptBridgeTest). Scheduling degrades to a
 // no-op without a Looper (unit tests); only the pure delay/liveness helpers
 // are locked there.
+// Latched wall-clock cap (2026-10-13 SNC GPU-kill round, pid 32605):
+// chatter resets the quiet ladder, so a consulting-but-never-committing
+// arm can extend FOREVER — while its commit is suppressed downstream by a
+// dead compositor (fresh-GPU nav-time handoff wedge → barrier timeout →
+// sync ResumeAndResize IPC timeout → Gecko kills the GPU → resumed=0 →
+// zero PageStarts although the main document answers 200 + OnSuccess).
+// The quiet ladder cannot see this shape (every check extends on consult
+// progress), so latched arms ALSO carry a consult-to-commit deadline:
+// past it without a commit the chain is forced into exhaustion
+// (close+reopen) no matter how lively the chatter. The cap is generous
+// on purpose — a legit trickle commits within seconds of first bytes;
+// only a suppressed pipeline consults for a full minute with zero commit.
+// Chatter still buys patience up to the cap (the trickle contract holds),
+// it just no longer buys eternity.
+//
 final class NavigationCommitGuard {
     // 1-based backoff: a committed load reports PageStart long before the
     // first check (PageStart fires at commit, not at completion), so a
@@ -106,6 +121,21 @@ final class NavigationCommitGuard {
     // still matches the latest arm/disarm.
     static boolean isLive(int scheduledGeneration, int currentGeneration) {
         return scheduledGeneration == currentGeneration;
+    }
+
+    // Latched wall-clock cap (see class header): consult-to-commit
+    // deadline for latched arms. Chatter resets the quiet ladder but must
+    // not buy eternity — past this without a commit the pipeline is
+    // suppressed downstream (dead compositor class) and only a fresh
+    // session can recover. Generous vs any legit trickle-to-commit gap.
+    static final long LATCHED_WALL_CAP_MS = 60_000;
+
+    // Pure (JVM-locked): latched wall-cap decision. Unset (0) never fires;
+    // otherwise fires once the consult-to-commit age reaches the cap.
+    static boolean shouldForceWallExhaust(long firstConsultUptimeMs,
+            long nowUptimeMs) {
+        return firstConsultUptimeMs > 0
+                && nowUptimeMs - firstConsultUptimeMs >= LATCHED_WALL_CAP_MS;
     }
 
     // Pure (JVM-locked): the check's decision. Progress (a necko consult
@@ -174,6 +204,11 @@ final class NavigationCommitGuard {
     // this arm, the dispatch provably landed — every later check extends,
     // never refires. Reset by arm()/disarm() with the rest of the chain.
     private boolean mConsultLatched;
+    // Uptime (SystemClock.uptimeMillis) of the first consult that set the
+    // latch; 0 = none yet. Drives the latched wall-clock cap (see class
+    // header): a consulting-but-never-committing arm must still escalate.
+    // Reset by arm()/disarm() with the rest of the chain.
+    private long mFirstConsultUptimeMs;
     // Cumulative refires this arm (never reset by pokes; reset by arm()).
     // Caps the self-sustaining churn where refires restart a load whose
     // commit is suppressed forever (see class header).
@@ -205,6 +240,7 @@ final class NavigationCommitGuard {
         mExhaustedFired = false;
         mTotalFires = 0;
         mConsultLatched = false;
+        mFirstConsultUptimeMs = 0;
         mLatchedQuiet = 0;
         mRescued = false;
         int generation = ++mGeneration;
@@ -218,6 +254,7 @@ final class NavigationCommitGuard {
         mGeneration++;
         mProgress = false;
         mConsultLatched = false;
+        mFirstConsultUptimeMs = 0;
         mLatchedQuiet = 0;
         mRescued = false;
     }
@@ -234,6 +271,7 @@ final class NavigationCommitGuard {
         mProgress = true;
         if (!mConsultLatched) {
             mConsultLatched = true;
+            mFirstConsultUptimeMs = android.os.SystemClock.uptimeMillis();
             SinytraLog.d(TAG, "commit guard consult-latched url=" + url
                     + "; refires suspended for this navigation");
         }
@@ -263,6 +301,17 @@ final class NavigationCommitGuard {
                 Runnable fire = null;
                 synchronized (NavigationCommitGuard.this) {
                     if (!isLive(generation, mGeneration)) {
+                        return;
+                    }
+                    if (mConsultLatched && shouldForceWallExhaust(
+                            mFirstConsultUptimeMs,
+                            android.os.SystemClock.uptimeMillis())) {
+                        SinytraLog.w(TAG,
+                                "commit guard latched wall-cap; consulting"
+                                        + " without commit for "
+                                        + LATCHED_WALL_CAP_MS
+                                        + "ms, escalating to reopen");
+                        fireExhaustedLocked();
                         return;
                     }
                     boolean extend = shouldExtend(mProgress, mConsultLatched);
