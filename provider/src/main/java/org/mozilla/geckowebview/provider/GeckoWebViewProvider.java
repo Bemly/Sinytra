@@ -239,6 +239,17 @@ public final class GeckoWebViewProvider
                                     mViewHost, mBridge.session());
                             SinytraLog.d(TAG,
                                     "reopen rebindView: session re-asserted");
+                            // Force a real surface pass. setSession against
+                            // the SAME surface produces no surfaceChanged, so
+                            // the new compositor sits in skipResume forever
+                            // (device-verified 2026-10-13: commit + title +
+                            // progress 100 with zero pixels after reopen).
+                            // A GONE→VISIBLE bounce destroys + recreates the
+                            // SurfaceView surface across two traversals, which
+                            // drives surfaceChanged → handoff → async resume.
+                            // Only runs on the reopen path (page never
+                            // committed, nothing visible to flicker).
+                            kickSurfacePass();
                         }
                         return null;
                     });
@@ -440,6 +451,37 @@ public final class GeckoWebViewProvider
     @NonNull
     JsBridge jsBridge() {
         return mJsBridge;
+    }
+
+    // Forces a real surface pass after a reopen rebind (called from
+    // ReopenHost.rebindView, UI thread): GONE now + VISIBLE posted, so two
+    // traversals destroy + recreate the SurfaceView surface, driving
+    // surfaceChanged → handoff → async resume → first present. Without it
+    // setSession against the unchanged surface produces no event and the new
+    // compositor sits in skipResume with a fully committed page behind it
+    // (device-verified 2026-10-13). Rescue-only path: healthy loads never
+    // reach here. Never throws.
+    private void kickSurfacePass() {
+        try {
+            final GeckoViewHost host = mViewHost;
+            if (host == null) {
+                return;
+            }
+            host.setVisibility(android.view.View.GONE);
+            host.post(() -> {
+                try {
+                    if (!mDestroyed && mViewHost != null) {
+                        mViewHost.setVisibility(
+                                android.view.View.VISIBLE);
+                        SinytraLog.d(TAG, "reopen surface pass kicked");
+                    }
+                } catch (Throwable t) {
+                    SinytraLog.w(TAG, "surface pass restore threw", t);
+                }
+            });
+        } catch (Throwable t) {
+            SinytraLog.w(TAG, "surface pass kick threw", t);
+        }
     }
 
     @NonNull
