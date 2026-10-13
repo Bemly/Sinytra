@@ -123,6 +123,20 @@ final class NavigationCommitGuard {
         return totalFires > MAX_TOTAL_FIRES;
     }
 
+    // Latched-silence escape (2026-10-14 freezer round): a latched arm
+    // (dispatch provably landed) whose pipeline then goes fully quiet is
+    // not a slow network — slow networks consult (pokes extend, stamp
+    // fresh). Past this silence with zero pokes the content side is
+    // presumed wedged/frozen and the chain is forced into exhaustion
+    // (close+reopen = fresh, unfrozen tab). Healthy commits land in
+    // ~seconds; unlatched arms (true lost dispatches) keep the old ladder.
+    static final long MAX_LATCHED_SILENCE_MS = 30_000L;
+
+    // Pure (JVM-locked): latched silence beyond the budget exhausts.
+    static boolean latchedSilenceSpent(long silentMs) {
+        return silentMs > MAX_LATCHED_SILENCE_MS;
+    }
+
     private static final String TAG = "Sinytra/session";
 
     private int mGeneration;
@@ -142,6 +156,18 @@ final class NavigationCommitGuard {
     // Caps the self-sustaining churn where refires restart a load whose
     // commit is suppressed forever (see class header).
     private int mTotalFires;
+    // Last forward-progress stamp while latched (arm/poke refresh it;
+    // disarm clears). Without a clock (JVM) it stays 0 and the escape
+    // below can never fire — fail-safe toward never reopening.
+    private long mLastLatchProgressMs;
+
+    private static long nowOrZero() {
+        try {
+            return android.os.SystemClock.uptimeMillis();
+        } catch (Throwable t) {
+            return 0L;
+        }
+    }
 
     // Arms the guard for one navigation. The redispatch runnable must re-issue
     // the same navigation WITHOUT re-arming (it runs inside this generation's
@@ -162,6 +188,7 @@ final class NavigationCommitGuard {
         mExhaustedFired = false;
         mTotalFires = 0;
         mConsultLatched = false;
+        mLastLatchProgressMs = nowOrZero();
         int generation = ++mGeneration;
         schedule(generation, 1);
     }
@@ -173,6 +200,7 @@ final class NavigationCommitGuard {
         mGeneration++;
         mProgress = false;
         mConsultLatched = false;
+        mLastLatchProgressMs = 0;
     }
 
     // NeckO-progress poke: a consult reached Java for any URL, so the
@@ -185,6 +213,7 @@ final class NavigationCommitGuard {
     // log-only (the guard itself stays URL-blind).
     synchronized void poke(@Nullable String url) {
         mProgress = true;
+        mLastLatchProgressMs = nowOrZero();
         if (!mConsultLatched) {
             mConsultLatched = true;
             android.util.Log.d(TAG, "commit guard consult-latched url=" + url
@@ -219,6 +248,15 @@ final class NavigationCommitGuard {
                         return;
                     }
                     boolean extend = shouldExtend(mProgress, mConsultLatched);
+                    if (mConsultLatched
+                            && latchedSilenceSpent(
+                                    nowOrZero() - mLastLatchProgressMs)) {
+                        android.util.Log.w(TAG,
+                                "commit guard forcing exhaustion after "
+                                + "latched silence without progress");
+                        fireExhaustedLocked();
+                        return;
+                    }
                     mProgress = false;
                     next = nextAttempt(extend, attempt);
                     if (next < 0) {

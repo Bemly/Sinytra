@@ -177,6 +177,22 @@ public final class GeckoSessionBridgeTriageTest {
     }
 
     @Test
+    public void overrideRecovery_fireArmsGuardChain() {
+        // The recovery flight rides a guard chain so a frozen serving tab
+        // (dispatch landed, then zero progress) hits the latched-silence
+        // escape into a reopen. No Looper here: the chain stays armed but
+        // inert; only the arming transition is locked.
+        SessionRescue rescue = new SessionRescue(null);
+        rescue.onAppOverride("https://a.example/", () -> {
+        });
+        assertFalse(rescue.isArmed());
+        assertTrue(rescue.fireOverride("https://a.example/"));
+        assertTrue(rescue.isArmed());
+        rescue.disarm();
+        assertFalse(rescue.isArmed());
+    }
+
+    @Test
     public void overrideRecovery_newNavigationCancels() {
         SessionRescue rescue = new SessionRescue(null);
         rescue.onAppOverride("https://a.example/", () -> {
