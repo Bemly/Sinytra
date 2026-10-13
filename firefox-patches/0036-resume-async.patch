@@ -1,0 +1,220 @@
+From 4c043f738014a65ffdad0d3f06910772ff29b737 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Tue, 13 Oct 2026 18:51:21 +0800
+Subject: [PATCH] Sinytra patch 0036: async ResumeAndResize (no UI-thread park,
+ no reply-timeout GPU kill)
+
+---
+ gfx/layers/ipc/PUiCompositorController.ipdl   | 18 +++++++-
+ .../ipc/UiCompositorControllerChild.cpp       | 19 +++++----
+ gfx/layers/ipc/UiCompositorControllerChild.h  |  3 +-
+ .../ipc/UiCompositorControllerParent.cpp      | 10 ++---
+ gfx/layers/ipc/UiCompositorControllerParent.h |  3 +-
+ ipc/ipdl/sync-messages.ini                    |  2 -
+ widget/android/nsWindow.cpp                   | 42 ++++++++-----------
+ 7 files changed, 52 insertions(+), 45 deletions(-)
+
+diff --git a/gfx/layers/ipc/PUiCompositorController.ipdl b/gfx/layers/ipc/PUiCompositorController.ipdl
+index e597641b84..d37b00e6b0 100644
+--- a/gfx/layers/ipc/PUiCompositorController.ipdl
++++ b/gfx/layers/ipc/PUiCompositorController.ipdl
+@@ -32,8 +32,22 @@ parent:
+   // channel, so a later ResumeAndResize still lands after the pause.
+   async Pause();
+   sync Resume() returns (bool aOutResumed);
+-  sync ResumeAndResize(int32_t aX, int32_t aY, int32_t aWidth, int32_t aHeight)
+-    returns (bool aOutResumed);
++  // 0036 (SNC-fresh black-screen rounds): ResumeAndResize is fire-and-forget,
++  // same treatment 0023 gave Pause. It used to be sync, parking the UI thread
++  // inside layout-driven surfaceChanged for ~10s whenever the GPU wedged
++  // (watchdog stacks) and then killing the GPU on reply timeout — while this
++  // device cannot relaunch it ("Failed to launch GPU process after 2
++  // attempts"), so the kill converts a transient stall into permanent black.
++  // Nothing needs the acknowledgement: both nsWindow callers only logged it
++  // (recovery was RequestNewSurface, which produced no new surface pass
++  // after a kill anyway); the 0022 handoff barrier already guarantees the GPU
++  // holds the latest surface before this is sent, and IPDL preserves send
++  // order per channel, so a later resume still lands after the pause.
++  // Recovery of a genuinely lost resume rides the next surfaceChanged
++  // (third-party hosts re-lay-out constantly; a static layout with a lost
++  // resume stays black — accepted, strictly rarer than kill-everything).
++  async ResumeAndResize(int32_t aX, int32_t aY, int32_t aWidth,
++                        int32_t aHeight);
+ 
+   async InvalidateAndRender();
+   async FixedBottomOffset(int32_t aOffset);
+diff --git a/gfx/layers/ipc/UiCompositorControllerChild.cpp b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+index 41d74c68f9..0c5cc3b0f6 100644
+--- a/gfx/layers/ipc/UiCompositorControllerChild.cpp
++++ b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+@@ -129,17 +129,19 @@ bool UiCompositorControllerChild::Resume() {
+   return SendResume(&resumed) && resumed;
+ }
+ 
+-bool UiCompositorControllerChild::ResumeAndResize(const int32_t& aX,
+-                                                  const int32_t& aY,
+-                                                  const int32_t& aWidth,
+-                                                  const int32_t& aHeight) {
++void UiCompositorControllerChild::ResumeAndResize(const int32_t& aX,
++                                                   const int32_t& aY,
++                                                   const int32_t& aWidth,
++                                                   const int32_t& aHeight) {
+   if (!mIsOpen) {
+     mResize = Some(gfx::IntRect(aX, aY, aWidth, aHeight));
+     // Since we are caching these values, pretend the call succeeded.
+-    return true;
++    return;
+   }
+-  bool resumed = false;
+-  return SendResumeAndResize(aX, aY, aWidth, aHeight, &resumed) && resumed;
++  // 0036: fire-and-forget. No acknowledgement exists anymore; the 0022
++  // barrier already put the latest surface in the GPU-side map, and channel
++  // order keeps this after any earlier Pause.
++  SendResumeAndResize(aX, aY, aWidth, aHeight);
+ }
+ 
+ bool UiCompositorControllerChild::InvalidateAndRender() {
+@@ -388,9 +390,8 @@ void UiCompositorControllerChild::OpenForGPUProcess(
+ void UiCompositorControllerChild::SendCachedValues() {
+   MOZ_ASSERT(mIsOpen);
+   if (mResize) {
+-    bool resumed;
+     SendResumeAndResize(mResize.ref().x, mResize.ref().y, mResize.ref().width,
+-                        mResize.ref().height, &resumed);
++                        mResize.ref().height);
+     mResize.reset();
+   }
+   if (mDefaultClearColor) {
+diff --git a/gfx/layers/ipc/UiCompositorControllerChild.h b/gfx/layers/ipc/UiCompositorControllerChild.h
+index d66a5ff5b9..7c7bf9ee1c 100644
+--- a/gfx/layers/ipc/UiCompositorControllerChild.h
++++ b/gfx/layers/ipc/UiCompositorControllerChild.h
+@@ -37,7 +37,8 @@ class UiCompositorControllerChild final
+ 
+   bool Pause();
+   bool Resume();
+-  bool ResumeAndResize(const int32_t& aX, const int32_t& aY,
++  // 0036: fire-and-forget (async IPDL) — see PUiCompositorController.ipdl.
++  void ResumeAndResize(const int32_t& aX, const int32_t& aY,
+                        const int32_t& aHeight, const int32_t& aWidth);
+   bool InvalidateAndRender();
+   bool SetFixedBottomOffset(int32_t aOffset);
+diff --git a/gfx/layers/ipc/UiCompositorControllerParent.cpp b/gfx/layers/ipc/UiCompositorControllerParent.cpp
+index 1a86f87d2d..513861e6b4 100644
+--- a/gfx/layers/ipc/UiCompositorControllerParent.cpp
++++ b/gfx/layers/ipc/UiCompositorControllerParent.cpp
+@@ -96,8 +96,8 @@ mozilla::ipc::IPCResult UiCompositorControllerParent::RecvResume(
+ 
+ mozilla::ipc::IPCResult UiCompositorControllerParent::RecvResumeAndResize(
+     const int32_t& aX, const int32_t& aY, const int32_t& aWidth,
+-    const int32_t& aHeight, bool* aOutResumed) {
+-  *aOutResumed = false;
++    const int32_t& aHeight) {
++  bool resumed = false;
+   CompositorBridgeParent* parent =
+       CompositorBridgeParent::GetCompositorBridgeParentFromLayersId(
+           mRootLayerTreeId);
+@@ -108,10 +108,10 @@ mozilla::ipc::IPCResult UiCompositorControllerParent::RecvResumeAndResize(
+     parent->GetWidget()->AsAndroid()->NotifyClientSizeChanged(
+         LayoutDeviceIntSize(aWidth, aHeight));
+ #endif
+-    *aOutResumed = parent->ResumeCompositionAndResize(aX, aY, aWidth, aHeight);
++    resumed = parent->ResumeCompositionAndResize(aX, aY, aWidth, aHeight);
+ #if defined(MOZ_WIDGET_ANDROID)
+-    SINYTRA_GPU_RESUME_LOG("RecvResumeAndResize resumed=%d %dx%d",
+-                           *aOutResumed, aWidth, aHeight);
++    SINYTRA_GPU_RESUME_LOG("RecvResumeAndResize resumed=%d %dx%d", resumed,
++                           aWidth, aHeight);
+   } else {
+     SINYTRA_GPU_RESUME_LOG("RecvResumeAndResize noParent");
+ #endif
+diff --git a/gfx/layers/ipc/UiCompositorControllerParent.h b/gfx/layers/ipc/UiCompositorControllerParent.h
+index 0a7be6e8bd..afc44cdd59 100644
+--- a/gfx/layers/ipc/UiCompositorControllerParent.h
++++ b/gfx/layers/ipc/UiCompositorControllerParent.h
+@@ -35,8 +35,7 @@ class UiCompositorControllerParent final
+   mozilla::ipc::IPCResult RecvResumeAndResize(const int32_t& aX,
+                                               const int32_t& aY,
+                                               const int32_t& aHeight,
+-                                              const int32_t& aWidth,
+-                                              bool* aOutResumed);
++                                              const int32_t& aWidth);
+   mozilla::ipc::IPCResult RecvInvalidateAndRender();
+   mozilla::ipc::IPCResult RecvFixedBottomOffset(const int32_t& aOffset);
+   mozilla::ipc::IPCResult RecvDefaultClearColor(const uint32_t& aColor);
+diff --git a/ipc/ipdl/sync-messages.ini b/ipc/ipdl/sync-messages.ini
+index 9f50c2522e..68cdb4f163 100644
+--- a/ipc/ipdl/sync-messages.ini
++++ b/ipc/ipdl/sync-messages.ini
+@@ -252,8 +252,6 @@ platform = win
+ description = legacy sync IPC - please add detailed description
+ [PUiCompositorController::Resume]
+ description = legacy sync IPC - please add detailed description
+-[PUiCompositorController::ResumeAndResize]
+-description = legacy sync IPC - please add detailed description
+ [PWebRenderBridge::EnsureConnected]
+ description = legacy sync IPC - please add detailed description
+ [PWebRenderBridge::GetSnapshot]
+diff --git a/widget/android/nsWindow.cpp b/widget/android/nsWindow.cpp
+index c960b06ee1..972bc22fae 100644
+--- a/widget/android/nsWindow.cpp
++++ b/widget/android/nsWindow.cpp
+@@ -1251,15 +1251,14 @@ class LayerViewSupport final
+         }
+       }
+ 
+-      bool resumed = mUiCompositorControllerChild->ResumeAndResize(
+-          mX, mY, mWidth, mHeight);
+-      SINYTRA_RESUME_LOG("NotifyCompositorCreated resumed=%d %dx%d",
+-                         resumed, mWidth, mHeight);
+-      if (!resumed) {
+-        gfxCriticalNote
+-            << "Failed to resume compositor from NotifyCompositorCreated";
+-        RequestNewSurface();
+-      }
++      // 0036: fire-and-forget (async IPDL) — no acknowledgement to read.
++      // The 0022 barrier above already put the latest surface in the
++      // GPU-side map; the resume applies in channel order whenever the GPU
++      // can take it. A genuinely lost resume is re-driven by the next
++      // surfaceChanged (see SyncResumeResizeCompositor path + 0036 doc).
++      mUiCompositorControllerChild->ResumeAndResize(mX, mY, mWidth, mHeight);
++      SINYTRA_RESUME_LOG("NotifyCompositorCreated dispatched %dx%d", mWidth,
++                         mHeight);
+     } else {
+       SINYTRA_RESUME_LOG(
+           "NotifyCompositorCreated skipResume mCompositorPaused=1");
+@@ -1506,21 +1505,16 @@ class LayerViewSupport final
+         }
+       }
+ 
+-      bool resumed = mUiCompositorControllerChild->ResumeAndResize(
+-          aX, aY, aWidth, aHeight);
+-      SINYTRA_RESUME_LOG("SyncResumeResize resumed=%d %dx%d", resumed,
+-                         aWidth, aHeight);
+-      if (!resumed) {
+-        gfxCriticalNote
+-            << "Failed to resume compositor from SyncResumeResizeCompositor";
+-        // Only request a new Surface if this SyncResumeAndResize call is not
+-        // response to a previous request, otherwise we will get stuck in an
+-        // infinite loop.
+-        if (!mRequestedNewSurface) {
+-          RequestNewSurface();
+-        }
+-        return;
+-      }
++      // 0036: fire-and-forget (async IPDL) — the ~10s UI-thread park inside
++      // layout-driven surfaceChanged (watchdog stacks, SNC-fresh rounds) and
++      // the subsequent reply-timeout GPU kill are both gone: there is no
++      // reply to wait for. Recovery of a lost resume rides the next
++      // surfaceChanged; the RequestNewSurface-on-false path is deleted with
++      // the acknowledgement (it produced no new surface pass after a kill
++      // anyway — device-verified).
++      mUiCompositorControllerChild->ResumeAndResize(aX, aY, aWidth, aHeight);
++      SINYTRA_RESUME_LOG("SyncResumeResize dispatched %dx%d", aWidth,
++                         aHeight);
+     } else {
+       SINYTRA_RESUME_LOG("SyncResumeResize skipResume childNull=1");
+     }
+-- 
+2.55.0
+
