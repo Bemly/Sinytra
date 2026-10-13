@@ -1270,8 +1270,10 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   附带债务：`GeckoSessionBridge.java` 1126→1190 行（动前已超 1000 铁律，
   拆分单独立项，不在本轮）。
 - **仍未闭（诚实口径）**：部分 fresh 酷安进程 Java→Gecko-JS 全死
-  （extension/filter/storage 零回答，0025 亦救不回；session 回声正常；
-  同构建他轮全绿）。晚间 bisect 显示 reload 亦静默（reload 无恢复机制，
+  （extension/filter/storage 零回答，0025 亦救不回；session 回声正常）。
+  （2026-10-13 删"同构建他轮全绿"一句：跨宿主（canary/静态布局）的绿与
+  本格无关，不同条件不互证；留着它会把"版本效应"误读成"运气"，已实锤
+  误导过一次。）晚间 bisect 显示 reload 亦静默（reload 无恢复机制，
   另案）。字节级 race 已排除网络单因（bromite 1.5MB 绘出 vs 我方
   1.7MB 纯白，同分钟）。怀疑方向收敛到冷进程 early-window 派发丢失
   + 某常驻态污染（重启/双 runtime/stale peer 待查），需 MOZ_LOG 或

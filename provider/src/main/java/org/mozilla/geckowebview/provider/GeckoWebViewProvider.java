@@ -376,7 +376,11 @@ public final class GeckoWebViewProvider
 
     // Ring-breaker for cold-start child demand (2026-10-08 fully-dead class:
     // first content/GPU demand can deadlock when nothing ever requests the
-    // first bind; ~50% dead in third-party hosts, never in clean processes).
+    // first bind). No rate claim here: the "~50%" once written in this spot
+    // was never measured per condition (host x trigger) and was deleted
+    // 2026-10-13 after it licensed a wrong "luck, not version" read of the
+    // SNC-fresh rounds — same-build greens elsewhere (canary/static layout)
+    // are different conditions, not evidence of flake.
     // Public API, no patch: preload GPU+CONTENT once per host process after
     // runtime init, before open() (warmUp() covers CONTENT only; green rounds
     // show GPU-first). One-shot; returns at once (launcher hop inside), never
