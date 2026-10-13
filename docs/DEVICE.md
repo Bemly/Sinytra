@@ -132,6 +132,9 @@ adb -s V885Q49L8TAMFEEE shell cmd webviewupdate set-webview-implementation com.g
   过期测试包（旧 CTS/harness/MiniWV）有则 `uninstall` 再装；跑后清场删测试包
   （CTS 例见 `CTS.md` §2）。防 Valid 列表/签名/数据残留污染 verdict
   （旧包旧 child 曾毒掉 filter 下发链，见 `STATUS.md` §1v）。
+- **SNC verdict 轮用用户手法（2026-10-14）**：`force-stop` 连点两次 +
+  清 SNC 存储空间和缓存（`pm clear com.snc.test.webview2`，连 Gecko
+  profile 一起清，真正 fresh）再开测——只清进程不清存储的轮次不算数。
 - **verdict 轮前必清僵尸**（一次调用，防自杀写法——朴素
   `pkill -f kokoro.provider` 会连本次会话一起杀掉，本次会话的
   logger 同样匹配，退出码 137）：
