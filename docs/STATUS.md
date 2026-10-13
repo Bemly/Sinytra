@@ -1452,7 +1452,9 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   runtime 就绪后、`open()` 之前，失败 loud 日志继续走（永不打断构造）。
   JVM 224 绿（纯接线，device-covered），lint 绿，harness 47 行 0 FAIL +
   GLUE PASS。债务：`GeckoWebViewProvider.java` 1138→1167（动前已超 1000 铁律，
-  拆分单独立项；本次只压了自有注释）。
+  拆分单独立项；本次只压了自有注释）。**二分（`BISECT_SNC_20261013.md`
+  §5.4）洗脱**：prewarm A/B 开关对照死法逐帧复刻，已 revert（`43c0a36`），
+  残留清零；本条“落地”记为历史过程，不作 SNC 黑白判别因子。
 - **GPU-bind 挂起（S2 新主犯，日志对照实锤）**：绿轮 `ServiceAllocator $gpu
   updateBindings` 后必跟 tab bind（慢绿轮：GPU 3 次失败→SW-WR fallback→
   compositor 初始化→blank PageStart→install ack，31s 之谜即 3×~10s）；
@@ -1675,8 +1677,11 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   +4 JVM 锁，lint/239 锁绿，归档第 3 包，已装机）。首轮 Bing `?v1bing05`
   走干净快路（ctor→200→title17→finish，子资源流，像素亲眼深色主页含
   搜索框/备案号，壁纸未绘）——本轮无黑洞，救援分支未被触发，修法未验证；
-  连黑窗口似已过（22 点后首绿）。救援是否真救黑洞轮，待自然黑洞轮命中
-  （不抽奖烧轮）。
+  连黑窗口似已过（22 点后首绿）。**二分（`BISECT_SNC_20261013.md` §5.1）
+  反转**：R8 去 rescue（`dbb87c3`）照黑，且黑轮 rescue/reopen/rebind/kick
+  全零开火——`77ceb11` 洗脱（算术曾干净，机制从未成立）；`dbb87c3` 去
+  rescue 基于已死定罪，按二分 §8.2 建议 revert（恢复 MiniWV 黑洞恢复能力），
+  待决策；SNC 黑屏侧不再称救援验证中。
 - **blank 掐链修复上机即绿（2026-10-09 22:45，`78aa07d`，归档第 4 包）**：
   隐式 blank 的 PageStart/LocationChange 不再 disarm（只补预算），真提交
   才 disarm（`GeckoSessionBridge` 两处，lint/239 锁绿）。Bing `?v1bing07`
@@ -1728,10 +1733,14 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   同分钟 bromite 同 App 同 URL 全绿，MiniWV 同小时全绿（example×2/bing）。
 - **非回归**：`88ab6ad`（10/8 代码）同流程同形死；10/8“秒渲染”走的是
   风暴 + App 自抛异常降级 ALLOW。x64/版本与此 stall 无关。
-- **途中修两笔（均已合入，JVM 250 锁）**：`8eb67b0` 同 URL 连发合并
-  （919 loadUrl/208ms 风暴→单通道）；`79f0edd` consult 改走 Request
-  overload（反编译定死：string 实现 https 一律自载 + true，Request 非
-  redirect 回 false；修后 consult false，风暴消失——但 commit 仍无）。
+- **途中两笔（均已合入，JVM 250 锁；二分结论为准：非 SNC 黑屏修复）**：
+  `8eb67b0` 同 URL 连发合并（919 loadUrl/208ms 风暴→单通道）；`79f0edd`
+  consult 改走 Request overload（反编译定死：string 实现 https 一律自载 +
+  true，Request 非 redirect 回 false；改后 consult false，风暴消失——但
+  commit 仍无）。**二分（`BISECT_SNC_20261013.md` §5–§6）反转**：两笔把 SNC
+  补偿 reload 压成单通道/掐掉，单通道被 `override=true→DENY` 后永黑（R9b
+  全程可见，R10 回退 coalesce 后 machine-gun 回归仍黑）；回退 `1ef16e8`/
+  `3f87dbd` 待 verdict，不称修。
 - **MOZ_LOG 断点（DocumentChannel:5，无 nsHttp）**：example listener 走到
   `RedirectToRealChannel` 后永无 `RedirectToRealChannelFinished`
   （verify 回调不到），34s 后被 reopen `Cancel NS_BINDING_ABORTED`；
