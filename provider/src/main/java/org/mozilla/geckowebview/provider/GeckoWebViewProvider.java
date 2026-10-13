@@ -381,19 +381,7 @@ public final class GeckoWebViewProvider
     // runtime init, before open() (warmUp() covers CONTENT only; green rounds
     // show GPU-first). One-shot; returns at once (launcher hop inside), never
     // breaks construction.
-    // A/B experiment switch (2026-10-13, SNC-fresh 0/3 freeze triage):
-    // true = skip the one-shot preload, demand-driven bring-up
-    // (490ec28 behavior). REVERT PENDING VERDICT — do not ship disabled.
-    private static final boolean SKIP_PRELOAD_EXPERIMENT = true;
-
     private static void preloadChildProcesses() {
-        if (SKIP_PRELOAD_EXPERIMENT) {
-            SinytraLog.w(TAG,
-                    "child preload SKIPPED (A/B experiment,"
-                            + " demand-driven mode)");
-            sPreloaded.set(true);
-            return;
-        }
         if (!sPreloaded.compareAndSet(false, true)) {
             return;
         }
