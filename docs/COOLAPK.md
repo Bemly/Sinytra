@@ -137,7 +137,7 @@ tag 系机上某模块的 fragment 追踪）：
 0b. **死进程捕获（取证门已开，就等一轮死的）**：fresh 轮若 25s 内无 install ack + guard 进 cold 扩展，即死轮嫌疑——落盘整轮 `-b main`（MOZ_LOG 体积大，只取 main buffer），对照 Canary 健康基线找第一个 diverge 点（M1 DocumentChannel 有无 ctor）。verdict 轮取证门保持 OFF，别忘关回去。
 
 1. **部分 fresh 酷安进程 Java→Gecko-JS 全死**（extension/filter/storage
-   零回答，0025 亦救不回；session 回声正常；同构建他轮全绿）。
+   零回答，0025 亦救不回；session 回声正常）。
    已排除：v6（main 表 `unreachable` 速败）、UA（curl 双 UA 同速）、
    缓存（bromite 盘空）、guard 谋杀（新代码只等不杀）。
    怀疑：冷进程 early-window 派发丢失的常驻态版本（重启/双 runtime/
