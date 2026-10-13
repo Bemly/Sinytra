@@ -1786,14 +1786,20 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   - 修法方向（新立项）：导航前保 tab 温暖（查 unbind 触发点：dumpsys
     见 tab `cch/oom900/cached/empty` 即已掉绑定；thaw 无需 su 的机制：
     binder ping？常驻 fg 绑定？）。诊断 patch 0030–0034 定稿前全删。
-- **P0 override-recovery 落地待验（2026-10-14，`8d77329`）**：二分 §8.1
+- **P0 override-recovery 落地已验（2026-10-14，`8d77329`）**：二分 §8.1
   修法——override-DENY 后 10s 无 reload-or-commit 则重发一次 + one-shot
   force-allow（`SessionRescue.onAppOverride/consumeRecoveryAllow/
   fireOverride` + bridge 接线 + TriageTest 6 锁）。本机实测：
   `testDebugUnitTest` **241/241 绿**（35 suites，含 triage 20/20）、
   `lintDebug` 绿、`assembleDebug` 绿（00:37 包，-29 引擎快照未动）。
-  预测已记（黑轮出 firing 行→ALLOW→commit；绿轮零新增行），待 SNC
-  verdict 轮（2 分钟 + 像素为准，不抽奖等自然黑轮）。
+  SNC verdict 轮（证据 `Sinytra-apks/SNC-verify-override-recovery-*.log`）：
+  machine-gun 2572 发→SOE→静默→**firing 准时（last-claim+10s，
+  `cn.bing.com`）→消费ALLOW→BC::LoadURI sent=1→HIT→200→
+  RedirectToRealChannel→2.3s 无声 dtor（R2 content-失聪形）→查 tab
+  13829 `cgroup.freeze=1`（top-app，服务中被冻；其余 tab/gpu 同冻）→
+  **只 thaw 该 tab→0.6s PageStart→title（必应，len 17）→0.5s PageStop
+  success→像素亲眼必应主页全绘**。DENY-lock 打通 + freezer 复现一次关闭；
+  免 su 保温机制仍 open（binder ping/常驻 fg 绑定，STATUS 原 §1ab 项）。
 
 ## 2. 下一步（按顺序，一次做一件）
 
