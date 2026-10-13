@@ -59,7 +59,7 @@ $S shell "su -c 'cat /sys/class/net/wlan0/statistics/rx_bytes'"
 | `ShouldPrepare HIT <url>` → `pass-through/synthesize` → `OnSuccess` | **咨询与裁决，不是字节！** OnSuccess = 决策完成，零字节含义 |
 | `PageStart uri=<http>` | commit（响应头到）。github 主文档无此行 = 头都没到 |
 | `LocationChange` / `PageStop` / `ProgressChanged` | 有 Location 无 PageStart = 导航开始但未提交 |
-| `cookie query timed out after 5000ms` | storage 答案没回来（5s 定时，看连续性：偶发 vs 连发） |
+| `cookie query timed out after 5000ms` | storage 答案没回来（5s 定时） |
 | `commit guard firing attempt=N` / `extending` / `exhausted` | guard 行为（新构建有 extending = 进展感知生效） |
 | `ensureBuiltIn no ack yet, retrying` / `installed` | transport bring-up（首 ack 曾 32s 才到） |
 | `flushing N pending cookie writes` | B 机制生效（预运行时写入入 jar） |

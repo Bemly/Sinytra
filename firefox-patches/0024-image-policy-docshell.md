@@ -137,8 +137,7 @@ expected:<[0]> but was:<[1]>  (WebSettingsTest.java:837)
   ② 恢复必须覆盖双 flag 放宽（此前只认 allowImages 变化，
   blockNetworkImage 放宽静默）。恢复走 provider eval（零导航）+
   child 双保险，幂等。
-- 残留：1673953 型 pre-commit 静默 flake（同一门偶发，与负载/时序相关；
-  trio-in-one-process 2/3 即此例）。上游定性为符合预期的 fission 行为，
+- 残留：1673953 型 pre-commit 静默（trio-in-one-process 2/3 即此例）。上游定性为符合预期的 fission 行为，
   非 0024 范围；verdict 轮按标准卫生 + 串行 + 记录执行。
 - 回归：全量 harness `P0 GLUE PASS`（本轮构建），JVM 174 锁全绿。
 

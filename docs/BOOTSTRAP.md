@@ -34,7 +34,7 @@ process bootstrap（这是 P2 之外的前置 patch，优先级高于一切 brid
 - ✅ Service 可解析性：gpu/tab0/socket/rdd/media/crashhelper 全部 `PackageManager`
   可解析（AAR manifest 合并进 APK，89 个 `<service>`，`query-services` 除外——
   该命令在此 ROM 上对所有包都返回空，不是我们的特例）。
-- ⚠️ child process bind：**首次启动必成，后续启动偶发被拒**（统一文案
+- ⚠️ child process bind：**可能被拒**（统一文案
   `Unable to launch app ... : process is bad`——注意这句≠已命中
   `mBadProcesses`，`ActiveServices` 只要 `startProcessLocked()` 返回 null
   就打这句）。双路模型：AOSP bad-process（background bind + bad 名单→null；
@@ -43,8 +43,8 @@ process bootstrap（这是 P2 之外的前置 patch，优先级高于一切 brid
   `duraspeed block` 失败——bad 名单按 `processName+uid` 查询，旧 UID 残留
   命中不了新 UID，至少这次是 vendor veto。触发器是 MTK DuraSpeed
   （`AiuiAmsExt: duraspeed block ... bringUpServiceLocked`）：拦截每次
-  service 拉起，偶发卡死/杀掉正在启动的 child（crashhelper 首当其冲，
-  每次重装/重启后第一次必现），可能再把 child 推入 crash→bad 循环（两套
+  service 拉起，可能卡死/杀掉正在启动的 child（crashhelper 首当其冲；
+  重装/重启后第一次重点看），可能再把 child 推入 crash→bad 循环（两套
   机制放大）。禁掉 `com.mediatek.duraspeed` 包无用（hook 在 `system_server` 内）。
   `force-stop` 不清 bad 名单（只 `resetProcessCrashTime`，不清
   `mBadProcesses`；且主进程显式启动清的也是主进程名≠`:gpu/:tabN`）。

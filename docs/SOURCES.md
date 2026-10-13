@@ -44,7 +44,7 @@
 ## Bugzilla（纪律：Gecko 侧疑难先翻 bugzilla 再动手，2026-10-04 用户立规）
 
 > Fission / process-switch / progress-listener / actor-lifecycle 类问题，
-> 上游大概率已有公开讨论。动手前按关键词搜一遍，把相关 bug 号记在这里。
+> Fission / process-switch / progress-listener / actor-lifecycle 类问题，动手前按关键词搜一遍 bugzilla，把相关 bug 号记在这里。
 
 - [1673953](https://bugzilla.mozilla.org/show_bug.cgi?id=1673953)
   `[gv-junit-fis] Run GeckoSessionTestRuleTest on Fission`（NEW，assignee

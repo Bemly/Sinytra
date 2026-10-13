@@ -436,7 +436,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   全程可见）。拦截线（0001-0005）在 158 上与 153 行为一致。
 - **patch 重出**：`firefox-patches/0001..0005-*.patch` 五件，基线
   34ed69f16167（0001=7 commits、0002/0003/0004/0005 各 1）。
-- **踩坑记死**：① U+F8FF 卷名字面路径经 Bash 传参编码不稳定（时好时坏），
+- **踩坑记死**：① U+F8FF 卷名字面路径经 Bash 传参编码不稳定，
   一律 `~/sinytra-vol` 符号链接或 python 探测；② 后台 mach 别设短超时
   （libxul 链接 >10min，超时静默杀链接），管道吞退出码，必须显式
   `echo $?` 核对——`| tail` 后 mach 失败会伪装成功；③ 158 树的
@@ -833,7 +833,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   ShouldPrepare HIT）；但重装后 CTS 进程连续三轮 filter 下发停在
   `filter observer registered` 无 `filters pushed`（旧包旧 child 时曾通）。
   已干净重编（`--rerun-tasks`）+ 重装 + 双 force-stop，清 child 后
-  PostMessage 单测重跑中——先判定是混合产物偶发还是第三方进程系统性
+  PostMessage 单测重跑中——先判定是混合产物问题还是第三方进程系统性
   问题，再跑整类。
 - ** transport 泄漏根因 + 两轮重写（2026-10-02）**：harness 同构探针
   实锤页面收到 11 个 `[object Object]` + 1 真数据——内部
@@ -857,11 +857,11 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   每次 load 切新 tab，第三次 prompt 时 session↔新 tab 的 prompt 链未就
   绪——需专用复现（triple-auth harness），本轮不追。
 - **环境侧三类 hang（已定性，非产品逻辑，两次线程转储实锤）**：
-  ① 新 tab 偶发卡 LIBS_READY→RUNNING（0% CPU 睡眠，无崩溃；parent 侧
+  ① 新 tab 卡 LIBS_READY→RUNNING（0% CPU 睡眠，无崩溃；parent 侧
   全正常，会话永等）；② parent Gecko JS 环静默（RUNNING 但无扩展回调/
   PageStart/下发）；③ teardown 经 surfaceDestroyed → syncPauseCompositor
-  同步等 GPU IPC，GPU 失联时主线程卡死 + waitForIdleSync 连带挂（focus
-  flakes 另计）。共同特征：只发生在 CTS 式高频启停/多 tab 堆积下；
+  同步等 GPU IPC，GPU 失联时主线程卡死 + waitForIdleSync 连带挂。
+  共同特征：只发生在 CTS 式高频启停/多 tab 堆积下；
   单 WebView 稳态（harness/MiniWV/FrameworkEntry）从未复现。收敛策略：
   串行单测 + fresh-everything 取证，不追 Gecko 原生层。
 - **设备卫生（2026-10-02 实测）**：久测后 load 飙到 15+、MemAvailable
@@ -872,9 +872,8 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **hook 栈（2026-10-02）**：机上 zygisk_lsposed + Shamiko + jshook +
   sui + 5 个 Xposed 模块（smscode/momoxposed/hook/vendetta/
   noregionlimits），每次 fork 全过钩子。load 15 证伪（MTK 内核线程
-  常驻 D，CPU 实际全闲）——卡点在 fork/attach 握手本身，大概率钩子栈
-  + vendor AMS 扩展在 burst 下的间歇失速。用户配置，不动；flakes 归因
-  到此为止，产品侧不再追。
+  常驻 D，CPU 实际全闲）——卡点在 fork/attach 握手本身（机上钩子栈 +
+  vendor AMS 扩展为嫌疑，待查；用户配置，不动；产品侧不再追）。
 
 ## 1w. GPU-process hang / fallback status（2026-10-02，用户拍板）
 
@@ -1098,7 +1097,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 > 2026-10-04 更新：image 族 4/4 verdict（串行单测，同一最终构建）+
 > harness 全绿 + JVM 174 锁；0024 定稿。途中两个真缺口已修：
 > setter 即时推送（此前 loosening 无 delivery）与双 flag 放宽恢复
-> （此前只认 allowImages 变化）。残留 1673953 型 pre-commit 静默 flake
+> （此前只认 allowImages 变化）。残留 1673953 型 pre-commit 静默
 >（trio-in-one-process 2/3 即此例；上游定性符合预期，非本 patch 范围）。
 > 细节见 `firefox-patches/0024-image-policy-docshell.md` §6/§7/§10。
 - **空标题竞态闭案**：Gecko TitleChange 比 PageStop 晚 ~500ms（JS-onload
@@ -1118,8 +1117,8 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **JVM 175 锁全绿**，lint 绿。
 - **设备（2026-10-03 夜）**：load 持续 ~15（MTK D 态堆积，僵尸本轮已清；
   单次清场不定无辜），
-  child tab `Timeout executing service`，导航 LoadRequest 后零回调——容量型
-  flake，非逻辑。`su -c reboot` 已发（含目的 ledger），之后 USB 层无设备
+  child tab `Timeout executing service`，导航 LoadRequest 后零回调——容量型，
+  非逻辑。`su -c reboot` 已发（含目的 ledger），之后 USB 层无设备
   15 分钟+，疑卡启动/掉线，待人手确认。回来后：卫生 → T2/T3 verdict →
   全量 harness → 0024 定稿。
 
@@ -1147,7 +1146,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   首屏采样偏差导致的误判，证据优先，旧结论删除不留）。
   2x 加载 bound（相对 stock 冷启动到头像全实图）已接受为验收线，测量留到
   网络健康窗口（今晚 150KB/s 烂到 0.00KB/s，绝对计时无意义，不记）。
-- **偶发 pre-commit stall（已修，3 commits 着陆）**：LoadUri 冷启动
+- **pre-commit stall（已修，3 commits 着陆）**：LoadUri 冷启动
   listener-gap（EventDispatcher 无 listener 静默丢弃，源码实锤），修法 =
   provider 侧 commit guard（`session/NavigationCommitGuard.java` 有界重发
   2s/4s/8s；PageStart/LocationChange 解锁；policy/app-override/stop/close
@@ -1311,7 +1310,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   黑 → bromite 窗 2.6MB/60s（43KB/s）90s 完整绘出 → 我方窗 3MB/80s
   （38KB/s）标题到仍黑（彼时 view 未挂载，属上条）。时变带宽实锤（86 倍摆动），
   此前"同分钟"对照未做窗口会计是漏洞；以后对照必带 rx delta + 交替顺序。
-- **仍未闭（诚实口径）**：① 修后轮视图已挂载但撞上 trickle 窗（0.7KB/s，
+- **仍未闭（诚实口径）**：① 修后轮视图已挂载但带宽处 trickle 窗（0.7KB/s，
   目标头 5 分钟不到），像素 verdict 需一个"修复+带宽"双齐窗口（本轮保持加载，
   带宽回来即见分晓）；② 15:48 轮目标 `onLoadRequest` 700ms 内 8 连发（次次咨询
   裁决，2s 后才 PageStart）——通道 churn，单轮目击，待复现定位（necko 重试 vs
@@ -1380,8 +1379,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   transport/扩展通道建立之前。另证伪"无 MOZ_LOG 即无信息"：M1-M4 的静默本身
   就是反证（necko 下全死 → 查 dispatch/actor 层——本轮属后者）。
   下一步候选：首触投毒假说（首个早窗口 dispatch 永久毒化 install 状态机，
-  0025 同族——验证法：延迟首次接触 N 秒，看死亡率是否变化；需小补丁/开关），
-  或 MiniWV 最小宿主复现（区分酷安特有 vs 通用竞态）。
+  0025 同族），或 MiniWV 最小宿主复现（区分酷安特有 vs 通用竞态）。
 - **P-CLEAN（addon-DB 验证轮，pid 18066，`/tmp/moz-dead3.log` 7246 行）**：
   死后 addonStartup.json.lz4/extensions.json/prefs.js 与点中前快照**字节一致**，
   本地解析全 OK（extensions.json 含 sinytra-js active+visible；lz4 解出 enabled），
@@ -1442,7 +1440,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
 - **发起链问题（当前主犯）**：死轮 C++ 从未请求任何 child launch（GPU 首发都没有，
   更谈不上 tab）。LoadUri 派发（需 attach 窗口的 listener）与 GPU 需求（需 content
   launch）互为前提——首跳丢失（§1z listener-gap）+ attach 又依赖 GPU 门时即成
-  自持死锁；绿轮是竞态撞上正确顺序。下一步：C++ 发起链纸面（LaunchGPUProcess/
+  自持死锁。下一步：C++ 发起链纸面（LaunchGPUProcess/
   EnsureGPUReady 调用者 + 前置条件 + 静默跳过路径），定位"首个 bindService 永不
   被调" 的门后，再定是 provider 可驱（early demand 注入）还是 Gecko patch。
 - **early demand 注入落地（`2ef0d14`，公开 API 零 patch）**：
@@ -1452,8 +1450,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   runtime 就绪后、`open()` 之前，失败 loud 日志继续走（永不打断构造）。
   JVM 224 绿（纯接线，device-covered），lint 绿，harness 47 行 0 FAIL +
   GLUE PASS。债务：`GeckoWebViewProvider.java` 1138→1167（动前已超 1000 铁律，
-  拆分单独立项；本次只压了自有注释）。验证法：死亡率统计（连打 8 轮 fresh，
-  90 秒定死绿；≤1/8 死即破环成立，≥3/8 死则转 G4 frameloader 方向）。
+  拆分单独立项；本次只压了自有注释）。
 - **GPU-bind 挂起（S2 新主犯，日志对照实锤）**：绿轮 `ServiceAllocator $gpu
   updateBindings` 后必跟 tab bind（慢绿轮：GPU 3 次失败→SW-WR fallback→
   compositor 初始化→blank PageStart→install ack，31s 之谜即 3×~10s）；
@@ -1489,9 +1486,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   全合规；JVM 224 绿；lint 绿；harness 47 行 0 FAIL + GLUE PASS。但首个 verdict
   轮 P-DEAD 死在首导航（leg 未 armed，符合设计）——resume 路径仍待一个
   post-commit 轮验证。
-- **连死率 ~50% 且与构建无关**：绿（66ee067×1、20b7f96×2、master×N）死（de44369
-  后连死 5 轮 + 本轮）交错，A/B/A 已证同构建可绿可死。S2（transport 不建）是
-  当前唯一 blocker。下一个判别：Gecko 主线程 `comm` 定位 + wchan/stack 归因
+- **S2（transport 不建）是当前唯一 blocker**。下一个判别：Gecko 主线程 `comm` 定位 + wchan/stack 归因
   （binder 等 bind vs futex 空闲）——Java 主线程 epoll-idle 已无信息量，要的是
    名为 Gecko 的 native 线程。
 - **R2 COMMIT-SUPPRESSED 轮（2026-10-08 夜，pid 794，`/tmp/cool_r2.log`）**：
@@ -1578,8 +1573,8 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   但像素恒黑。对照矩阵（同机背靠背、buster 防毒缓存、rx 会计）：
   Canary（self+直连）3/3 绿、FrameworkEntry（self+WebView 栈）1/1 绿
   （`FRAMEWORK ENTRY PASS` 十项）、MiniWV 1/7 绿。结论：因子是
-  **host uid（跨包呈现）**，WebView 栈无辜；foreign 偶发逃逸一次
-  （race 形，非纯环境——触发态 load/mem/僵尸/thermal 绿黑无差）。
+  **host uid（跨包呈现）**，WebView 栈无辜；foreign 逃逸一次
+  （触发态 load/mem/僵尸/thermal 绿黑无差）。
 - **已证伪（各一行，不赘）**：挂载（dumpsys 三级链 1080x2112 +
   SurfaceFlinger BLAST 层在）；UI/GPU resume（双 `resumed=1`、
   `skipPaused` 全零）；content-link（v6 MOZ_LOG：TriggerRedirect
@@ -1711,8 +1706,8 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   `escalating to reopen`→新会话 ctor（新 tab）→OnStart×3→然后同形失聪
    （无标题无 finish，像素亲眼纯黑；同期读数仅记录：省电 OFF、电量 16%
    充电中、体温 34℃，不定无辜）。机制本身全对（重发/升级/重开/新 ctor 逐级点亮），但新
-  会话也聋——病在 content 链接失聪本身，不在 session 新旧。MiniWV 今晨
-  黑，B 站同窗极大概率同病（同 provider 同黑洞）。下一步：失聪本身需
+   会话也聋——病在 content 链接失聪本身，不在 session 新旧。MiniWV 今晨
+  黑；B 站同窗（同 provider 同黑洞）待验证。下一步：失聪本身需
   Gecko 侧深挖（redirect 后 content 侧无应答），provider 侧已无牌可打。
 - **杀占坑走不通，修法收敛（2026-10-09 23:3x，Gecko 代码实锤）**：
   看门狗跑在宿主进程（MiniWV uid），占坑者是 provider uid——跨 uid 杀
@@ -1730,7 +1725,7 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   fresh 进程）consult 全绿 + 200 头到，但 PageStart 永不到，黑像素；
   同分钟 bromite 同 App 同 URL 全绿，MiniWV 同小时全绿（example×2/bing）。
 - **非回归**：`88ab6ad`（10/8 代码）同流程同形死；10/8“秒渲染”走的是
-  风暴 + App 自抛异常降级 ALLOW 的运气道。x64/版本与此 stall 无关。
+  风暴 + App 自抛异常降级 ALLOW。x64/版本与此 stall 无关。
 - **途中修两笔（均已合入，JVM 250 锁）**：`8eb67b0` 同 URL 连发合并
   （919 loadUrl/208ms 风暴→单通道）；`79f0edd` consult 改走 Request
   overload（反编译定死：string 实现 https 一律自载 + true，Request 非
@@ -1856,7 +1851,7 @@ HistoryList=0, SessionState=0         → Gecko 没 flush，再测 hidden GeckoV
 
 ## 3. 已知阻塞：vendor launch 故障（测试环境问题，非 glue bug）
 
-- 现象：偶发 `loadUrl` 卡 `about:blank` 30s 超时；logcat 配对出现
+- 现象：`loadUrl` 卡 `about:blank` 30s 超时；logcat 配对出现
   `AiuiAmsExt: duraspeed block ... bringUpServiceLocked` +
   `ActivityManager: Unable to launch app ... : process is bad`；Gecko 侧
   `ServiceAllocator: 0 successful binds` + `BindException: Cannot connect`。

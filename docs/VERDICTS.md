@@ -27,7 +27,7 @@
 | testAccessDefaultFixedFontSize | OK | 串行 |
 | testAccessDefaultTextEncodingName | OK | 串行 |
 | testAccessJavaScriptCanOpenWindowsAutomatically | FAIL·poll-timeout:520 | 未实现：无 onCreateWindow 桥（已知缺口） |
-| testAccessJavaScriptEnabled | OK | 复跑绿（首轮门挂系坏窗口/Type-A flake） |
+| testAccessJavaScriptEnabled | OK | 复跑绿 |
 | testAccessLayoutAlgorithm | OK | 串行 |
 | testAccessMinimumFontSize | OK | 串行 |
 | testAccessMinimumLogicalFontSize | OK | 串行 |
@@ -43,8 +43,8 @@
 | testAccessSupportZoom | OK | 串行 |
 | testAccessBuiltInZoomControls | OK | 串行 |
 | testAppCacheDisabled | OK | 串行 |
-| testAppCacheEnabled | OK | 复跑绿（首轮门挂系坏窗口/Type-A flake） |
-| testDatabaseDisabled | OK | 复跑绿（首轮门挂系坏窗口/Type-A flake） |
+| testAppCacheEnabled | OK | 复跑绿 |
+| testDatabaseDisabled | OK | 复跑绿 |
 | testDisabledActionModeMenuItems | OK | 串行 |
 | testLoadsImagesAutomatically_default | OK | 串行 |
 | testLoadsImagesAutomatically_httpImagesLoaded | OK | 串行 |
@@ -162,7 +162,7 @@
 | testSetNetwork | OK | 串行（no-op 绑定成立） |
 | testCreatePacProcessor | FAIL·待查 | `expected:<PROXY 1.2.3.4:8080> but was:<null>`（:76）；JsBridge eval 传输回 null，TestProcessService 进程内传输就绪性待查 |
 | PacProcessorTest#testDefaultNetworkIsNull | TIMEOUT·待重跑 | 20:33:56 起零输出，至 20:37:57 下一条才接续 = 240s toybox timeout 击中，无 instrumentation 结果，不记 OK/FAIL |
-| testDefaultNetworkIsNull（重跑） | OK | batch7 串行绿（首轮 TIMEOUT 系 flake/坏窗口，非产品信号，关闭） |
+| testDefaultNetworkIsNull（重跑） | OK | batch7 串行绿 |
 
 ## CookieManagerTest opens（2，2026-10-04 串行）
 

@@ -57,7 +57,7 @@ geolocation、页内查找、打印。
 ## 4. P2 — 啃硬骨头（逐项建任务跟踪）
 
 1. **`evaluateJavascript`**：WebView 要求任意 JS 在当前页面执行并异步回传 JSON 结果；
-   GeckoView 不是按 WebView 语义设计的，大概率要加 internal API（走 `firefox-patches/`）。
+   GeckoView 不是按 WebView 语义设计的，要加 internal API（走 `firefox-patches/`）。
    > **已落地（2026-09-23）**：预判被推翻——不需要 patch，内置 WebExtension
    > `sinytra-js` + `SessionController.setMessageDelegate` 即可（STATUS §1d）。
 2. **`addJavascriptInterface`**：Chromium 那套 Java 反射 + `@JavascriptInterface` +
