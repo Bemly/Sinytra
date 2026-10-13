@@ -100,6 +100,11 @@ public final class GeckoWebViewProvider
     private final Interception mInterception;
     private final ProviderFavicon mFavicon;
     private final RenderProcessBridge mRenderProcess;
+    // Tab warmth (freezer guard): parallel non-creating IMPORTANT bindings
+    // to the tab-family child services. Null only when construction-time
+    // init failed (navigation proceeds unwarm).
+    @Nullable
+    private final ChildWarmthKeeper mWarmth;
     // Visual surface (2026-09-25): GeckoViewHost attached as a WebView
     // child; the child's own view lifecycle owns surface attach/detach.
     // Null = attach failed, headless fallback (loud log).
@@ -174,6 +179,15 @@ public final class GeckoWebViewProvider
             }
         }, mIntercept);
         mRenderProcess = new RenderProcessBridge();
+        // Tab warmth keeper: never breaks construction (see class header).
+        ChildWarmthKeeper warmth = null;
+        try {
+            warmth = new ChildWarmthKeeper(
+                    webView.getContext().getApplicationContext());
+        } catch (Throwable t) {
+            SinytraLog.w(TAG, "warmth keeper threw; continuing unwarm", t);
+        }
+        mWarmth = warmth;
         mFavicon = new ProviderFavicon(new ProviderFavicon.Host() {
             @Override
             @NonNull
@@ -623,6 +637,14 @@ public final class GeckoWebViewProvider
     public void destroy() {
         mDestroyed = true;
         mFactory.unregisterWebViewProvider(this);
+        // Drop tab-warmth bindings (idempotent, never throws).
+        try {
+            if (mWarmth != null) {
+                mWarmth.release();
+            }
+        } catch (Throwable t) {
+            SinytraLog.w(TAG, "warmth release threw", t);
+        }
         long startMs = android.os.SystemClock.uptimeMillis();
         try {
             if (mViewHost != null) {
@@ -665,8 +687,21 @@ public final class GeckoWebViewProvider
         }
     }
 
+    // Tab warmth (freezer guard): idempotent sweep before dispatch —
+    // steady state is ~0 IPCs (bound services are skipped).
+    private void assureWarmth() {
+        try {
+            if (mWarmth != null) {
+                mWarmth.assure();
+            }
+        } catch (Throwable t) {
+            SinytraLog.w(TAG, "warmth assure threw", t);
+        }
+    }
+
     @Override
     public void loadUrl(String url, Map<String, String> additionalHttpHeaders) {
+        assureWarmth();
         pushSettings();
         if (serveLocalFileIfAllowed(url)) {
             return;
@@ -676,6 +711,7 @@ public final class GeckoWebViewProvider
 
     @Override
     public void loadUrl(String url) {
+        assureWarmth();
         pushSettings();
         if (serveLocalFileIfAllowed(url)) {
             return;
