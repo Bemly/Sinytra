@@ -1,0 +1,129 @@
+From bf01fc0cf6bc9eaad9b9885f15ed32e61e282cf4 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Tue, 13 Oct 2026 18:28:49 +0800
+Subject: [PATCH] Sinytra patch 0035: decouple handoff transact from singleton
+ worker (wedged Binder no longer poisons later handoffs)
+
+---
+ .../ipc/UiCompositorControllerChild.cpp       | 93 +++++++++++--------
+ 1 file changed, 56 insertions(+), 37 deletions(-)
+
+diff --git a/gfx/layers/ipc/UiCompositorControllerChild.cpp b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+index db6f4aa08f..41d74c68f9 100644
+--- a/gfx/layers/ipc/UiCompositorControllerChild.cpp
++++ b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+@@ -20,7 +20,9 @@
+ #include "nsProxyRelease.h"
+ #include "nsThreadUtils.h"
+ #include "mozilla/Monitor.h"
++#include "prthread.h"
+ #include <time.h>
++#include <thread>
+ #ifdef MOZ_WIDGET_ANDROID
+ #  include <android/log.h>
+ #endif
+@@ -492,47 +494,64 @@ uint64_t UiCompositorControllerChild::QueueSurfaceHandoff(
+       [self, aWidgetId, surface, surfaceNull, seq]() {
+         // 0021: sequence + send log precede the transact so a white-screen
+         // startup (fast, healthy-looking transact) still leaves a trail.
+-        const mozilla::TimeStamp transactStart = mozilla::TimeStamp::Now();
++        //
++        // 0035: the transact below runs on a detached per-handoff thread,
++        // NOT on this singleton worker. Device-verified (SNC-fresh rounds):
++        // a wedged Binder transact to a fresh GPU never returns and used to
++        // hold this worker forever — every later handoff queued behind it
++        // (barrier timeouts, no sends) and every later layout re-parked the
++        // UI thread (ANR chain). One wedge poisoned the process. The detached
++        // thread carries RefPtr self + the surface GlobalRef, so lifetime is
++        // safe; completions merge by max-seq, so a late/stale finish can only
++        // be superseded by newer ones, never misordered.
+         SINYTRA_SURFACE_LOG(
+             "handoff send seq=%llu widget=%d surfaceNull=%d t=%llu",
+             (unsigned long long)seq, aWidgetId, surfaceNull ? 1 : 0,
+             (unsigned long long)MonotonicMs());
+-        nsresult result =
+-            self->mCompositorSurfaceManager->OnSurfaceChanged(aWidgetId,
+-                                                              surface);
+-        const mozilla::TimeDuration elapsed =
+-            mozilla::TimeStamp::Now() - transactStart;
+-        SINYTRA_SURFACE_LOG(
+-            "handoff finish seq=%llu widget=%d ms=%f rv=0x%x",
+-            (unsigned long long)seq, aWidgetId,
+-            elapsed.ToMilliseconds(), static_cast<uint32_t>(result));
+-        // 0022: completion signal for the resume-path barrier. UNGATED
+-        // (correctness, not logging).
+-        {
+-          MonitorAutoLock completionLock(sHandoffMonitor);
+-          if (seq > sHandoffCompleted) {
+-            sHandoffCompleted = seq;
+-          }
+-          completionLock.NotifyAll();
+-        }
+-        if (NS_FAILED(result) || elapsed.ToMilliseconds() > 1000.0) {
+-          gfxCriticalNote << "Async surface transact finished"
+-                          << " ms=" << elapsed.ToMilliseconds()
+-                          << " rv=" << static_cast<uint32_t>(result);
+-        }
+-
+-        // Same death-notify the synchronous path performed, now from the
+-        // worker: NotifyRemoteActorDestroyed self-dispatches to main.
+-        if (NS_FAILED(result)) {
+-          uint64_t token = self->mProcessToken;
+-          if (token) {
+-            if (gfx::GPUProcessManager* gpm =
+-                    gfx::GPUProcessManager::Get()) {
+-              gpm->NotifyRemoteActorDestroyed(token);
+-              self->mProcessToken = 0;
+-            }
+-          }
+-        }
++        std::thread(
++            [self, aWidgetId, surface, seq]() {
++              PR_SetCurrentThreadName("HandoffTxn");
++              const mozilla::TimeStamp transactStart =
++                  mozilla::TimeStamp::Now();
++              nsresult result =
++                  self->mCompositorSurfaceManager->OnSurfaceChanged(aWidgetId,
++                                                                    surface);
++              const mozilla::TimeDuration elapsed =
++                  mozilla::TimeStamp::Now() - transactStart;
++              SINYTRA_SURFACE_LOG(
++                  "handoff finish seq=%llu widget=%d ms=%f rv=0x%x",
++                  (unsigned long long)seq, aWidgetId,
++                  elapsed.ToMilliseconds(), static_cast<uint32_t>(result));
++              // 0022: completion signal for the resume-path barrier. UNGATED
++              // (correctness, not logging).
++              {
++                MonitorAutoLock completionLock(sHandoffMonitor);
++                if (seq > sHandoffCompleted) {
++                  sHandoffCompleted = seq;
++                }
++                completionLock.NotifyAll();
++              }
++              if (NS_FAILED(result) || elapsed.ToMilliseconds() > 1000.0) {
++                gfxCriticalNote << "Async surface transact finished"
++                                << " ms=" << elapsed.ToMilliseconds()
++                                << " rv=" << static_cast<uint32_t>(result);
++              }
++
++              // Same death-notify the synchronous path performed, now from
++              // the transact thread: NotifyRemoteActorDestroyed
++              // self-dispatches to main.
++              if (NS_FAILED(result)) {
++                uint64_t token = self->mProcessToken;
++                if (token) {
++                  if (gfx::GPUProcessManager* gpm =
++                          gfx::GPUProcessManager::Get()) {
++                    gpm->NotifyRemoteActorDestroyed(token);
++                    self->mProcessToken = 0;
++                  }
++                }
++              }
++            })
++            .detach();
+       }));
+ 
+   return seq;
+-- 
+2.55.0
+
