@@ -1,5 +1,4 @@
 package org.mozilla.geckowebview.session;
-import org.mozilla.geckowebview.runtime.SinytraLog;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -61,19 +60,6 @@ import androidx.annotation.Nullable;
 // Real network failures still surface via onLoadError (disarm), so waiting
 // is Chromium-identical, not a hang.
 //
-// Latch-escape hole (2026-10-09 MiniWV black-hole rounds, B1/Bing shape):
-// the latch freezes at the FIRST consult — but in a black-hole round every
-// pre-recovery dispatch is doomed (tab/GPU cannot link channels yet), and
-// the first consults only arrive post-recovery (headers flow once SW-WR
-// fallback lands). Freezing then means no post-recovery dispatch is ever
-// issued: the doomed channels never link and the arm extends forever —
-// a recoverable stall converted into a permanent black (pre-latch code
-// occasionally survived this via a lucky post-recovery refire, v18-shape).
-// So a latched-but-utterly-quiet arm gets ONE rescue refire (a lone fresh
-// post-recovery dispatch), then escalates to the existing reopen path if
-// still silent. Chatter (any consult) resets the quiet count, so the R2
-// churning class the latch was built for never earns a rescue.
-//
 // When even the bounded retries find no commit (session window never attached
 // natively — device-verified class: zero PageStarts including blank), the
 // guard fires the exhaustion action ONCE per arm: the bridge uses it to
@@ -85,21 +71,6 @@ import androidx.annotation.Nullable;
 // need a live UI Looper — see InterceptBridgeTest). Scheduling degrades to a
 // no-op without a Looper (unit tests); only the pure delay/liveness helpers
 // are locked there.
-// Latched wall-clock cap (2026-10-13 SNC GPU-kill round, pid 32605):
-// chatter resets the quiet ladder, so a consulting-but-never-committing
-// arm can extend FOREVER — while its commit is suppressed downstream by a
-// dead compositor (fresh-GPU nav-time handoff wedge → barrier timeout →
-// sync ResumeAndResize IPC timeout → Gecko kills the GPU → resumed=0 →
-// zero PageStarts although the main document answers 200 + OnSuccess).
-// The quiet ladder cannot see this shape (every check extends on consult
-// progress), so latched arms ALSO carry a consult-to-commit deadline:
-// past it without a commit the chain is forced into exhaustion
-// (close+reopen) no matter how lively the chatter. The cap is generous
-// on purpose — a legit trickle commits within seconds of first bytes;
-// only a suppressed pipeline consults for a full minute with zero commit.
-// Chatter still buys patience up to the cap (the trickle contract holds),
-// it just no longer buys eternity.
-//
 final class NavigationCommitGuard {
     // 1-based backoff: a committed load reports PageStart long before the
     // first check (PageStart fires at commit, not at completion), so a
@@ -121,21 +92,6 @@ final class NavigationCommitGuard {
     // still matches the latest arm/disarm.
     static boolean isLive(int scheduledGeneration, int currentGeneration) {
         return scheduledGeneration == currentGeneration;
-    }
-
-    // Latched wall-clock cap (see class header): consult-to-commit
-    // deadline for latched arms. Chatter resets the quiet ladder but must
-    // not buy eternity — past this without a commit the pipeline is
-    // suppressed downstream (dead compositor class) and only a fresh
-    // session can recover. Generous vs any legit trickle-to-commit gap.
-    static final long LATCHED_WALL_CAP_MS = 60_000;
-
-    // Pure (JVM-locked): latched wall-cap decision. Unset (0) never fires;
-    // otherwise fires once the consult-to-commit age reaches the cap.
-    static boolean shouldForceWallExhaust(long firstConsultUptimeMs,
-            long nowUptimeMs) {
-        return firstConsultUptimeMs > 0
-                && nowUptimeMs - firstConsultUptimeMs >= LATCHED_WALL_CAP_MS;
     }
 
     // Pure (JVM-locked): the check's decision. Progress (a necko consult
@@ -167,28 +123,6 @@ final class NavigationCommitGuard {
         return totalFires > MAX_TOTAL_FIRES;
     }
 
-    // Latched-quiet escape (see class header): consecutive quiet checks while
-    // latched (extending checks tick every 2s — extend resets the ladder to
-    // attempt 1). After RESCUE_AT of utter post-latch silence the pre-recovery
-    // dispatches are presumed doomed and one rescue refire is earned; after
-    // EXHAUST_AT the arm escalates to reopen. Any consult (progress) resets
-    // the count, so chattering pipelines never trigger this path.
-    static final int LATCHED_QUIET_RESCUE_AT = 8;
-    static final int LATCHED_QUIET_EXHAUST_AT = 16;
-
-    // Pure (JVM-locked): latched-quiet decision. Returns 1 once (single
-    // rescue refire) and 2 (force exhaustion) at the bounds, else 0
-    // (keep extending). `rescued` guards the one-rescue budget.
-    static int latchedQuietDecision(int quietCount, boolean rescued) {
-        if (quietCount >= LATCHED_QUIET_EXHAUST_AT) {
-            return 2;
-        }
-        if (!rescued && quietCount >= LATCHED_QUIET_RESCUE_AT) {
-            return 1;
-        }
-        return 0;
-    }
-
     private static final String TAG = "Sinytra/session";
 
     private int mGeneration;
@@ -204,22 +138,10 @@ final class NavigationCommitGuard {
     // this arm, the dispatch provably landed — every later check extends,
     // never refires. Reset by arm()/disarm() with the rest of the chain.
     private boolean mConsultLatched;
-    // Uptime (SystemClock.uptimeMillis) of the first consult that set the
-    // latch; 0 = none yet. Drives the latched wall-clock cap (see class
-    // header): a consulting-but-never-committing arm must still escalate.
-    // Reset by arm()/disarm() with the rest of the chain.
-    private long mFirstConsultUptimeMs;
     // Cumulative refires this arm (never reset by pokes; reset by arm()).
     // Caps the self-sustaining churn where refires restart a load whose
     // commit is suppressed forever (see class header).
     private int mTotalFires;
-    // Consecutive quiet checks while consult-latched (reset by any consult
-    // progress, by arm() and by disarm()). Drives the latch-escape rescue
-    // (see class header): utter post-latch silence earns one rescue refire,
-    // sustained silence escalates to reopen.
-    private int mLatchedQuiet;
-    // Whether the one rescue refire was already spent this arm.
-    private boolean mRescued;
 
     // Arms the guard for one navigation. The redispatch runnable must re-issue
     // the same navigation WITHOUT re-arming (it runs inside this generation's
@@ -240,9 +162,6 @@ final class NavigationCommitGuard {
         mExhaustedFired = false;
         mTotalFires = 0;
         mConsultLatched = false;
-        mFirstConsultUptimeMs = 0;
-        mLatchedQuiet = 0;
-        mRescued = false;
         int generation = ++mGeneration;
         schedule(generation, 1);
     }
@@ -254,9 +173,6 @@ final class NavigationCommitGuard {
         mGeneration++;
         mProgress = false;
         mConsultLatched = false;
-        mFirstConsultUptimeMs = 0;
-        mLatchedQuiet = 0;
-        mRescued = false;
     }
 
     // NeckO-progress poke: a consult reached Java for any URL, so the
@@ -271,8 +187,7 @@ final class NavigationCommitGuard {
         mProgress = true;
         if (!mConsultLatched) {
             mConsultLatched = true;
-            mFirstConsultUptimeMs = android.os.SystemClock.uptimeMillis();
-            SinytraLog.d(TAG, "commit guard consult-latched url=" + url
+            android.util.Log.d(TAG, "commit guard consult-latched url=" + url
                     + "; refires suspended for this navigation");
         }
     }
@@ -303,19 +218,7 @@ final class NavigationCommitGuard {
                     if (!isLive(generation, mGeneration)) {
                         return;
                     }
-                    if (mConsultLatched && shouldForceWallExhaust(
-                            mFirstConsultUptimeMs,
-                            android.os.SystemClock.uptimeMillis())) {
-                        SinytraLog.w(TAG,
-                                "commit guard latched wall-cap; consulting"
-                                        + " without commit for "
-                                        + LATCHED_WALL_CAP_MS
-                                        + "ms, escalating to reopen");
-                        fireExhaustedLocked();
-                        return;
-                    }
                     boolean extend = shouldExtend(mProgress, mConsultLatched);
-                    boolean progressSeen = mProgress;
                     mProgress = false;
                     next = nextAttempt(extend, attempt);
                     if (next < 0) {
@@ -323,10 +226,9 @@ final class NavigationCommitGuard {
                         return;
                     }
                     if (!extend) {
-                        mLatchedQuiet = 0;
                         mTotalFires++;
                         if (shouldForceExhaust(mTotalFires)) {
-                            SinytraLog.w(TAG,
+                            android.util.Log.w(TAG,
                                     "commit guard forcing exhaustion after "
                                             + mTotalFires
                                             + " refires without commit");
@@ -334,62 +236,18 @@ final class NavigationCommitGuard {
                             return;
                         }
                         fire = mRedispatch;
-                    } else if (progressSeen) {
-                        // Chatter: the pipeline is alive (trickle, subresource
-                        // consults) — patience, and the latch-escape clock
-                        // restarts. Churning pipelines never earn a rescue.
-                        mLatchedQuiet = 0;
-                        SinytraLog.d(TAG, "commit guard extending"
-                                + " (necko progress seen)");
-                    } else if (!mConsultLatched) {
-                        SinytraLog.d(TAG, "commit guard extending"
-                                + " (necko progress seen)");
                     } else {
-                        // Latched and utterly quiet: no consult since the
-                        // latch (or since the last progress). Pre-recovery
-                        // dispatches are presumed doomed — one rescue refire,
-                        // then escalation to reopen (see class header).
-                        mLatchedQuiet++;
-                        int escape = latchedQuietDecision(mLatchedQuiet,
-                                mRescued);
-                        if (escape == 2) {
-                            SinytraLog.w(TAG,
-                                    "commit guard latched-quiet; escalating"
-                                            + " to reopen");
-                            fireExhaustedLocked();
-                            return;
-                        }
-                        if (escape == 1) {
-                            mRescued = true;
-                            mConsultLatched = false;
-                            mTotalFires++;
-                            if (shouldForceExhaust(mTotalFires)) {
-                                SinytraLog.w(TAG,
-                                        "commit guard forcing exhaustion"
-                                                + " after "
-                                                + mTotalFires
-                                                + " refires without commit");
-                                fireExhaustedLocked();
-                                return;
-                            }
-                            SinytraLog.i(TAG,
-                                    "commit guard latched-quiet rescue refire"
-                                            + " (post-recovery dispatch)");
-                            fire = mRedispatch;
-                        } else {
-                            SinytraLog.d(TAG, "commit guard extending"
-                                    + " (latched, quiet "
-                                    + mLatchedQuiet + ")");
-                        }
+                        android.util.Log.d(TAG, "commit guard extending"
+                                + " (necko progress seen)");
                     }
                 }
                 if (fire != null) {
-                    SinytraLog.d(TAG, "commit guard firing attempt="
+                    android.util.Log.d(TAG, "commit guard firing attempt="
                             + attempt);
                     try {
                         fire.run();
                     } catch (Throwable t) {
-                        SinytraLog.w(TAG,
+                        android.util.Log.w(TAG,
                                 "commit guard redispatch threw", t);
                     }
                 }
@@ -401,7 +259,7 @@ final class NavigationCommitGuard {
                 }
             }, delayForAttempt(attempt));
         } catch (Throwable t) {
-            SinytraLog.w(TAG, "commit guard schedule threw", t);
+            android.util.Log.w(TAG, "commit guard schedule threw", t);
         }
     }
 
@@ -416,12 +274,12 @@ final class NavigationCommitGuard {
         if (exhausted == null) {
             return;
         }
-        SinytraLog.w(TAG, "commit guard exhausted; no PageStart after "
+        android.util.Log.w(TAG, "commit guard exhausted; no PageStart after "
                 + MAX_ATTEMPTS + " attempts");
         try {
             exhausted.run();
         } catch (Throwable t) {
-            SinytraLog.w(TAG, "commit guard exhausted threw", t);
+            android.util.Log.w(TAG, "commit guard exhausted threw", t);
         }
     }
 }
