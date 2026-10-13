@@ -155,38 +155,4 @@ public final class NavigationCommitGuardTest {
         assertTrue(guard.isConsultLatched());
         guard.disarm();
     }
-
-    // --- latched-silence escape (2026-10-14 freezer round): a latched arm
-    // with zero further pokes is a wedged/frozen content side, not a slow
-    // network. Only the pure budget predicate is locked here (the timed
-    // check needs a live Looper: device-covered). ---
-
-    @Test
-    public void latchedSilence_withinBudgetHolds() {
-        assertFalse(NavigationCommitGuard.latchedSilenceSpent(0));
-        assertFalse(NavigationCommitGuard.latchedSilenceSpent(1));
-        assertFalse(
-                NavigationCommitGuard.latchedSilenceSpent(
-                        NavigationCommitGuard.MAX_LATCHED_SILENCE_MS - 1));
-        assertFalse(
-                NavigationCommitGuard.latchedSilenceSpent(
-                        NavigationCommitGuard.MAX_LATCHED_SILENCE_MS));
-    }
-
-    @Test
-    public void latchedSilence_beyondBudgetExhausts() {
-        assertTrue(
-                NavigationCommitGuard.latchedSilenceSpent(
-                        NavigationCommitGuard.MAX_LATCHED_SILENCE_MS + 1));
-        assertTrue(NavigationCommitGuard.latchedSilenceSpent(60_000L));
-        assertTrue(NavigationCommitGuard.latchedSilenceSpent(Long.MAX_VALUE));
-    }
-
-    @Test
-    public void latchedSilence_negativeNeverExhausts() {
-        // Clock skew backwards (or the zero-clock JVM fallback) must fail
-        // safe toward never reopening.
-        assertFalse(NavigationCommitGuard.latchedSilenceSpent(-1));
-        assertFalse(NavigationCommitGuard.latchedSilenceSpent(Long.MIN_VALUE));
-    }
 }

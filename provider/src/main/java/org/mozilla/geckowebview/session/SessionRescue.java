@@ -201,15 +201,6 @@ public final class SessionRescue {
         SinytraLog.i(TAG, "override-recovery firing url=" + url
                 + " (takeover claimed, no reload or commit within "
                 + OVERRIDE_RECOVERY_DELAY_MS + "ms; one-shot force-allow)");
-        // Cover the flight with a guard chain: a frozen serving tab shows
-        // exactly this signature (dispatch landed = consult, then zero
-        // progress) and the latched-silence escape reopens into a fresh,
-        // unfrozen tab. Raw redispatch (no re-arm, guard invariant); the
-        // override slot stays clear (single flight).
-        mLastDispatch = dispatch;
-        mLastUrl = url;
-        mGuard.arm(dispatch, this::reopenSessionOnce);
-        mArmed = true;
         try {
             dispatch.run();
         } catch (Throwable t) {
