@@ -1,0 +1,57 @@
+From 009a645b0120ac394f5e60bf191f2eb8dd4040c9 Mon Sep 17 00:00:00 2001
+From: Sinytra <sinytra@local>
+Date: Tue, 13 Oct 2026 19:35:53 +0800
+Subject: [PATCH] Sinytra patch 0037: handoff discriminator logging (txn begin
+ + GPU ENTER validity, zero behavior change)
+
+---
+ gfx/layers/ipc/UiCompositorControllerChild.cpp       |  7 +++++++
+ .../gecko/process/GeckoServiceGpuProcess.java        | 12 ++++++++++++
+ 2 files changed, 19 insertions(+)
+
+diff --git a/gfx/layers/ipc/UiCompositorControllerChild.cpp b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+index 0c5cc3b0f6..bfcbc4be51 100644
+--- a/gfx/layers/ipc/UiCompositorControllerChild.cpp
++++ b/gfx/layers/ipc/UiCompositorControllerChild.cpp
+@@ -512,6 +512,13 @@ uint64_t UiCompositorControllerChild::QueueSurfaceHandoff(
+         std::thread(
+             [self, aWidgetId, surface, seq]() {
+               PR_SetCurrentThreadName("HandoffTxn");
++              // 0037: txn-begin marker. If a wedged handoff shows send but
++              // never begin, the detached thread itself never ran (spawn /
++              // attach failure); begin without finish + no GPU ENTER means
++              // the stall is inside the Binder transit (stale Surface vs
++              // wedged GPU binder — the GPU ENTER isValid line decides).
++              SINYTRA_SURFACE_LOG("handoff txnbegin seq=%llu widget=%d",
++                                  (unsigned long long)seq, aWidgetId);
+               const mozilla::TimeStamp transactStart =
+                   mozilla::TimeStamp::Now();
+               nsresult result =
+diff --git a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoServiceGpuProcess.java b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoServiceGpuProcess.java
+index c85bb7a20c..cd02215dcd 100644
+--- a/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoServiceGpuProcess.java
++++ b/mobile/android/geckoview/src/main/java/org/mozilla/gecko/process/GeckoServiceGpuProcess.java
+@@ -56,8 +56,20 @@ public class GeckoServiceGpuProcess extends GeckoServiceChildProcess {
+       final boolean debug = org.mozilla.geckoview.BuildConfig.DEBUG;
+       final long enterMs = debug ? android.os.SystemClock.uptimeMillis() : 0;
+       if (debug) {
++        // 0037: isValid decides stale-Surface vs wedged-binder for
++        // transacts that never finish: an ENTER with isValid=false is a
++        // stale Surface parcelled across the async hops (release-by-resize
++        // makes it invalid); no ENTER at all keeps both hypotheses alive
++        // (parent txnbegin line splits thread-never-ran from transit stall).
++        boolean valid = false;
++        try {
++          valid = surface != null && surface.isValid();
++        } catch (Throwable t) {
++          valid = false;
++        }
+         android.util.Log.d("Sinytra/surface",
+             "remote ENTER widget=" + widgetId + " surfaceNull=" + (surface == null)
++            + " valid=" + valid
+             + " t=" + enterMs + " thread=" + Thread.currentThread().getName());
+       }
+       final Surface prevSurface = mSurfaces.get(widgetId);
+-- 
+2.55.0
+
