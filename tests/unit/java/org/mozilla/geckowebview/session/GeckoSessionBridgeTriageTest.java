@@ -1,5 +1,6 @@
 package org.mozilla.geckowebview.session;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -117,6 +118,73 @@ public final class GeckoSessionBridgeTriageTest {
         rescue.noteCommit("https://a.example/p");
         rescue.watchRedirectLeg("https://b.example/", false, redispatch);
         assertFalse(rescue.isArmed());
+    }
+
+    // Unclaimed-takeover recovery (BISECT_SNC_20261013.md §6 P0): an
+    // override-DENY with no reload-or-commit must re-issue once with a
+    // one-shot force-allow. Only the slot/consume/fire transitions are
+    // locked here (the Handler timer needs a live Looper: device-covered).
+    @Test
+    public void overrideRecovery_unarmedConsumeAndFireMiss() {
+        SessionRescue rescue = new SessionRescue(null);
+        assertFalse(rescue.consumeRecoveryAllow("https://a.example/"));
+        assertFalse(rescue.consumeRecoveryAllow(null));
+        assertFalse(rescue.fireOverride("https://a.example/"));
+    }
+
+    @Test
+    public void overrideRecovery_fireAllowsOnceExactly() {
+        SessionRescue rescue = new SessionRescue(null);
+        final int[] runs = {0};
+        rescue.onAppOverride("https://a.example/", () -> runs[0]++);
+        assertTrue(rescue.fireOverride("https://a.example/"));
+        assertEquals(1, runs[0]);
+        assertTrue(rescue.consumeRecoveryAllow("https://a.example/"));
+        assertFalse(rescue.consumeRecoveryAllow("https://a.example/"));
+        // Already fired: a stale refire is inert.
+        assertFalse(rescue.fireOverride("https://a.example/"));
+    }
+
+    @Test
+    public void overrideRecovery_mismatchPreservesFlag() {
+        SessionRescue rescue = new SessionRescue(null);
+        rescue.onAppOverride("https://a.example/", () -> {
+        });
+        assertTrue(rescue.fireOverride("https://a.example/"));
+        assertFalse(rescue.consumeRecoveryAllow("https://b.example/"));
+        assertTrue(rescue.consumeRecoveryAllow("https://a.example/"));
+    }
+
+    @Test
+    public void overrideRecovery_supersedeKillsStale() {
+        SessionRescue rescue = new SessionRescue(null);
+        rescue.onAppOverride("https://a.example/", () -> {
+        });
+        rescue.onAppOverride("https://b.example/", () -> {
+        });
+        assertFalse(rescue.fireOverride("https://a.example/"));
+        assertTrue(rescue.fireOverride("https://b.example/"));
+    }
+
+    @Test
+    public void overrideRecovery_commitCancels() {
+        SessionRescue rescue = new SessionRescue(null);
+        rescue.onAppOverride("https://a.example/", () -> {
+        });
+        rescue.noteCommit("https://a.example/");
+        assertFalse(rescue.fireOverride("https://a.example/"));
+        assertFalse(rescue.consumeRecoveryAllow("https://a.example/"));
+    }
+
+    @Test
+    public void overrideRecovery_newNavigationCancels() {
+        SessionRescue rescue = new SessionRescue(null);
+        rescue.onAppOverride("https://a.example/", () -> {
+        });
+        rescue.arm(() -> {
+        }, "https://b.example/");
+        assertFalse(rescue.fireOverride("https://a.example/"));
+        assertFalse(rescue.consumeRecoveryAllow("https://a.example/"));
     }
 
     @Test

@@ -46,6 +46,14 @@ public final class SessionRescue {
 
     static final int MAX_COLD_EXTENSIONS = 4;
 
+    // Unclaimed-takeover recovery delay (BISECT_SNC_20261013.md §6/§8 P0):
+    // green rounds commit ~1-4s after the last claim (SOE + re-entry +
+    // 200), so 10s clears them with margin while staying far inside the
+    // 2-minute verdict window. A slow legitimate takeover (the app handling
+    // externally for longer) eats one duplicate in-WebView load — accepted,
+    // loudly logged.
+    static final long OVERRIDE_RECOVERY_DELAY_MS = 10_000L;
+
     /**
      * Pure (JVM-locked): exhaustion triage. A pipeline that is still
      * bringing itself up gets waited out (re-arm, cold budget); only a
@@ -80,6 +88,24 @@ public final class SessionRescue {
     private ReopenHost mReopenHost;
     // Set on close(): a dead bridge must never reopen its session.
     private boolean mClosed;
+    // Unclaimed-takeover recovery slot (BISECT_SNC_20261013.md §6 P0):
+    // override=true→DENY kills the docshell commit (necessary in every SNC
+    // black shape); the sufficient half (no reload, no commit) sits
+    // app-side. Single slot: a newer claim for a different URL supersedes
+    // (its timer goes inert on inequality); a same-URL re-arm only moves
+    // the fields — the earliest timer wins (one storm episode is
+    // millisecond-scale, so first-claim+N ≈ last-claim+N). Null = no watch.
+    @Nullable
+    private String mOverrideUrl;
+    @Nullable
+    private Runnable mOverrideDispatch;
+    // One-shot force-allow named by the fired watch: the next consult for
+    // the exact URL returns ALLOW without consulting (consumeRecoveryAllow).
+    // A dispatch lost to the cold-start gap can strand it, but any new
+    // navigation (arm), commit (noteCommit) or teardown (disarm) clears it —
+    // at most one exact-URL consult, loudly logged, self-healing.
+    @Nullable
+    private String mRecoveryAllowUrl;
 
     public SessionRescue(@NonNull GeckoSession session) {
         mSession = session;
@@ -111,13 +137,93 @@ public final class SessionRescue {
         mLastUrl = url;
         mGuard.arm(redispatch, this::reopenSessionOnce);
         mArmed = true;
+        // A new direct navigation supersedes any pending override watch.
+        mOverrideUrl = null;
+        mOverrideDispatch = null;
+        mRecoveryAllowUrl = null;
     }
 
     // Disarms: the navigation committed (PageStart / LocationChange), was
     // dismissed by design (policy block / app override), or the session died.
+    // Any pending override watch dies with the chain (a newer claim re-arms
+    // after us via onAppOverride, which disarms first).
     void disarm() {
         mGuard.disarm();
         mArmed = false;
+        mOverrideUrl = null;
+        mOverrideDispatch = null;
+        mRecoveryAllowUrl = null;
+    }
+
+    // App claimed a takeover (shouldOverrideUrlLoading true → LoadRequest
+    // DENY). The guard chain stands down (no PageStart by design), and a
+    // bounded recovery watch arms: no reload-or-commit within the delay
+    // re-issues the URL once with a one-shot force-allow. Runs on UI
+    // (delegate thread); without a Looper the timer never fires (unit
+    // tests) while the slot stays state-testable.
+    synchronized void onAppOverride(@NonNull String url,
+            @NonNull Runnable recoveryDispatch) {
+        disarm();
+        mOverrideUrl = url;
+        mOverrideDispatch = recoveryDispatch;
+        scheduleOverride(url);
+    }
+
+    // One-shot force-allow (JVM-locked): true once for the exact URL the
+    // fired watch named; misses (including null) return false and preserve
+    // the flag, the caller falling through to the normal app consult.
+    synchronized boolean consumeRecoveryAllow(@Nullable String url) {
+        if (mRecoveryAllowUrl == null || url == null
+                || !mRecoveryAllowUrl.equals(url)) {
+            return false;
+        }
+        mRecoveryAllowUrl = null;
+        return true;
+    }
+
+    // Fires the recovery flight for the named URL (the Handler path and
+    // same-package tests): true when the slot still names url — sets the
+    // one-shot force-allow and runs the dispatch. Stale timers (superseded
+    // or cancelled slots) return false. Single flight: the slot clears
+    // before dispatch, so a re-entrant consult consumes the flag, never
+    // re-arms (synchronized is re-entrant on the UI thread).
+    synchronized boolean fireOverride(@NonNull String url) {
+        if (mOverrideUrl == null || !mOverrideUrl.equals(url)) {
+            return false;
+        }
+        Runnable dispatch = mOverrideDispatch;
+        mOverrideUrl = null;
+        mOverrideDispatch = null;
+        if (dispatch == null) {
+            return false;
+        }
+        mRecoveryAllowUrl = url;
+        SinytraLog.i(TAG, "override-recovery firing url=" + url
+                + " (takeover claimed, no reload or commit within "
+                + OVERRIDE_RECOVERY_DELAY_MS + "ms; one-shot force-allow)");
+        try {
+            dispatch.run();
+        } catch (Throwable t) {
+            SinytraLog.w(TAG, "override-recovery dispatch threw", t);
+            mRecoveryAllowUrl = null;
+        }
+        return true;
+    }
+
+    private void scheduleOverride(@NonNull final String url) {
+        final android.os.Handler handler;
+        try {
+            handler = new android.os.Handler(
+                    android.os.Looper.getMainLooper());
+        } catch (Throwable t) {
+            return;
+        }
+        try {
+            handler.postDelayed(() -> fireOverride(url),
+                    OVERRIDE_RECOVERY_DELAY_MS);
+        } catch (Throwable t) {
+            SinytraLog.w(TAG, "override watch schedule threw", t);
+        }
     }
 
     // Whether a guard chain is currently live (for redirect-leg arming).
@@ -144,6 +250,11 @@ public final class SessionRescue {
     // re-set it, and the guard-quiet check in watchRedirectLeg governs.
     void noteCommit(@NonNull String url) {
         mLastCommittedUrl = url;
+        // Commit arrived: the takeover happened (or the recovery landed) —
+        // the override watch is unneeded.
+        mOverrideUrl = null;
+        mOverrideDispatch = null;
+        mRecoveryAllowUrl = null;
     }
 
     void clearCommit() {

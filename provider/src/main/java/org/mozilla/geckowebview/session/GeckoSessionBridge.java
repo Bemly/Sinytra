@@ -297,6 +297,13 @@ public final class GeckoSessionBridge
         // SplitNavigationDelegate.onLoadRequest 及下述 loadUrl 行按时间戳对齐 —
         // 每个 LR 后有无宿主侧 loadUrl 重入即判 R2 (宿主双载), 无重入则倾向 R1
         // (页面驱动重复顶层导航). true=override (app 接管), false=allow (放行).
+        // Unclaimed-takeover recovery: the fired watch named this exact URL —
+        // allow without consulting (one-shot; misses fall through silently,
+        // hot path, no per-consult spam).
+        if (mRescue.consumeRecoveryAllow(url)) {
+            SinytraLog.i(TAG, "override-recovery allowing url=" + url);
+            return false;
+        }
         boolean override = mClient.shouldOverrideUrlLoading(url);
         SinytraLog.d(TAG, "shouldOverride url=" + url + " override=" + override);
         return override;
@@ -305,8 +312,12 @@ public final class GeckoSessionBridge
     @Override
     public void onAppOverrideDeny(@NonNull String url) {
         // The app took over this URL (no PageStart by design): the commit
-        // guard must stand down, or it would re-issue a taken-over URL.
-        mRescue.disarm();
+        // guard must stand down, or it would re-issue a taken-over URL —
+        // and a bounded recovery watch arms (BISECT_SNC_20261013.md §6 P0):
+        // no reload-or-commit within the delay re-issues the URL once with
+        // a one-shot force-allow. Commits (noteCommit), new navigations
+        // (arm) and stop/close cancel it; normal apps never arm it.
+        mRescue.onAppOverride(url, () -> dispatchLoad(url, false));
     }
 
     /**
