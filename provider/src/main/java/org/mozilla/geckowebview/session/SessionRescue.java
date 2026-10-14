@@ -231,6 +231,28 @@ public final class SessionRescue {
         return mArmed;
     }
 
+    // Last navigation URL this rescue state was armed for (null = none).
+    @Nullable
+    String lastUrl() {
+        return mLastUrl;
+    }
+
+    /**
+     * Pure (JVM-locked): coalesce a rapid duplicate host navigation. Some
+     * hosts machine-gun loadUrl for one tap (device-verified 2026-10-10:
+     * WEBVIEW TEST fired 919 identical provider.loadUrl in 208ms) — every
+     * entry re-arms (budget reset) and re-dispatches (previous channel
+     * cancelled), so nothing ever commits and the app gets thousands of
+     * shouldOverride callbacks (it threw under the flood). While the same
+     * URL's chain is still live (no commit yet), a duplicate is absorbed:
+     * the in-flight channel + chain already cover it. A same URL after
+     * commit (disarmed — genuine reload) or a different URL always passes.
+     */
+    static boolean shouldCoalesceLoad(boolean armed,
+            @Nullable String lastUrl, @Nullable String url) {
+        return armed && url != null && url.equals(lastUrl);
+    }
+
     static boolean isAboutBlank(@Nullable String url) {
         // NOTE: compare full strings — a hardcoded length here was once 12
         // for the 11-char "about:blank" and silently never matched.
