@@ -153,22 +153,14 @@ public final class LabActivity extends Activity {
         });
 
         mUrlInput.setText(HOME);
-        load(startUrlFrom(getIntent()));
-    }
-
-    @Override
-    protected void onNewIntent(android.content.Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        // Delivered to the live instance (am start --es url while on top):
-        // navigate instead of recreating.
-        load(startUrlFrom(intent));
-    }
-
-    private static String startUrlFrom(android.content.Intent intent) {
-        String startUrl = intent != null ? intent.getStringExtra("url") : null;
-        return startUrl != null && !startUrl.trim().isEmpty()
-                ? startUrl.trim() : HOME;
+        // Cold-start entry only (am force-stop + am start --es url, or
+        // launcher tap): onNewIntent delivery to the live instance was
+        // twice verified inert on-device (2026-10-14, intent "delivered to
+        // top-most instance" but no navigation), so no onNewIntent path —
+        // relaunch cold instead of shipping an unverified route.
+        String startUrl = getIntent().getStringExtra("url");
+        load(startUrl != null && !startUrl.trim().isEmpty()
+                ? startUrl.trim() : HOME);
     }
 
     // Scheme-aware: only bare hosts get https:// — about:/data:/file:
