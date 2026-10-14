@@ -74,6 +74,13 @@ public final class GeckoRuntimeHolder {
             } else if (debuggable) {
                 Log.w(TAG, "geckoview-config.yaml missing — 0005 gate off");
             }
+            // about:config is locked by default upstream (white page, no
+            // error); the interactive Lab needs it for pref triage, so
+            // debuggable builds opt in. Release keeps the Gecko default
+            // (a system WebView must not ship a pref editor — AGENTS §5).
+            if (debuggable) {
+                builder = builder.aboutConfigEnabled(true);
+            }
             sRuntime = GeckoRuntime.create(app, builder.build());
             Log.i(TAG, "GeckoRuntime created");
             return sRuntime;
