@@ -57,6 +57,8 @@ final class NavigationCommitGuard {
     private static final String TAG = "Sinytra/session";
 
     private int mGeneration;
+    private int mAttempt;
+    private boolean mArmed;
     @NonNull
     private Runnable mRedispatch = () -> {};
     @Nullable
@@ -80,6 +82,8 @@ final class NavigationCommitGuard {
         mRedispatch = redispatch;
         mExhausted = onExhausted;
         mExhaustedFired = false;
+        mArmed = true;
+        mAttempt = 1;
         int generation = ++mGeneration;
         schedule(generation, 1);
     }
@@ -88,7 +92,26 @@ final class NavigationCommitGuard {
     // dismissed by design (policy block / app override), or the session died.
     // Pending checks from this generation go inert via the liveness guard.
     synchronized void disarm() {
+        mArmed = false;
         mGeneration++;
+    }
+
+    // Heartbeat: the pipeline is alive for the armed navigation (a consult
+    // arrived, a channel is preparing/completing). Restarts the current
+    // attempt window WITHOUT consuming budget or advancing the attempt
+    // count: a slow-but-moving navigation (multi-redirect chains slower
+    // than the 2s first window — device-verified bing.com apex<->www
+    // ping-pong murdered at every attempt boundary) must never be killed
+    // mid-flight. Returns whether an armed window was restarted (false =
+    // inert: never armed, disarmed, or already exhausted — never resurrects
+    // a dead guard). A truly wedged pipeline sends no heartbeats, so the
+    // bounded retries still converge exactly as before.
+    synchronized boolean poke() {
+        if (!mArmed) {
+            return false;
+        }
+        schedule(++mGeneration, mAttempt);
+        return true;
     }
 
     private void schedule(final int generation, final int attempt) {
@@ -128,6 +151,7 @@ final class NavigationCommitGuard {
                         fireExhaustedLocked();
                         return;
                     }
+                    mAttempt = attempt + 1;
                     schedule(generation, attempt + 1);
                 }
             }, delayForAttempt(attempt));
@@ -138,11 +162,14 @@ final class NavigationCommitGuard {
 
     // Fires the exhaustion action once: the bounded retries found no commit.
     // Caller holds the monitor (or is inside the synchronized fire path).
+    // Disarms first so a late heartbeat can never resurrect a guard that
+    // already gave up.
     private void fireExhaustedLocked() {
         if (mExhaustedFired) {
             return;
         }
         mExhaustedFired = true;
+        mArmed = false;
         Runnable exhausted = mExhausted;
         if (exhausted == null) {
             return;

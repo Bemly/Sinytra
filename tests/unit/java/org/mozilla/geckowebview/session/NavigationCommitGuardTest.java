@@ -55,4 +55,38 @@ public final class NavigationCommitGuardTest {
         guard.disarm();
         assertFalse(exhausted[0]);
     }
+
+    @Test
+    public void pokeFreshGuard_isInert() {
+        // Never armed: no window to restart, must not throw.
+        assertFalse(new NavigationCommitGuard().poke());
+    }
+
+    @Test
+    public void pokeArmedGuard_restartsWindow() {
+        NavigationCommitGuard guard = new NavigationCommitGuard();
+        guard.arm(() -> {});
+        assertTrue(guard.poke());
+    }
+
+    @Test
+    public void pokeAfterDisarm_neverResurrects() {
+        NavigationCommitGuard guard = new NavigationCommitGuard();
+        guard.arm(() -> {});
+        guard.disarm();
+        assertFalse(guard.poke());
+    }
+
+    @Test
+    public void pokeIsIdempotentWhileArmed() {
+        // Heartbeats must not consume budget or collapse state: repeated
+        // pokes stay armed (device behavior — redirect chains consult per
+        // hop for many windows — is device-locked; only the latch is here).
+        NavigationCommitGuard guard = new NavigationCommitGuard();
+        guard.arm(() -> {});
+        assertTrue(guard.poke());
+        assertTrue(guard.poke());
+        guard.disarm();
+        assertFalse(guard.poke());
+    }
 }
