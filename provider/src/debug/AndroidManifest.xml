@@ -31,10 +31,13 @@
             android:name="org.mozilla.geckowebview.provider.BurstProbeActivity"
             android:exported="true" />
         <!-- Interactive manual lab: address bar + UA override + about:
-             shortcuts on the real framework path (STATUS §1aa); debug-only. -->
+             shortcuts on the real framework path (STATUS §1aa); debug-only.
+             Icon is the upstream Nightly fox (browser/branding/nightly),
+             debug builds only — never ships in release (trademark). -->
         <activity
             android:name="org.mozilla.geckowebview.provider.LabActivity"
             android:exported="true"
+            android:icon="@mipmap/ic_lab"
             android:label="Sinytra Lab">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
