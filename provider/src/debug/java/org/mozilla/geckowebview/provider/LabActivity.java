@@ -153,9 +153,22 @@ public final class LabActivity extends Activity {
         });
 
         mUrlInput.setText(HOME);
-        String startUrl = getIntent().getStringExtra("url");
-        load(startUrl != null && !startUrl.trim().isEmpty()
-                ? startUrl.trim() : HOME);
+        load(startUrlFrom(getIntent()));
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // Delivered to the live instance (am start --es url while on top):
+        // navigate instead of recreating.
+        load(startUrlFrom(intent));
+    }
+
+    private static String startUrlFrom(android.content.Intent intent) {
+        String startUrl = intent != null ? intent.getStringExtra("url") : null;
+        return startUrl != null && !startUrl.trim().isEmpty()
+                ? startUrl.trim() : HOME;
     }
 
     // Scheme-aware: only bare hosts get https:// — about:/data:/file:
