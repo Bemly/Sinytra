@@ -1178,6 +1178,41 @@ adb -s V885Q49L8TAMFEEE logcat -c && adb -s V885Q49L8TAMFEEE shell am start -n m
   attach 六处）同轮加齐、同轮 `git checkout` 清掉，干净构建重装，Current 不变。
   教训：日常号上对照矩阵少切 provider（每次切换换一个 jar，登录态即丢）。
 
+## 1aa. 酷安黑屏 + 心跳 + freezer 根因（2026-10-14，master 三提交着陆）
+
+- **报障**：酷安外链（coolapk.com/link → github release）黑屏；MiniWV2
+  换网址（bing.com）转圈。机上 Current 始终我方 debug 包。
+- **已修① seed-blank 误提交（`ebac1b9`）**：Gecko 每 fresh session 播种
+  about:blank，我方曾透传 + 解 guard——酷安 `getQueryParameter(blank)`
+  UOE 炸 handler，且 guard 永失第三次重发。现 `onPageStarted`/
+  `onUrlChanged` 遇 pristine seed blank（非显式 about 加载）直接吞，
+  谓语 `isPristineSeedCommit` 与 finish 吞对称；JVM PristineSeedCommitTest
+  6 锁。酷安标题/子资源/finish 随即全绿。
+- **已修② guard 心跳三件套（`5159d43`/`d641eda`/`09ff933`）**：bung 链
+  8s 活 3 咨询、死在 8s attempt 边界——guard 谋杀慢链。先 consult 喂心跳
+  （冻结 attempt），再开火前跳过（心跳在窗内则不开火、不推进），最后收敛
+  心跳源到 channel（`onRequestResponse` 入口→`noteChannelActivity`→
+  `notePipelineActivity`）：consult 会为注定失败的重发也响（cn.bing 2s
+  节拍器实锤），无 channel 的咨询是死管线、必须收敛到 reopen/give-up。
+  JVM 202 锁全绿，lint 绿。
+- **根因（实锤，非推论）**：`cgroup.freeze=1`——7 child 倒 6。冻 child →
+  无 channel → 不提交；触摸进 APZ 等冻 content → 主线程钉死 6 分钟
+  （watchdog 90 轮）；整窗重建后首帧也起不来。三轮化冻验证（bing /
+  cn.bing / 酷安 github）：`echo 0 > cgroup.freeze` 后 3s 提交、标题、
+  OnSuccess 雪崩，再 reload 一次出像素（冻期 surface 首帧丢，记死）。
+  机制解释：0009 跨包 child 跑 provider uid 普通 service，无前台
+  Activity 即被当 cached 冻掉；Chromium isolated child 不进名单。
+  治本（保温/免 su thaw/冻检测）归 archive 线；master 只保证冻土不断粮。
+- **MiniWV2（`~/Projects/MiniWV2`，仓外 scratch）**：地址栏（裸 host 补
+  https）+ 状态行 + `--es url` 直起 + 纯 android.webkit 调用。构建
+  `build.sh`（aapt2+javac+d8+apksigner，lambda 禁用——手动链无脱糖）。
+- **卫生**：僵尸 82→12（§7 清僵尸命令），MemAvailable 4.0G→5.8G；
+  load 15.x 系 MTK D 态常驻，不管。uiautomator 看不见 WebView 系工具局限，
+  以 `dumpsys activity top` 为准（记死）。
+- **残留 open**：APZ 触摸钉死（solo tap/swipe 复现阴性，loading 时别碰屏
+  规避）；github 页 eval 失败（transport 老毛病，另案）；冻期 surface
+  要二次 reload 才回像素（已记死）。
+
 ## 2. 下一步（按顺序，一次做一件）
 
 1. ~~**切换路线主线化**~~（2026-09-26 完成，§1s）：metadata + versionCode
