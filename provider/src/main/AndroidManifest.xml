@@ -5,7 +5,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
-        android:label="Sinytra Gecko WebView"
+        android:label="${appLabel}"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher">
         <!-- Application icon (Bromite parity: android:icon on <application>

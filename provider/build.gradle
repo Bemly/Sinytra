@@ -51,9 +51,13 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+            // WebView-implementation list shows the application label —
+            // debug and release must be distinguishable there.
+            manifestPlaceholders = [appLabel: "Sinytra Gecko WebView (Debug)"]
         }
         release {
             minifyEnabled = false
+            manifestPlaceholders = [appLabel: "Sinytra Gecko WebView"]
         }
     }
 
