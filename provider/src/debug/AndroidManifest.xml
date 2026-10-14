@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <application>
+    <application
+        android:label="Sinytra Gecko WebView (Debug)">
         <!-- Debug-only harnesses: bootstrap probe, canary render probe, glue harness.
              Merged into debug APKs only; release/shipping APKs never contain them.
-             Only LabActivity is launcher-visible (two similar icons caused
-             mis-taps); the rest stay exported for am-start triage. -->
+             The debug label override (WebView-implementation list shows the
+             application label — without this debug and release are
+             indistinguishable there). -->
         <activity
             android:name="org.mozilla.geckowebview.provider.BootstrapProbeActivity"
             android:exported="true" />
