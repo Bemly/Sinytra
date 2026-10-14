@@ -80,6 +80,15 @@ final class Interception {
             }
 
             @Override
+            public void noteChannelActivity() {
+                // A channel is preparing/completing behind the consult:
+                // the navigation pipeline is alive — hold the commit
+                // guard's fire (slow redirect chains must settle on their
+                // own). Inert once the guard disarms/exhausts.
+                mHost.bridge().notePipelineActivity();
+            }
+
+            @Override
             @Nullable
             public ResponseBridge.WebResourceResponseHolder shouldIntercept(
                     @NonNull WebRequestInfo info) {

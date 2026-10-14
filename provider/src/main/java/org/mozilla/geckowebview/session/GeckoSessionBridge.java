@@ -283,15 +283,17 @@ public final class GeckoSessionBridge
 
     @Override
     public boolean shouldOverrideUrlLoading(@NonNull String url) {
-        // Heartbeat for the commit guard: a consult means the parent
-        // docshell is alive and working this navigation (redirect chains
-        // consult per hop). Without it the guard murders slow-but-moving
-        // chains at every attempt boundary (device-verified bing.com
-        // apex<->www ping-pong, 2026-10-14). A truly lost dispatch sends
-        // no consult at all, so the bounded retries still converge.
-        // Inert once disarmed/exhausted (poke never resurrects).
-        mCommitGuard.poke();
         return mClient.shouldOverrideUrlLoading(url);
+    }
+
+    // Pipeline heartbeat sink for the commit guard (see NavigationCommitGuard
+    // poke): called when a channel is actually preparing/completing for the
+    // armed navigation. Deliberately NOT called per consult — a consult
+    // fires for every redispatch including doomed ones, which would
+    // metronome forever (device-verified cn.bing.com). A consult with no
+    // channel behind it is a dead pipeline and must converge.
+    public void notePipelineActivity() {
+        mCommitGuard.poke();
     }
 
     @Override

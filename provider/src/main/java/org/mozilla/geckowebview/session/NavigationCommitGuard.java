@@ -98,24 +98,29 @@ final class NavigationCommitGuard {
         mGeneration++;
     }
 
-    // Heartbeat: the pipeline is alive for the armed navigation (a consult
-    // arrived, a channel is preparing/completing). Defers firing while
-    // heartbeats flow: a slow-but-moving navigation (multi-redirect chains
-    // slower than the 2s first window — device-verified bing.com apex<->www
-    // ping-pong) must never be killed mid-flight. Returns whether an armed
-    // window was restarted (false = inert: never armed, disarmed, or already
-    // exhausted — never resurrects a dead guard). A truly wedged pipeline
-    // sends no heartbeats, so the bounded retries still converge exactly
-    // as before. NOTE: deferring is not enough by itself — the fire path
-    // must also SKIP the redispatch when heartbeats arrived mid-window
-    // (see schedule); freezing the attempt count alone still murders every
-    // 2s (device-verified second half, same bing chain).
+    // Heartbeat: the pipeline is alive for the armed navigation (a channel
+    // is preparing/completing for it). Defers firing while heartbeats flow:
+    // a slow-but-moving navigation (multi-redirect chains slower than the 2s
+    // first window — device-verified bing.com apex<->www ping-pong) must
+    // never be killed mid-flight. NOTE: the heartbeat must come from
+    // channel-level signals, NOT from consults — a consult fires for every
+    // redispatch including doomed ones, so consult-poking metronomes forever
+    // (device-verified cn.bing.com 2s metronome, same session). A consult
+    // with no channel behind it is a dead pipeline and must converge.
+    // Returns whether an armed window was restarted (false = inert: never
+    // armed, disarmed, or already exhausted — never resurrects a dead
+    // guard). A truly wedged pipeline sends no heartbeats, so the bounded
+    // retries still converge exactly as before. NOTE: deferring is not
+    // enough by itself — the fire path must also SKIP the redispatch when
+    // heartbeats arrived mid-window (see schedule); freezing the attempt
+    // count alone still murders every ~2s (device-verified second half,
+    // same bing chain).
     synchronized boolean poke() {
         if (!mArmed) {
             return false;
         }
-        mLastHeartbeatMs = nowMs();
         schedule(++mGeneration, mAttempt);
+        mLastHeartbeatMs = nowMs();
         return true;
     }
 
@@ -146,13 +151,15 @@ final class NavigationCommitGuard {
                     if (!isLive(generation, mGeneration)) {
                         return;
                     }
-                    // Pipeline moved mid-window (consult/channel/error
+                    // Pipeline moved mid-window (channel preparing/completing
                     // arrived after this check was scheduled): skip the
                     // redispatch AND the attempt advance, open a fresh
                     // window at the same attempt. Killing here would abort
                     // a live redirect chain; the chain's own commit (or
-                    // its silence) settles the guard instead.
-                    if (mLastHeartbeatMs > mWindowStartMs) {
+                    // its silence) settles the guard instead. The heartbeat
+                    // is stamped after the window opens, so a poke always
+                    // covers its own window (>=, same-ms ties included).
+                    if (mLastHeartbeatMs >= mWindowStartMs) {
                         schedule(++mGeneration, attempt);
                         return;
                     }

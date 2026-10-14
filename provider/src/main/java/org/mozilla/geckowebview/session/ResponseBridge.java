@@ -28,6 +28,15 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
         @Nullable
         WebResourceResponseHolder shouldIntercept(
                 @NonNull WebRequestInfo info);
+
+        // Pipeline heartbeat: invoked for every intercepted channel before
+        // the app is consulted. Feeds NavigationCommitGuard.poke via the
+        // session bridge — a channel behind the consult proves the pipeline
+        // is alive (slow redirect chains must not be murdered); a consult
+        // with no channel must still converge. Default no-op so existing
+        // hosts (tests) keep compiling.
+        default void noteChannelActivity() {
+        }
     }
 
     /** App answer carrier (mirrors android.webkit.WebResourceResponse). */
@@ -68,6 +77,8 @@ public final class ResponseBridge implements GeckoSession.ResponseDelegate {
     public GeckoResult<WebResponse> onRequestResponse(
             @NonNull GeckoSession session,
             @NonNull WebRequestInfo info) {
+        // A channel exists behind this consult: the pipeline is alive.
+        mHost.noteChannelActivity();
         final WebResourceResponseHolder app =
                 mHost.shouldIntercept(info);
         if (app == null || app.body == null) {
