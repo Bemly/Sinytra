@@ -254,6 +254,16 @@ public final class GeckoSessionBridge
 
     @Override
     public void onUrlChanged(@NonNull String url) {
+        // Pristine seed blank: not a commit of the app's navigation. Keep
+        // the commit guard armed for the real target still in flight, and
+        // keep the optimistic loadUrl URL — blank never overwrites real
+        // (adoptHistoryUrl doctrine). No app-visible effect
+        // (ClientFanOut.onUrlChanged is internal-only). Device 2026-10-14
+        // (Coolapk black screen): the seed document's LocationChange
+        // disarmed the guard mid-flight here.
+        if (isPristineSeedCommit(url, mExplicitAboutLoad)) {
+            return;
+        }
         mUrl = url;
         mCommitGuard.disarm();
         mClient.onUrlChanged(url);
@@ -293,6 +303,17 @@ public final class GeckoSessionBridge
 
     @Override
     public void onPageStarted(@NonNull String url) {
+        // Pristine initial about:blank commit: Gecko seeds every fresh
+        // session with it, Chromium never reports it. It is not the app's
+        // navigation commit — forwarding it crashes real apps (Coolapk
+        // Uri.getQueryParameter UOE on a non-hierarchical URI, device
+        // 2026-10-14) and disarming on it strands the real navigation's
+        // guard retries. Paired with the finish swallow in onPageFinished;
+        // explicit about: loads (flagged at loadUrl time) always report.
+        if (isPristineSeedCommit(url, mExplicitAboutLoad)) {
+            mBlankStartOutstanding = true;
+            return;
+        }
         // Commit signal: the LoadUri dispatch landed (disarms the guard).
         mCommitGuard.disarm();
         // Proof of life: the pipeline serves this session — refill the
@@ -484,6 +505,18 @@ public final class GeckoSessionBridge
         // NOTE: compare full strings — a hardcoded length here was once 12
         // for the 11-char "about:blank" and silently never matched.
         return "about:blank".equalsIgnoreCase(url);
+    }
+
+    // Pure (JVM-locked in PristineSeedCommitTest): the seed document's
+    // about:blank commit is not an app navigation outcome unless the app
+    // explicitly loaded an about: URL (loadUrl flags mExplicitAboutLoad).
+    // Both commit-signal sites (onPageStarted forward + guard disarm,
+    // onUrlChanged adoption + guard disarm) and the finish swallow share
+    // this predicate so a swallowed Start always pairs with a swallowed
+    // Stop and never with a stranded guard.
+    static boolean isPristineSeedCommit(@Nullable String url,
+            boolean explicitAboutLoad) {
+        return isAboutBlank(url) && !explicitAboutLoad;
     }
 
     private static long now() {
