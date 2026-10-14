@@ -59,6 +59,8 @@ final class NavigationCommitGuard {
     private int mGeneration;
     private int mAttempt;
     private boolean mArmed;
+    private long mWindowStartMs;
+    private long mLastHeartbeatMs;
     @NonNull
     private Runnable mRedispatch = () -> {};
     @Nullable
@@ -97,27 +99,37 @@ final class NavigationCommitGuard {
     }
 
     // Heartbeat: the pipeline is alive for the armed navigation (a consult
-    // arrived, a channel is preparing/completing). Restarts the current
-    // attempt window WITHOUT consuming budget or advancing the attempt
-    // count: a slow-but-moving navigation (multi-redirect chains slower
-    // than the 2s first window — device-verified bing.com apex<->www
-    // ping-pong murdered at every attempt boundary) must never be killed
-    // mid-flight. Returns whether an armed window was restarted (false =
-    // inert: never armed, disarmed, or already exhausted — never resurrects
-    // a dead guard). A truly wedged pipeline sends no heartbeats, so the
-    // bounded retries still converge exactly as before.
+    // arrived, a channel is preparing/completing). Defers firing while
+    // heartbeats flow: a slow-but-moving navigation (multi-redirect chains
+    // slower than the 2s first window — device-verified bing.com apex<->www
+    // ping-pong) must never be killed mid-flight. Returns whether an armed
+    // window was restarted (false = inert: never armed, disarmed, or already
+    // exhausted — never resurrects a dead guard). A truly wedged pipeline
+    // sends no heartbeats, so the bounded retries still converge exactly
+    // as before. NOTE: deferring is not enough by itself — the fire path
+    // must also SKIP the redispatch when heartbeats arrived mid-window
+    // (see schedule); freezing the attempt count alone still murders every
+    // 2s (device-verified second half, same bing chain).
     synchronized boolean poke() {
         if (!mArmed) {
             return false;
         }
+        mLastHeartbeatMs = nowMs();
         schedule(++mGeneration, mAttempt);
         return true;
+    }
+
+    // JVM-safe wall clock (ordering only): System.currentTimeMillis needs
+    // no Looper, unlike the Handler scheduling below.
+    private static long nowMs() {
+        return System.currentTimeMillis();
     }
 
     private void schedule(final int generation, final int attempt) {
         if (attempt > MAX_ATTEMPTS) {
             return;
         }
+        mWindowStartMs = nowMs();
         final android.os.Handler handler;
         try {
             handler = new android.os.Handler(
@@ -129,9 +141,19 @@ final class NavigationCommitGuard {
         }
         try {
             handler.postDelayed(() -> {
-                Runnable fire;
+                Runnable fire = null;
                 synchronized (NavigationCommitGuard.this) {
                     if (!isLive(generation, mGeneration)) {
+                        return;
+                    }
+                    // Pipeline moved mid-window (consult/channel/error
+                    // arrived after this check was scheduled): skip the
+                    // redispatch AND the attempt advance, open a fresh
+                    // window at the same attempt. Killing here would abort
+                    // a live redirect chain; the chain's own commit (or
+                    // its silence) settles the guard instead.
+                    if (mLastHeartbeatMs > mWindowStartMs) {
+                        schedule(++mGeneration, attempt);
                         return;
                     }
                     fire = mRedispatch;
