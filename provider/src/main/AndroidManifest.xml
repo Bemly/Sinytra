@@ -6,7 +6,12 @@
 
     <application
         android:label="Sinytra Gecko WebView"
-        android:allowBackup="false">
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher">
+        <!-- Application icon (Bromite parity: android:icon on <application>
+             is what the WebView-implementation list and App info show).
+             Upstream Nightly fox (browser/branding/nightly); user-requested
+             provider identity (trademark: Mozilla). -->
         <!-- Debug harnesses (P-1/P0 probes) live in src/debug + its manifest;
              the shipping manifest declares no activities. -->
         <!-- WebView provider validity (BOOTSTRAP §2.1/§2.3): WebViewUpdateService
