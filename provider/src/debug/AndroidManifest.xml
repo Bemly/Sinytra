@@ -30,5 +30,16 @@
         <activity
             android:name="org.mozilla.geckowebview.provider.BurstProbeActivity"
             android:exported="true" />
+        <!-- Interactive manual lab: address bar + UA override + about:
+             shortcuts on the real framework path (STATUS §1aa); debug-only. -->
+        <activity
+            android:name="org.mozilla.geckowebview.provider.LabActivity"
+            android:exported="true"
+            android:label="Sinytra Lab">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>
