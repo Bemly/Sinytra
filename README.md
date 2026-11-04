@@ -231,3 +231,5 @@ Firefox, Gecko and the Nightly fox artwork are trademarks of Mozilla
 (the fox ships in debug builds only: Lab icon + application icon).
 Chromium, Android and WebView are trademarks of Google. This project is
 independent and experimental; trademarks belong to their owners.
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

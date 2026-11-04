@@ -220,3 +220,5 @@ User-Agent 改写（`navigator.userAgent` 回读验证）、一键
 Firefox、Gecko 与 Nightly 狐狸 artwork 是 Mozilla 的商标（狐狸图标
 只出现在 debug 构建中：Lab 图标 + 应用图标）。Chromium、Android、
 WebView 是 Google 的商标。本项目是独立实验性质；商标归各自所有者。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
